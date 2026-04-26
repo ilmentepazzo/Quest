@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuestHub</title>
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#f7f5f0; color:#111827; }
+    header { background:#111827; color:white; padding:20px 7%; display:flex; justify-content:space-between; align-items:center; }
+    nav a { color:white; margin-left:20px; text-decoration:none; cursor:pointer; }
+    .hero { background:linear-gradient(135deg,#111827,#312e81); color:white; padding:80px 7%; display:grid; grid-template-columns:1fr 1fr; gap:40px; }
+    h1 { font-size:56px; line-height:1; margin:0 0 20px; }
+    p { font-size:18px; color:#555; }
+    .hero p { color:#e5e7eb; }
+    button { padding:14px 20px; border:0; border-radius:10px; font-weight:bold; cursor:pointer; }
+    .primary { background:#f59e0b; color:#111827; }
+    .secondary { background:white; color:#111827; }
+    section { padding:60px 7%; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+    .card { background:white; border-radius:18px; padding:22px; border:1px solid #ddd; }
+    .tag { display:inline-block; background:#eef2ff; color:#3730a3; padding:6px 10px; border-radius:20px; font-size:12px; font-weight:bold; margin-bottom:10px; }
+    .page { display:none; }
+    .active { display:block; }
+    input, select, textarea { width:100%; padding:14px; margin:8px 0; border-radius:10px; border:1px solid #ccc; }
+    footer { background:#111827; color:white; padding:30px 7%; }
+    @media(max-width:800px){ .hero,.grid{grid-template-columns:1fr;} h1{font-size:42px;} header{display:block;} nav a{display:inline-block;margin:10px 10px 0 0;} }
+  </style>
+</head>
+<body>
+
+<header>
+  <h2 onclick="showPage('home')" style="cursor:pointer;">QuestHub</h2>
+  <nav>
+    <a onclick="showPage('catalogo')">Storie</a>
+    <a onclick="showPage('master')">Diventa Master</a>
+    <a onclick="showPage('login')">Accedi</a>
+  </nav>
+</header>
+
+<div id="home" class="page active">
+  <div class="hero">
+    <div>
+      <h1>Trova il Master giusto per la tua prossima avventura.</h1>
+      <p>Scopri storie di gioco di ruolo, horror, fantasy, investigative e cene con delitto. Prenota una sessione guidata oppure gioca in autonomia.</p>
+      <button class="primary" onclick="showPage('catalogo')">Esplora le storie</button>
+      <button class="secondary" onclick="showPage('master')">Pubblica come Master</button>
+    </div>
+    <div class="card">
+      <h2>Cerca esperienza</h2>
+      <input placeholder="Cerca fantasy, horror, mystery..." />
+      <select>
+        <option>Con Master</option>
+        <option>Senza Master</option>
+      </select>
+      <select>
+        <option>1-2 giocatori</option>
+        <option>3-5 giocatori</option>
+        <option>6+ giocatori</option>
+      </select>
+      <button class="primary" onclick="showPage('catalogo')">Cerca</button>
+    </div>
+  </div>
+
+  <section>
+    <h2>Storie in evidenza</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag">Fantasy · Con Master</span>
+        <h3>La Maschera del Re Corvo</h3>
+        <p>Una missione oscura tra corti decadenti, reliquie proibite e tradimenti.</p>
+        <strong>3–5 giocatori · da 15€</strong>
+      </div>
+      <div class="card">
+        <span class="tag">Cena con delitto · Self-play</span>
+        <h3>Ultimo Brindisi</h3>
+        <p>Un ricevimento elegante, un omicidio improvviso e troppi sospettati.</p>
+        <strong>4–8 giocatori · 9,99€</strong>
+      </div>
+      <div class="card">
+        <span class="tag">Horror · Con Master</span>
+        <h3>Black Hollow</h3>
+        <p>Un vecchio manicomio abbandonato custodisce qualcosa che non vuole essere trovato.</p>
+        <strong>2–6 giocatori · da 20€</strong>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="catalogo" class="page">
+  <section>
+    <h1>Catalogo storie</h1>
+    <p>Qui i giocatori potranno filtrare e scegliere le esperienze.</p>
+
+    <select>
+      <option>Tutti i generi</option>
+      <option>Fantasy</option>
+      <option>Horror</option>
+      <option>Cena con delitto</option>
+      <option>Investigativo</option>
+    </select>
+
+    <div class="grid">
+      <div class="card">
+        <span class="tag">Fantasy</span>
+        <h3>La Maschera del Re Corvo</h3>
+        <p>Avventura guidata da Master.</p>
+        <button class="primary" onclick="showPage('scheda')">Apri scheda</button>
+      </div>
+      <div class="card">
+        <span class="tag">Cena con delitto</span>
+        <h3>Ultimo Brindisi</h3>
+        <p>Storia giocabile senza Master.</p>
+        <button class="primary" onclick="showPage('scheda')">Apri scheda</button>
+      </div>
+      <div class="card">
+        <span class="tag">Horror</span>
+        <h3>Black Hollow</h3>
+        <p>Esperienza horror con Master live.</p>
+        <button class="primary" onclick="showPage('scheda')">Apri scheda</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="scheda" class="page">
+  <section>
+    <button onclick="showPage('catalogo')">← Torna al catalogo</button>
+    <h1>La Maschera del Re Corvo</h1>
+    <p>Una sessione fantasy guidata da un Master esperto. Ideale per gruppi da 3 a 5 giocatori.</p>
+    <div class="card">
+      <h2>Dettagli</h2>
+      <p><strong>Durata:</strong> 2 ore</p>
+      <p><strong>Giocatori:</strong> 3–5</p>
+      <p><strong>Prezzo:</strong> da 15€</p>
+      <p><strong>Modalità:</strong> Online</p>
+      <button class="primary">Richiedi prenotazione</button>
+    </div>
+  </section>
+</div>
+
+<div id="master" class="page">
+  <section>
+    <h1>Diventa Master</h1>
+    <p>Pubblica le tue storie, ricevi prenotazioni e costruisci la tua reputazione.</p>
+    <div class="card">
+      <input placeholder="Nome Master" />
+      <input placeholder="Email" />
+      <textarea placeholder="Racconta che tipo di storie vuoi pubblicare"></textarea>
+      <button class="primary">Invia candidatura</button>
+    </div>
+  </section>
+</div>
+
+<div id="login" class="page">
+  <section>
+    <h1>Accedi</h1>
+    <div class="card">
+      <input placeholder="Email" />
+      <input placeholder="Password" type="password" />
+      <button class="primary">Accedi</button>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <strong>QuestHub</strong> — Marketplace professionale per Master e giocatori.
+</footer>
+
+<script>
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(pageId).classList.add('active');
+  window.scrollTo(0,0);
+}
+</script>
+
+</body>
+</html>

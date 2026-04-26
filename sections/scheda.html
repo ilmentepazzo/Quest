@@ -1,0 +1,74 @@
+<section id="scheda" class="page">
+  <button class="light" onclick="go('catalogo')">← Torna al catalogo</button>
+
+  <div class="detail">
+    <div class="card">
+      <div id="detailTags"></div>
+
+      <h1 id="detailTitle"></h1>
+      <p id="detailDesc"></p>
+
+      <div id="detailMedia"></div>
+
+      <h2>Cosa aspettarsi</h2>
+      <p id="detailLong"></p>
+
+      <hr />
+
+      <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
+      <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
+      <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
+      <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
+
+      <hr />
+
+      <h2>Materiali di gioco</h2>
+      <div id="storyMaterials"></div>
+    </div>
+
+    <aside class="card">
+      <h2 id="detailPrice"></h2>
+      <p id="detailAction"></p>
+
+      <p><strong>Master:</strong> <span id="detailMaster"></span></p>
+
+      <button class="light" onclick="openMasterProfile()">Vedi profilo Master</button>
+
+      <button class="primary" onclick="unlockCurrentStory()">
+        Sblocca / Acquista storia
+      </button>
+
+      <h2>Prenota sessione</h2>
+
+      <input id="bookingGroup" type="text" placeholder="Nome gruppo / referente" />
+      <input id="bookingDate" type="date" />
+
+      <select id="bookingTime">
+        <option value="">Orario preferito</option>
+        <option>18:00</option>
+        <option>20:00</option>
+        <option>21:00</option>
+        <option>22:00</option>
+      </select>
+
+      <select id="bookingPlayers">
+        <option value="">Numero giocatori</option>
+        <option>1</option>
+        <option>2</option>
+        <option>3</option>
+        <option>4</option>
+        <option>5+</option>
+      </select>
+
+      <textarea id="bookingMessage" placeholder="Messaggio per il Master (facoltativo)"></textarea>
+
+      <button class="primary" onclick="createBooking()">
+        Invia richiesta di prenotazione
+      </button>
+
+      <div id="bookNotice" class="notice">
+        Richiesta inviata correttamente. Ora compare nella Dashboard Master.
+      </div>
+    </aside>
+  </div>
+</section>

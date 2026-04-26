@@ -1,0 +1,41 @@
+<section id="catalogo" class="page">
+  <h1>Catalogo storie</h1>
+  <p>Filtra le esperienze e clicca una storia per aprire la scheda.</p>
+
+  <div class="layout">
+    <aside class="card filters">
+      <h2>Filtri</h2>
+
+      <input id="q" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
+
+      <select id="genre" onchange="renderCatalog()">
+        <option value="">Tutti i generi</option>
+        <option>Fantasy</option>
+        <option>Horror</option>
+        <option>Cena con delitto</option>
+        <option>Investigativo</option>
+        <option>Sci-fi</option>
+      </select>
+
+      <select id="type" onchange="renderCatalog()">
+        <option value="">Tutti i tipi</option>
+        <option>Con Master</option>
+        <option>Self-play</option>
+      </select>
+
+      <select id="price" onchange="renderCatalog()">
+        <option value="">Qualsiasi prezzo</option>
+        <option value="10">Fino a 10€</option>
+        <option value="20">Fino a 20€</option>
+        <option value="30">Fino a 30€</option>
+      </select>
+
+      <button class="light" onclick="resetFilters()">Reset</button>
+    </aside>
+
+    <div>
+      <h2 id="count"></h2>
+      <div class="grid" id="stories"></div>
+    </div>
+  </div>
+</section>

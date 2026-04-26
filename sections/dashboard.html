@@ -1,0 +1,89 @@
+<section id="dashboard" class="page">
+  <h1>Dashboard Master</h1>
+  <p>Gestisci storie, materiali, prenotazioni e contenuti riservati.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Storie pubblicate</h2>
+      <p id="dashboardStoriesCount">3 storie attive</p>
+    </div>
+
+    <div class="card">
+      <h2>Prenotazioni</h2>
+      <p id="dashboardBookingCount">0 richieste</p>
+    </div>
+
+    <div class="card">
+      <h2>Valutazione</h2>
+      <p>★ 4.9 media recensioni</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Richieste prenotazione</h2>
+    <div id="dashboardBookings"></div>
+  </div>
+
+  <div class="card">
+    <h2>Crea nuova storia</h2>
+    <p>
+      I contenuti pubblici presentano la storia. I materiali possono essere visibili subito,
+      dopo acquisto, durante la sessione o solo al Master.
+    </p>
+
+    <h3>Informazioni pubbliche</h3>
+
+    <input id="newStoryTitle" data-required="true" placeholder="Titolo storia *" />
+
+    <select id="newStoryGenre" data-required="true">
+      <option value="">Genere *</option>
+      <option>Fantasy</option>
+      <option>Horror</option>
+      <option>Investigativo</option>
+      <option>Cena con delitto</option>
+      <option>Sci-fi</option>
+    </select>
+
+    <select id="newStoryType" data-required="true">
+      <option value="">Tipo *</option>
+      <option>Con Master</option>
+      <option>Self-play</option>
+    </select>
+
+    <select id="newStoryPriceMode" data-required="true" onchange="togglePriceField()">
+      <option value="">Costo *</option>
+      <option value="free">Gratuita</option>
+      <option value="paid">A pagamento</option>
+    </select>
+
+    <input id="newStoryPrice" type="number" placeholder="Prezzo in €" />
+
+    <input id="newStoryDuration" data-required="true" placeholder="Durata, es. 2 ore *" />
+    <input id="newStoryPlayers" data-required="true" placeholder="Numero giocatori, es. 3–5 *" />
+
+    <textarea id="newStoryDesc" data-required="true" placeholder="Descrizione breve pubblica *"></textarea>
+    <textarea id="newStoryLong" placeholder="Descrizione completa della storia"></textarea>
+
+    <h3>Media pubblici</h3>
+
+    <input id="newStoryCover" placeholder="URL immagine copertina pubblica" />
+    <input id="newStoryTrailer" placeholder="URL video trailer / presentazione" />
+
+    <h3>Materiali della storia</h3>
+    <p>
+      Usa il pulsante + per aggiungere più materiali. Ogni materiale può avere una visibilità diversa.
+    </p>
+
+    <div id="materialsBuilder"></div>
+
+    <button class="light" type="button" onclick="addMaterialField()">
+      + Aggiungi materiale
+    </button>
+
+    <br><br>
+
+    <button class="primary" onclick="createStory()">
+      Pubblica storia
+    </button>
+  </div>
+</section>

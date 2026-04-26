@@ -1,0 +1,28 @@
+<section id="login" class="page">
+  <h1>Accedi</h1>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Login</h2>
+      <input placeholder="Email" />
+      <input type="password" placeholder="Password" />
+
+      <button class="dark" onclick="notice('loginNotice')">Accedi</button>
+      <div id="loginNotice" class="notice">Login simulato.</div>
+    </div>
+
+    <div class="card">
+      <h2>Registrati</h2>
+      <input placeholder="Nome" />
+      <input placeholder="Email" />
+
+      <select>
+        <option>Giocatore</option>
+        <option>Master</option>
+      </select>
+
+      <button class="primary" onclick="notice('signupNotice')">Crea account</button>
+      <div id="signupNotice" class="notice">Account simulato creato.</div>
+    </div>
+  </div>
+</section>

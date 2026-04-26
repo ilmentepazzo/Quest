@@ -1,0 +1,30 @@
+<section id="home" class="page active">
+  <div class="hero">
+    <div>
+      <h1>Trova il Master giusto per la tua prossima avventura.</h1>
+      <p>
+        Marketplace per giochi di ruolo, horror, fantasy, investigative e cene con delitto.
+        Prenota un Master live oppure gioca storie in autonomia.
+      </p>
+
+      <button class="primary" onclick="go('catalogo')">Esplora storie</button>
+      <button class="light" onclick="go('master')">Pubblica come Master</button>
+    </div>
+
+    <div class="card">
+      <h2>Cerca esperienza</h2>
+      <input id="homeSearch" placeholder="Cerca fantasy, horror, mystery..." />
+
+      <select id="homeType">
+        <option value="">Tutte</option>
+        <option>Con Master</option>
+        <option>Self-play</option>
+      </select>
+
+      <button class="primary" onclick="searchHome()">Cerca</button>
+    </div>
+  </div>
+
+  <h2>Storie in evidenza</h2>
+  <div class="grid" id="featured"></div>
+</section>

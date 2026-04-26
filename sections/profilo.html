@@ -1,0 +1,33 @@
+<section id="profilo" class="page">
+  <h1>Profilo utente</h1>
+  <p>Gestisci il tuo account, le tue preferenze e la modalità Master.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Account</h2>
+      <input id="profileName" placeholder="Nome utente" />
+      <input id="profileEmail" placeholder="Email" />
+      <select id="profileLanguage">
+        <option>Italiano</option>
+        <option>English</option>
+        <option>Español</option>
+        <option>Français</option>
+      </select>
+
+      <button class="primary" onclick="saveUserProfile()">Salva profilo</button>
+    </div>
+
+    <div class="card">
+      <h2>Modalità Master</h2>
+      <p>Puoi giocare come utente e pubblicare storie come Master con lo stesso account.</p>
+
+      <button class="dark" onclick="activateMasterMode()">
+        Attiva modalità Master
+      </button>
+
+      <div id="masterModeStatus" class="notice">
+        Modalità Master attiva.
+      </div>
+    </div>
+  </div>
+</section>

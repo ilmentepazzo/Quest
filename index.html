@@ -3,265 +3,263 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QuestHub App</title>
- <link rel="stylesheet" href="css/style.css">
+  <title>QuestHub</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
+
 <body>
+  <header>
+    <h2 onclick="go('home')" class="logo">QuestHub</h2>
 
-<header>
-  <h2 onclick="go('home')" style="cursor:pointer;margin:0;">QuestHub</h2>
-  <nav>
-    <a onclick="go('catalogo')">Storie</a>
-    <a onclick="go('master')">Diventa Master</a>
-    <a onclick="go('dashboard')">Dashboard</a>
-    <a onclick="go('login')">Accedi</a>
-  </nav>
-</header>
+    <nav>
+      <a onclick="go('catalogo')">Storie</a>
+      <a onclick="go('master')">Diventa Master</a>
+      <a onclick="go('dashboard')">Dashboard</a>
+      <a onclick="go('login')">Accedi</a>
+    </nav>
+  </header>
 
-<div id="home" class="active">
-  <section class="hero">
-    <div>
-      <h1>Trova il Master giusto per la tua prossima avventura.</h1>
-      <p>Marketplace per giochi di ruolo, horror, fantasy, investigative e cene con delitto. Prenota un Master live oppure gioca storie in autonomia.</p>
-      <button class="primary" onclick="go('catalogo')">Esplora storie</button>
-      <button class="light" onclick="go('master')">Pubblica come Master</button>
-    </div>
-    <div class="card">
-      <h2>Cerca esperienza</h2>
-      <input id="homeSearch" placeholder="Cerca fantasy, horror, mystery..." />
-      <select id="homeType">
-        <option value="">Tutte</option>
-        <option>Con Master</option>
-        <option>Self-play</option>
-      </select>
-      <button class="primary" onclick="searchHome()">Cerca</button>
-    </div>
-  </section>
+  <main>
+    <section id="home" class="page active">
+      <div class="hero">
+        <div>
+          <h1>Trova il Master giusto per la tua prossima avventura.</h1>
+          <p>
+            Marketplace per giochi di ruolo, horror, fantasy, investigative e cene con delitto.
+            Prenota un Master live oppure gioca storie in autonomia.
+          </p>
 
-  <section class="page active">
-    <h2>Storie in evidenza</h2>
-    <div class="grid" id="featured"></div>
-  </section>
-</div>
+          <button class="primary" onclick="go('catalogo')">Esplora storie</button>
+          <button class="light" onclick="go('master')">Pubblica come Master</button>
+        </div>
 
-<div id="catalogo" class="page">
-  <h1>Catalogo storie</h1>
-  <p>Filtra le esperienze e clicca una storia per aprire la scheda.</p>
+        <div class="card">
+          <h2>Cerca esperienza</h2>
+          <input id="homeSearch" placeholder="Cerca fantasy, horror, mystery..." />
 
-  <div class="layout">
-    <div class="card filters">
-      <h2>Filtri</h2>
-      <input id="q" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
-      <select id="genre" onchange="renderCatalog()">
-        <option value="">Tutti i generi</option>
-        <option>Fantasy</option>
-        <option>Horror</option>
-        <option>Cena con delitto</option>
-        <option>Investigativo</option>
-        <option>Sci-fi</option>
-      </select>
-      <select id="type" onchange="renderCatalog()">
-        <option value="">Tutti i tipi</option>
-        <option>Con Master</option>
-        <option>Self-play</option>
-      </select>
-      <select id="price" onchange="renderCatalog()">
-        <option value="">Qualsiasi prezzo</option>
-        <option value="10">Fino a 10€</option>
-        <option value="20">Fino a 20€</option>
-        <option value="30">Fino a 30€</option>
-      </select>
-      <button class="light" onclick="resetFilters()">Reset</button>
-    </div>
+          <select id="homeType">
+            <option value="">Tutte</option>
+            <option>Con Master</option>
+            <option>Self-play</option>
+          </select>
 
-    <div>
-      <h2 id="count"></h2>
-      <div class="grid" id="stories"></div>
-    </div>
-  </div>
-</div>
+          <button class="primary" onclick="searchHome()">Cerca</button>
+        </div>
+      </div>
 
-<div id="scheda" class="page">
-  <button class="light" onclick="go('catalogo')">← Torna al catalogo</button>
-  <div class="detail" style="margin-top:20px;">
-    <div class="card">
-      <div id="detailTags"></div>
-      <h1 id="detailTitle"></h1>
-      <p id="detailDesc"></p>
-      <h2>Cosa aspettarsi</h2>
-      <p id="detailLong"></p>
-      <hr>
-      <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
-      <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
-      <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
-      <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
-    </div>
+      <h2>Storie in evidenza</h2>
+      <div class="grid" id="featured"></div>
+    </section>
 
-    <div class="card">
-      <h2 id="detailPrice"></h2>
-      <p id="detailAction"></p>
-      <p><strong>Master:</strong> <span id="detailMaster"></span></p>
-      <input type="date">
-      <select>
-        <option>Numero giocatori</option>
-        <option>1</option><option>2</option><option>3</option><option>4</option><option>5+</option>
-      </select>
-      <button class="primary" onclick="notice('bookNotice')">Richiedi prenotazione</button>
-      <div id="bookNotice" class="notice">Richiesta simulata inviata al Master.</div>
-    </div>
-  </div>
-</div>
+    <section id="catalogo" class="page">
+      <h1>Catalogo storie</h1>
+      <p>Filtra le esperienze e clicca una storia per aprire la scheda.</p>
 
-<div id="master" class="page">
-  <h1>Diventa Master</h1>
-  <p>Pubblica le tue storie, ricevi prenotazioni e costruisci la tua reputazione.</p>
-  <div class="grid">
-    <div class="card"><h2>1. Crea profilo</h2><p>Presentati come Master professionale.</p></div>
-    <div class="card"><h2>2. Pubblica storie</h2><p>Carica one-shot, campagne e cene con delitto.</p></div>
-    <div class="card"><h2>3. Ricevi prenotazioni</h2><p>Trasforma la passione in lavoro.</p></div>
-  </div>
-  <br>
-  <div class="card">
-    <h2>Candidatura Master</h2>
-    <input placeholder="Nome Master" />
-    <input placeholder="Email" />
-    <select><option>Specialità</option><option>Fantasy</option><option>Horror</option><option>Cena con delitto</option></select>
-    <textarea placeholder="Descrivi le esperienze che vuoi proporre"></textarea>
-    <button class="dark" onclick="notice('masterNotice')">Invia candidatura</button>
-    <div id="masterNotice" class="notice">Candidatura simulata salvata.</div>
-  </div>
-</div>
+      <div class="layout">
+        <aside class="card filters">
+          <h2>Filtri</h2>
 
-<div id="dashboard" class="page">
-  <h1>Dashboard Master</h1>
-  <p>Area dimostrativa per gestire storie e prenotazioni.</p>
-  <div class="grid">
-    <div class="card"><h2>Storie pubblicate</h2><p>3 storie attive</p></div>
-    <div class="card"><h2>Prenotazioni</h2><p>2 richieste in attesa</p></div>
-    <div class="card"><h2>Valutazione</h2><p>★ 4.9 media recensioni</p></div>
-  </div>
-  <br>
-  <div class="card">
-    <h2>Crea nuova storia</h2>
-    <input placeholder="Titolo storia" />
-    <select><option>Genere</option><option>Fantasy</option><option>Horror</option><option>Investigativo</option></select>
-    <select><option>Tipo</option><option>Con Master</option><option>Self-play</option></select>
-    <input placeholder="Prezzo" />
-    <textarea placeholder="Descrizione"></textarea>
-    <button class="primary" onclick="notice('storyNotice')">Pubblica storia</button>
-    <div id="storyNotice" class="notice">Storia simulata pubblicata.</div>
-  </div>
-</div>
+          <input id="q" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
 
-<div id="login" class="page">
-  <h1>Accedi</h1>
-  <div class="grid">
-    <div class="card">
-      <h2>Login</h2>
-      <input placeholder="Email" />
-      <input type="password" placeholder="Password" />
-      <button class="dark" onclick="notice('loginNotice')">Accedi</button>
-      <div id="loginNotice" class="notice">Login simulato.</div>
-    </div>
-    <div class="card">
-      <h2>Registrati</h2>
-      <input placeholder="Nome" />
-      <input placeholder="Email" />
-      <select><option>Giocatore</option><option>Master</option></select>
-      <button class="primary" onclick="notice('signupNotice')">Crea account</button>
-      <div id="signupNotice" class="notice">Account simulato creato.</div>
-    </div>
-  </div>
-</div>
+          <select id="genre" onchange="renderCatalog()">
+            <option value="">Tutti i generi</option>
+            <option>Fantasy</option>
+            <option>Horror</option>
+            <option>Cena con delitto</option>
+            <option>Investigativo</option>
+            <option>Sci-fi</option>
+          </select>
 
-<footer>
-  <strong>QuestHub</strong> — Marketplace professionale per Master e giocatori.
-</footer>
+          <select id="type" onchange="renderCatalog()">
+            <option value="">Tutti i tipi</option>
+            <option>Con Master</option>
+            <option>Self-play</option>
+          </select>
 
-<script>
-const storiesData = [
-  {id:1,title:"La Maschera del Re Corvo",genre:"Fantasy",type:"Con Master",price:15,duration:"2 ore",players:"3–5",level:"Intermedio",mode:"Online",master:"Arianna V.",desc:"Intrighi, reliquie proibite e tradimenti in una corte decadente.",long:"Esperienza guidata da Master, ideale per gruppi che amano scelte morali, misteri e momenti epici."},
-  {id:2,title:"Ultimo Brindisi",genre:"Cena con delitto",type:"Self-play",price:9.99,duration:"90 min",players:"4–8",level:"Facile",mode:"Dal vivo",master:"Studio Enigma",desc:"Un ricevimento elegante, un omicidio improvviso e troppi sospettati.",long:"Storia pronta da giocare senza Master. Include ruoli, indizi e struttura della serata."},
-  {id:3,title:"Black Hollow",genre:"Horror",type:"Con Master",price:20,duration:"3 ore",players:"2–6",level:"Esperto",mode:"Online",master:"Lorenzo M.",desc:"Un manicomio abbandonato custodisce qualcosa che non vuole essere trovato.",long:"Esperienza horror investigativa con atmosfera cupa, tensione crescente e scene intense."},
-  {id:4,title:"Il Protocollo Aurora",genre:"Sci-fi",type:"Con Master",price:18,duration:"2.5 ore",players:"3–6",level:"Intermedio",mode:"Online",master:"Marco R.",desc:"Una colonia spaziale perde contatto con la Terra.",long:"Avventura sci-fi con mistero, sopravvivenza e decisioni tattiche."},
-  {id:5,title:"Il Caso della Villa Rossa",genre:"Investigativo",type:"Self-play",price:7.99,duration:"75 min",players:"1–4",level:"Facile",mode:"Dal vivo",master:"Archivio Mystery",desc:"Lettere, prove e testimonianze per risolvere un caso irrisolto.",long:"Giocabile anche da soli. L’utente procede leggendo indizi e ricostruendo la verità."}
-];
+          <select id="price" onchange="renderCatalog()">
+            <option value="">Qualsiasi prezzo</option>
+            <option value="10">Fino a 10€</option>
+            <option value="20">Fino a 20€</option>
+            <option value="30">Fino a 30€</option>
+          </select>
 
-function go(page){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('home').classList.remove('active');
-  document.getElementById(page).classList.add('active');
-  window.scrollTo(0,0);
-  if(page === 'catalogo') renderCatalog();
-}
+          <button class="light" onclick="resetFilters()">Reset</button>
+        </aside>
 
-function card(s){
-  return `<div class="card story" onclick="openStory(${s.id})">
-    <span class="tag">${s.genre}</span><span class="tag gold">${s.type}</span>
-    <h2>${s.title}</h2>
-    <p>${s.desc}</p>
-    <strong>${s.players} giocatori · ${s.price}€</strong>
-  </div>`;
-}
+        <div>
+          <h2 id="count"></h2>
+          <div class="grid" id="stories"></div>
+        </div>
+      </div>
+    </section>
 
-function renderFeatured(){
-  document.getElementById('featured').innerHTML = storiesData.slice(0,3).map(card).join('');
-}
+    <section id="scheda" class="page">
+      <button class="light" onclick="go('catalogo')">← Torna al catalogo</button>
 
-function renderCatalog(){
-  const q = document.getElementById('q').value.toLowerCase();
-  const genre = document.getElementById('genre').value;
-  const type = document.getElementById('type').value;
-  const price = document.getElementById('price').value;
+      <div class="detail">
+        <div class="card">
+          <div id="detailTags"></div>
 
-  const results = storiesData.filter(s =>
-    (!q || s.title.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q)) &&
-    (!genre || s.genre === genre) &&
-    (!type || s.type === type) &&
-    (!price || s.price <= Number(price))
-  );
+          <h1 id="detailTitle"></h1>
+          <p id="detailDesc"></p>
 
-  document.getElementById('count').textContent = results.length + " storie trovate";
-  document.getElementById('stories').innerHTML = results.length ? results.map(card).join('') : "<p>Nessuna storia trovata.</p>";
-}
+          <h2>Cosa aspettarsi</h2>
+          <p id="detailLong"></p>
 
-function openStory(id){
-  const s = storiesData.find(x=>x.id===id);
-  document.getElementById('detailTags').innerHTML = `<span class="tag">${s.genre}</span><span class="tag gold">${s.type}</span>`;
-  document.getElementById('detailTitle').textContent = s.title;
-  document.getElementById('detailDesc').textContent = s.desc;
-  document.getElementById('detailLong').textContent = s.long;
-  document.getElementById('detailDuration').textContent = s.duration;
-  document.getElementById('detailPlayers').textContent = s.players;
-  document.getElementById('detailLevel').textContent = s.level;
-  document.getElementById('detailMode').textContent = s.mode;
-  document.getElementById('detailPrice').textContent = s.price + "€";
-  document.getElementById('detailMaster').textContent = s.master;
-  document.getElementById('detailAction').textContent = s.type === "Con Master" ? "Prenota una sessione guidata." : "Acquista e gioca in autonomia.";
-  go('scheda');
-}
+          <hr />
 
-function resetFilters(){
-  q.value=""; genre.value=""; type.value=""; price.value="";
-  renderCatalog();
-}
+          <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
+          <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
+          <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
+          <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
+        </div>
 
-function searchHome(){
-  go('catalogo');
-  setTimeout(()=>{
-    q.value = document.getElementById('homeSearch').value;
-    type.value = document.getElementById('homeType').value;
-    renderCatalog();
-  },0);
-}
+        <aside class="card">
+          <h2 id="detailPrice"></h2>
+          <p id="detailAction"></p>
 
-function notice(id){
-  document.getElementById(id).style.display = "block";
-}
+          <p><strong>Master:</strong> <span id="detailMaster"></span></p>
 
-renderFeatured();
-</script>
-<script src="js/data.js"></script>
-<script src="js/app.js"></script>
+          <input type="date" />
+
+          <select>
+            <option>Numero giocatori</option>
+            <option>1</option>
+            <option>2</option>
+            <option>3</option>
+            <option>4</option>
+            <option>5+</option>
+          </select>
+
+          <button class="primary" onclick="notice('bookNotice')">Richiedi prenotazione</button>
+          <div id="bookNotice" class="notice">Richiesta simulata inviata al Master.</div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="master" class="page">
+      <h1>Diventa Master</h1>
+      <p>Pubblica le tue storie, ricevi prenotazioni e costruisci la tua reputazione.</p>
+
+      <div class="grid">
+        <div class="card">
+          <h2>1. Crea profilo</h2>
+          <p>Presentati come Master professionale.</p>
+        </div>
+
+        <div class="card">
+          <h2>2. Pubblica storie</h2>
+          <p>Carica one-shot, campagne e cene con delitto.</p>
+        </div>
+
+        <div class="card">
+          <h2>3. Ricevi prenotazioni</h2>
+          <p>Trasforma la passione in lavoro.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Candidatura Master</h2>
+
+        <input placeholder="Nome Master" />
+        <input placeholder="Email" />
+
+        <select>
+          <option>Specialità</option>
+          <option>Fantasy</option>
+          <option>Horror</option>
+          <option>Cena con delitto</option>
+        </select>
+
+        <textarea placeholder="Descrivi le esperienze che vuoi proporre"></textarea>
+
+        <button class="dark" onclick="notice('masterNotice')">Invia candidatura</button>
+        <div id="masterNotice" class="notice">Candidatura simulata salvata.</div>
+      </div>
+    </section>
+
+    <section id="dashboard" class="page">
+      <h1>Dashboard Master</h1>
+      <p>Area dimostrativa per gestire storie e prenotazioni.</p>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Storie pubblicate</h2>
+          <p>3 storie attive</p>
+        </div>
+
+        <div class="card">
+          <h2>Prenotazioni</h2>
+          <p>2 richieste in attesa</p>
+        </div>
+
+        <div class="card">
+          <h2>Valutazione</h2>
+          <p>★ 4.9 media recensioni</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Crea nuova storia</h2>
+
+        <input placeholder="Titolo storia" />
+
+        <select>
+          <option>Genere</option>
+          <option>Fantasy</option>
+          <option>Horror</option>
+          <option>Investigativo</option>
+        </select>
+
+        <select>
+          <option>Tipo</option>
+          <option>Con Master</option>
+          <option>Self-play</option>
+        </select>
+
+        <input placeholder="Prezzo" />
+        <textarea placeholder="Descrizione"></textarea>
+
+        <button class="primary" onclick="notice('storyNotice')">Pubblica storia</button>
+        <div id="storyNotice" class="notice">Storia simulata pubblicata.</div>
+      </div>
+    </section>
+
+    <section id="login" class="page">
+      <h1>Accedi</h1>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Login</h2>
+          <input placeholder="Email" />
+          <input type="password" placeholder="Password" />
+
+          <button class="dark" onclick="notice('loginNotice')">Accedi</button>
+          <div id="loginNotice" class="notice">Login simulato.</div>
+        </div>
+
+        <div class="card">
+          <h2>Registrati</h2>
+          <input placeholder="Nome" />
+          <input placeholder="Email" />
+
+          <select>
+            <option>Giocatore</option>
+            <option>Master</option>
+          </select>
+
+          <button class="primary" onclick="notice('signupNotice')">Crea account</button>
+          <div id="signupNotice" class="notice">Account simulato creato.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <strong>QuestHub</strong> — Marketplace professionale per Master e giocatori.
+  </footer>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

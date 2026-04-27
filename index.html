@@ -8,34 +8,68 @@
 </head>
 
 <body>
-  <header>
-    <h2 onclick="go('home')" class="logo">Lorecast</h2>
+  <header class="app-header">
+    <div class="brand" onclick="go('home')">
+      <div class="brand-icon">LC</div>
+      <div class="brand-name">Lorecast</div>
+    </div>
 
-    <nav>
-      <a onclick="go('catalogo')" data-i18n="navStories">Storie</a>
-      <a onclick="go('mie-storie')" data-i18n="navMyStories">Le mie storie</a>
-      <a onclick="go('master')" data-i18n="navBecomeMaster">Diventa Master</a>
-      <a onclick="go('dashboard')" data-i18n="navDashboard">Dashboard</a>
-      <a onclick="go('profilo')" data-i18n="navProfile">Profilo</a>
-      <a onclick="go('login')" data-i18n="navLogin">Accedi</a>
+   <nav class="main-nav">
+  <a onclick="go('catalogo')" data-i18n="navStories">Storie</a>
+  <a onclick="go('mie-storie')" data-i18n="navMyStories">Le mie storie</a>
+  <a onclick="go('master')" data-i18n="navBecomeMaster">Diventa Master</a>
+  <a onclick="go('dashboard')" data-i18n="navDashboard">Dashboard</a>
+  <a onclick="go('login')" data-i18n="navLogin">Accedi</a>
+</nav>
 
-      <select id="languageSwitcher">
-        <option value="it">IT</option>
-        <option value="en">EN</option>
-        <option value="es">ES</option>
-        <option value="fr">FR</option>
+    <div class="header-actions">
+      <select id="languageSwitcher" class="language-switcher">
+        <option value="it">🇮🇹 IT</option>
+        <option value="en">🇬🇧 EN</option>
+        <option value="es">🇪🇸 ES</option>
+        <option value="fr">🇫🇷 FR</option>
       </select>
-    </nav>
+
+      <button class="notification-button" onclick="toggleNotificationsDropdown()">
+        🔔
+        <span id="notificationBadge" class="notification-badge">0</span>
+      </button>
+
+      <div class="user-chip" onclick="go('profilo')">
+        <div class="user-avatar" id="headerUserAvatar">U</div>
+        <div>
+          <strong id="headerUserName">Utente</strong>
+          <span id="headerUserRole">Player</span>
+        </div>
+      </div>
+    </div>
   </header>
 
-  <main id="app"></main>
+  <div id="notificationsDropdown" class="notifications-popover">
+    <div class="notifications-popover-header">
+      <strong>Notifiche</strong>
+      <button class="light" onclick="toggleNotificationsDropdown()">×</button>
+    </div>
+
+    <div id="notificationsPreview"></div>
+
+    <button class="light" onclick="go('notifiche'); toggleNotificationsDropdown();">
+      Vedi tutte
+    </button>
+  </div>
+
+  <main id="app" class="app-shell"></main>
 
   <footer>
-    <strong>Lorecast</strong> — Il paradiso per Master e giocatori.
+    <strong>Lorecast</strong> — Marketplace professionale per Master e giocatori.
   </footer>
 
-  <script src="js/translations.js"></script>
-  <script src="js/data.js"></script>
-  <script src="js/app.js"></script>
+<script src="js/translations.js"></script>
+<script src="js/data.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+
+<script src="js/app.js"></script>
 </body>
 </html>

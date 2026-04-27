@@ -1,28 +1,54 @@
-<section id="login" class="page">
-  <h1>Accedi</h1>
+<section id="login" class="page login-page">
+  <div class="login-screen">
+    <div class="login-card-clean">
+      <div class="login-brand-clean">
+        <div class="brand-icon">LC</div>
+        <span>Lorecast</span>
+      </div>
 
-  <div class="grid">
-    <div class="card">
-      <h2>Login</h2>
-      <input placeholder="Email" />
-      <input type="password" placeholder="Password" />
+      <h1>Accedi a Lorecast</h1>
+      <p>
+        Entra per prenotare sessioni, unirti a gruppi Join-in o pubblicare le tue storie.
+      </p>
 
-      <button class="dark" onclick="notice('loginNotice')">Accedi</button>
-      <div id="loginNotice" class="notice">Login simulato.</div>
+      <button class="google-button" type="button" onclick="window.loginWithGoogle()">
+  <span>G</span>
+  Continua con Google
+</button>
+
+      <div class="login-divider">
+        <span>oppure accedi con email</span>
+      </div>
+
+      <input id="loginEmail" type="email" placeholder="Email" />
+      <input id="loginPassword" type="password" placeholder="Password" />
+
+      <button class="primary login-full-button" type="button" onclick="loginWithEmail()">
+        Accedi
+      </button>
+
+      <div class="signup-box">
+        <h2>Crea account</h2>
+
+        <input id="signupName" placeholder="Nome pubblico" />
+        <input id="signupEmail" type="email" placeholder="Email registrazione" />
+        <input id="signupPassword" type="password" placeholder="Password registrazione" />
+
+        <button class="dark login-full-button" type="button" onclick="signUpWithEmail()">
+          Crea account
+        </button>
+      </div>
+
+      <p id="authStatus" class="login-status">
+        Non hai ancora effettuato l’accesso.
+      </p>
     </div>
 
-    <div class="card">
-      <h2>Registrati</h2>
-      <input placeholder="Nome" />
-      <input placeholder="Email" />
-
-      <select>
-        <option>Giocatore</option>
-        <option>Master</option>
-      </select>
-
-      <button class="primary" onclick="notice('signupNotice')">Crea account</button>
-      <div id="signupNotice" class="notice">Account simulato creato.</div>
+    <div class="login-visual-clean">
+      <div class="visual-content">
+        <h2>Stories. Realms. Experiences.</h2>
+        <p>Trova il tuo Master, entra in sessioni pubbliche e vivi storie condivise.</p>
+      </div>
     </div>
   </div>
 </section>

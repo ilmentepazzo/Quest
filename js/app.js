@@ -10,6 +10,7 @@ const sections = [
   "dashboard",
   "mie-storie",
   "profilo",
+  "notifiche",
   "login"
 ];
 
@@ -22,10 +23,12 @@ async function loadSections() {
     app.insertAdjacentHTML("beforeend", html);
   }
 
-renderFeatured();
-go("home");
-setupLanguageSwitcher();
-applyTranslations();
+  renderFeatured();
+  go("home");
+  setupLanguageSwitcher();
+  applyTranslations();
+  updateNotificationBadge();
+  await checkAuthSession();
 }
 
 function getAllStories() {
@@ -65,7 +68,271 @@ function go(page) {
 
   if (page === "mie-storie") renderMyStories();
   if (page === "profilo") renderUserProfile();
+  if (page === "notifiche") renderNotifications();
+  if (page === "login") renderAuthState();
 }
+
+/* AUTH */
+
+async function signUpWithEmail() {
+  const name = document.getElementById("signupName")?.value.trim() || "";
+  const email = document.getElementById("signupEmail")?.value.trim() || "";
+  const password = document.getElementById("signupPassword")?.value || "";
+
+  if (!name || !email || !password) {
+    showToast("Inserisci nome, email e password.", "warning");
+    return;
+  }
+
+  const { error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { name }
+    }
+  });
+
+  if (error) {
+    showToast(error.message, "error");
+    return;
+  }
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify({
+    name,
+    email,
+    language: "Italiano",
+    isMaster: false
+  }));
+
+  showToast("Account creato. Controlla l’email se richiesta conferma.", "success");
+  updateHeaderUser();
+  renderAuthState();
+}
+
+async function loginWithEmail() {
+  const email = document.getElementById("loginEmail")?.value.trim() || "";
+  const password = document.getElementById("loginPassword")?.value || "";
+
+  if (!email || !password) {
+    showToast("Inserisci email e password.", "warning");
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    showToast(error.message, "error");
+    return;
+  }
+
+  const user = data.user;
+  const oldProfile = getUserProfile();
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify({
+    name: user.user_metadata?.name || oldProfile.name || user.email,
+    email: user.email,
+    language: oldProfile.language || "Italiano",
+    isMaster: oldProfile.isMaster || false
+  }));
+
+  showToast("Accesso effettuato.", "success");
+  updateHeaderUser();
+  renderAuthState();
+  go("profilo");
+}
+
+window.loginWithGoogle = async function () {
+  showToast("Apro Google Login...", "success");
+
+  const redirectTo = window.location.origin;
+
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true
+    }
+  });
+
+  if (error) {
+    showToast("Errore Google: " + error.message, "error");
+    return;
+  }
+
+  if (!data || !data.url) {
+    showToast("Nessun URL Google ricevuto da Supabase.", "warning");
+    return;
+  }
+
+  window.location.href = data.url;
+};
+
+window.logoutUser = async function () {
+  await supabaseClient.auth.signOut({ scope: "global" });
+
+  Object.keys(localStorage).forEach(key => {
+    if (
+      key.startsWith("sb-") ||
+      key.includes("supabase") ||
+      key === "questhubUserProfile"
+    ) {
+      localStorage.removeItem(key);
+    }
+  });
+
+  showToast("Logout effettuato.", "success");
+
+  setTimeout(() => {
+    window.location.href = window.location.origin + "?logout=1";
+  }, 500);
+};
+
+async function checkAuthSession() {
+  const { data } = await supabaseClient.auth.getUser();
+
+  if (data.user) {
+    const oldProfile = getUserProfile();
+
+    localStorage.setItem("questhubUserProfile", JSON.stringify({
+      name: data.user.user_metadata?.name || oldProfile.name || data.user.email,
+      email: data.user.email,
+      language: oldProfile.language || "Italiano",
+      isMaster: oldProfile.isMaster || false
+    }));
+  }
+
+  updateHeaderUser();
+  renderAuthState();
+}
+
+async function renderAuthState() {
+  const status = document.getElementById("authStatus");
+  if (!status) return;
+
+  const { data } = await supabaseClient.auth.getUser();
+
+  status.textContent = data.user
+    ? `Accesso effettuato come ${data.user.email}`
+    : "Non hai ancora effettuato l’accesso.";
+}
+
+/* PROFILO */
+
+function updateHeaderUser() {
+  const profile = getUserProfile();
+
+  const nameEl = document.getElementById("headerUserName");
+  const avatarEl = document.getElementById("headerUserAvatar");
+  const roleEl = document.getElementById("headerUserRole");
+
+  const name = profile.name || "Utente";
+
+  if (nameEl) nameEl.textContent = name;
+  if (avatarEl) avatarEl.textContent = name.charAt(0).toUpperCase();
+  if (roleEl) roleEl.textContent = profile.isMaster ? "Player + Master" : "Player";
+}
+
+function renderUserProfile() {
+  const profile = getUserProfile();
+
+  const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
+  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  const unlockedIds = getUnlockedStories();
+
+  const displayName = profile.name || "Utente Lorecast";
+  const displayEmail = profile.email || "Non hai ancora effettuato l’accesso.";
+
+  const nameInput = document.getElementById("profileName");
+  const emailInput = document.getElementById("profileEmail");
+  const languageInput = document.getElementById("profileLanguage");
+  const status = document.getElementById("masterModeStatus");
+
+  if (nameInput) nameInput.value = profile.name || "";
+  if (emailInput) emailInput.value = profile.email || "";
+  if (languageInput) languageInput.value = profile.language || "Italiano";
+  if (status) status.style.display = profile.isMaster ? "block" : "none";
+
+  const avatarLarge = document.getElementById("profileAvatarLarge");
+  const profileName = document.getElementById("profileDisplayName");
+  const profileEmail = document.getElementById("profileDisplayEmail");
+  const roleBadge = document.getElementById("profileRoleBadge");
+
+  if (avatarLarge) avatarLarge.textContent = displayName.charAt(0).toUpperCase();
+  if (profileName) profileName.textContent = displayName;
+  if (profileEmail) profileEmail.textContent = displayEmail;
+  if (roleBadge) roleBadge.textContent = profile.isMaster ? "Player + Master" : "Player";
+
+  const storiesCreated = document.getElementById("profileStoriesCreated");
+  const bookingsCount = document.getElementById("profileBookingsCount");
+  const unlockedCount = document.getElementById("profileUnlockedCount");
+
+  if (storiesCreated) storiesCreated.textContent = savedStories.length;
+  if (bookingsCount) bookingsCount.textContent = bookings.length;
+  if (unlockedCount) unlockedCount.textContent = unlockedIds.length;
+
+  const published = document.getElementById("profilePublishedStories");
+
+  if (published) {
+    published.innerHTML = savedStories.length
+      ? savedStories.map(story => `
+          <div class="card">
+            <h3>${story.title}</h3>
+            <p>${story.desc}</p>
+            <button class="primary" onclick="openStory(${story.id})">
+              Apri storia
+            </button>
+          </div>
+        `).join("")
+      : "<p>Non hai ancora pubblicato storie.</p>";
+  }
+}
+
+function saveUserProfile() {
+  const name = document.getElementById("profileName")?.value.trim() || "";
+  const email = document.getElementById("profileEmail")?.value.trim() || "";
+  const language = document.getElementById("profileLanguage")?.value || "Italiano";
+
+  if (!name || !email) {
+    showToast("Inserisci nome ed email.", "warning");
+    return;
+  }
+
+  const oldProfile = getUserProfile();
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify({
+    name,
+    email,
+    language,
+    isMaster: oldProfile.isMaster || false
+  }));
+
+  showToast("Profilo salvato.", "success");
+  updateHeaderUser();
+  renderUserProfile();
+}
+
+function activateMasterMode() {
+  const profile = getUserProfile();
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify({
+    ...profile,
+    isMaster: true
+  }));
+
+  const status = document.getElementById("masterModeStatus");
+  if (status) status.style.display = "block";
+
+  showToast("Modalità Master attivata.", "success");
+  addNotification("Modalità Master attivata sul tuo profilo.", "success");
+
+  updateHeaderUser();
+  renderUserProfile();
+}
+
+/* STORIES */
 
 function card(story) {
   const priceLabel = story.isFree || Number(story.price) === 0
@@ -86,6 +353,7 @@ function card(story) {
 function renderFeatured() {
   const container = document.getElementById("featured");
   if (!container) return;
+
   container.innerHTML = getAllStories().slice(0, 3).map(card).join("");
 }
 
@@ -114,6 +382,7 @@ function renderCatalog() {
   });
 
   count.textContent = results.length + " storie trovate";
+
   container.innerHTML = results.length
     ? results.map(card).join("")
     : "<p>Nessuna storia trovata.</p>";
@@ -151,6 +420,7 @@ function openStory(id) {
 
   renderStoryMedia(story);
   renderStoryMaterials(story);
+  renderJoinSession(story);
 
   go("scheda");
 }
@@ -189,11 +459,7 @@ function renderStoryMaterials(story) {
   const unlocked = isStoryUnlocked(story.id);
 
   if (!materials.length || !materials.some(material => material.name)) {
-    container.innerHTML = `
-      <div class="locked-box">
-        🔒 Questa storia non ha ancora materiali caricati.
-      </div>
-    `;
+    container.innerHTML = `<div class="locked-box">🔒 Questa storia non ha ancora materiali caricati.</div>`;
     return;
   }
 
@@ -251,6 +517,7 @@ function unlockCurrentStory() {
 
   renderStoryMaterials(currentStory);
   showToast("Storia sbloccata. Ora puoi vedere i materiali riservati.", "success");
+  addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success");
 }
 
 function openMasterProfile() {
@@ -290,35 +557,7 @@ function openMasterProfile() {
   go("profilo-master");
 }
 
-function searchHome() {
-  go("catalogo");
-
-  setTimeout(() => {
-    const q = document.getElementById("q");
-    const type = document.getElementById("type");
-    const homeSearch = document.getElementById("homeSearch");
-    const homeType = document.getElementById("homeType");
-
-    if (q && homeSearch) q.value = homeSearch.value;
-    if (type && homeType) type.value = homeType.value;
-
-    renderCatalog();
-  }, 0);
-}
-
-function resetFilters() {
-  const q = document.getElementById("q");
-  const genre = document.getElementById("genre");
-  const type = document.getElementById("type");
-  const price = document.getElementById("price");
-
-  if (q) q.value = "";
-  if (genre) genre.value = "";
-  if (type) type.value = "";
-  if (price) price.value = "";
-
-  renderCatalog();
-}
+/* BOOKING */
 
 function createBooking() {
   if (!currentStory || !currentMaster) return;
@@ -360,6 +599,7 @@ function createBooking() {
   document.getElementById("bookingMessage").value = "";
 
   showToast("Richiesta di prenotazione inviata.", "success");
+  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success");
 }
 
 function renderDashboardBookings() {
@@ -391,13 +631,8 @@ function renderDashboardBookings() {
             <p><strong>Messaggio:</strong> ${booking.message || "Nessun messaggio"}</p>
             <p><strong>Stato:</strong> <span class="status ${statusClass}">${booking.status}</span></p>
 
-            <button class="primary" onclick="updateBookingStatus(${booking.id}, 'Accettata')">
-              Accetta
-            </button>
-
-            <button class="light" onclick="updateBookingStatus(${booking.id}, 'Rifiutata')">
-              Rifiuta
-            </button>
+            <button class="primary" onclick="updateBookingStatus(${booking.id}, 'Accettata')">Accetta</button>
+            <button class="light" onclick="updateBookingStatus(${booking.id}, 'Rifiutata')">Rifiuta</button>
           </div>
         `;
       }).join("")
@@ -406,9 +641,12 @@ function renderDashboardBookings() {
 
 function updateBookingStatus(id, status) {
   const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  let changedBooking = null;
 
   const updatedBookings = bookings.map(booking => {
     if (booking.id === id) {
+      changedBooking = booking;
+
       if (status === "Accettata" && booking.storyId) {
         unlockStoryById(booking.storyId);
       }
@@ -424,10 +662,18 @@ function updateBookingStatus(id, status) {
 
   if (status === "Accettata") {
     showToast("Prenotazione accettata. Materiali sbloccati per l’utente.", "success");
+
+    if (changedBooking) {
+      addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success");
+    }
   }
 
   if (status === "Rifiutata") {
     showToast("Prenotazione rifiutata.", "error");
+
+    if (changedBooking) {
+      addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error");
+    }
   }
 }
 
@@ -440,6 +686,80 @@ function unlockStoryById(storyId) {
 
   localStorage.setItem("questhubUnlockedStories", JSON.stringify(unlockedStories));
 }
+
+/* JOIN-IN */
+
+function getJoinSessions() {
+  return JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
+}
+
+function renderJoinSession(story) {
+  const container = document.getElementById("joinSessionStatus");
+  if (!container || !story) return;
+
+  const sessions = getJoinSessions();
+
+  if (!sessions[story.id]) {
+    sessions[story.id] = {
+      joined: 0,
+      minPlayers: 2,
+      maxPlayers: 6
+    };
+
+    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+  }
+
+  const session = sessions[story.id];
+
+  let status = "In attesa di altri giocatori";
+
+  if (session.joined >= session.maxPlayers) status = "Gruppo completo";
+  else if (session.joined >= session.minPlayers) status = "Sessione pronta a partire";
+
+  container.innerHTML = `
+    <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
+    <p>Minimo per partire: ${session.minPlayers}</p>
+    <p><strong>${status}</strong></p>
+  `;
+}
+
+function joinPublicSession() {
+  if (!currentStory) return;
+
+  const sessions = getJoinSessions();
+
+  if (!sessions[currentStory.id]) {
+    sessions[currentStory.id] = {
+      joined: 0,
+      minPlayers: 2,
+      maxPlayers: 6
+    };
+  }
+
+  const session = sessions[currentStory.id];
+
+  if (session.joined >= session.maxPlayers) {
+    showToast("Gruppo già completo.", "warning");
+    return;
+  }
+
+  session.joined += 1;
+
+  localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+
+  renderJoinSession(currentStory);
+
+  addNotification(`Ti sei unito alla sessione pubblica: ${currentStory.title}`, "success");
+
+  if (session.joined >= session.minPlayers) {
+    showToast("Sessione pronta a partire!", "success");
+    addNotification(`La sessione "${currentStory.title}" è pronta a partire.`, "success");
+  } else {
+    showToast("Ti sei unito alla sessione pubblica.", "success");
+  }
+}
+
+/* DASHBOARD STORY CREATION */
 
 function addMaterialField() {
   const container = document.getElementById("materialsBuilder");
@@ -560,6 +880,7 @@ function createStory() {
   localStorage.setItem("questhubStories", JSON.stringify(savedStories));
 
   showToast("Storia pubblicata correttamente.", "success");
+  addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success");
 
   document.querySelectorAll("#dashboard input, #dashboard textarea, #dashboard select")
     .forEach(field => field.value = "");
@@ -577,64 +898,13 @@ function renderDashboardStats() {
   if (!storiesCount) return;
 
   const totalStories = getAllStories().length;
+
   storiesCount.textContent = totalStories === 1
     ? "1 storia attiva"
     : totalStories + " storie attive";
 }
 
-function saveUserProfile() {
-  const name = document.getElementById("profileName")?.value || "";
-  const email = document.getElementById("profileEmail")?.value || "";
-  const language = document.getElementById("profileLanguage")?.value || "Italiano";
-
-  if (!name || !email) {
-    showToast("Inserisci nome ed email.", "warning");
-    return;
-  }
-
-  const profile = {
-    name,
-    email,
-    language,
-    isMaster: getUserProfile().isMaster || false
-  };
-
-  localStorage.setItem("questhubUserProfile", JSON.stringify(profile));
-  showToast("Profilo salvato.", "success");
-}
-
-function renderUserProfile() {
-  const profile = getUserProfile();
-
-  const name = document.getElementById("profileName");
-  const email = document.getElementById("profileEmail");
-  const language = document.getElementById("profileLanguage");
-  const status = document.getElementById("masterModeStatus");
-
-  if (name) name.value = profile.name || "";
-  if (email) email.value = profile.email || "";
-  if (language) language.value = profile.language || "Italiano";
-
-  if (status) {
-    status.style.display = profile.isMaster ? "block" : "none";
-  }
-}
-
-function activateMasterMode() {
-  const profile = getUserProfile();
-
-  const updatedProfile = {
-    ...profile,
-    isMaster: true
-  };
-
-  localStorage.setItem("questhubUserProfile", JSON.stringify(updatedProfile));
-
-  const status = document.getElementById("masterModeStatus");
-  if (status) status.style.display = "block";
-
-  showToast("Modalità Master attivata.", "success");
-}
+/* MY STORIES */
 
 function renderMyStories() {
   const unlockedContainer = document.getElementById("myUnlockedStories");
@@ -670,6 +940,95 @@ function renderMyStories() {
       `).join("")
     : "<p>Non hai ancora prenotazioni.</p>";
 }
+
+/* NOTIFICATIONS */
+
+function getNotifications() {
+  return JSON.parse(localStorage.getItem("questhubNotifications") || "[]");
+}
+
+function addNotification(message, type = "info") {
+  const notifications = getNotifications();
+
+  notifications.unshift({
+    id: Date.now(),
+    message,
+    type,
+    read: false,
+    date: new Date().toLocaleString()
+  });
+
+  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+  updateNotificationBadge();
+}
+
+function renderNotifications() {
+  const container = document.getElementById("notificationsList");
+  if (!container) return;
+
+  const notifications = getNotifications();
+
+  container.innerHTML = notifications.length
+    ? notifications.map(notification => `
+        <div class="card notification-card ${notification.read ? "read" : "unread"}">
+          <p><strong>${notification.message}</strong></p>
+          <p>${notification.date}</p>
+        </div>
+      `).join("")
+    : "<p>Non hai notifiche.</p>";
+}
+
+function clearNotifications() {
+  const notifications = getNotifications().map(notification => ({
+    ...notification,
+    read: true
+  }));
+
+  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+  updateNotificationBadge();
+  renderNotifications();
+
+  showToast("Notifiche segnate come lette.", "success");
+}
+
+function updateNotificationBadge() {
+  const badge = document.getElementById("notificationBadge");
+  if (!badge) return;
+
+  const unread = getNotifications().filter(notification => !notification.read).length;
+
+  badge.textContent = unread;
+  badge.style.display = unread > 0 ? "grid" : "none";
+}
+
+function toggleNotificationsDropdown() {
+  const dropdown = document.getElementById("notificationsDropdown");
+  if (!dropdown) return;
+
+  dropdown.classList.toggle("open");
+
+  if (dropdown.classList.contains("open")) {
+    renderNotificationsPreview();
+  }
+}
+
+function renderNotificationsPreview() {
+  const container = document.getElementById("notificationsPreview");
+  if (!container) return;
+
+  const notifications = getNotifications().slice(0, 5);
+
+  container.innerHTML = notifications.length
+    ? notifications.map(notification => `
+        <div class="notification-preview-item">
+          <p><strong>${notification.message}</strong></p>
+          <small>${notification.date}</small>
+        </div>
+      `).join("")
+    : "<p>Nessuna notifica.</p>";
+}
+
+/* FORMS / UI */
 
 function clearFieldErrors() {
   document.querySelectorAll(".field-error").forEach(field => {
@@ -712,6 +1071,72 @@ function togglePriceField() {
   }
 }
 
+/* TRANSLATIONS */
+
+function getCurrentLanguage() {
+  return localStorage.getItem("questhubLanguage") || "it";
+}
+
+function applyTranslations() {
+  const language = getCurrentLanguage();
+  const dictionary = window.translations?.[language] || window.translations?.it || {};
+
+  document.querySelectorAll("[data-i18n]").forEach(element => {
+    const key = element.getAttribute("data-i18n");
+
+    if (dictionary[key]) {
+      element.textContent = dictionary[key];
+    }
+  });
+
+  const switcher = document.getElementById("languageSwitcher");
+  if (switcher) switcher.value = language;
+}
+
+function setupLanguageSwitcher() {
+  const switcher = document.getElementById("languageSwitcher");
+  if (!switcher) return;
+
+  switcher.value = getCurrentLanguage();
+
+  switcher.onchange = function () {
+    localStorage.setItem("questhubLanguage", switcher.value);
+    applyTranslations();
+  };
+}
+
+/* HELPERS */
+
+function searchHome() {
+  go("catalogo");
+
+  setTimeout(() => {
+    const q = document.getElementById("q");
+    const type = document.getElementById("type");
+    const homeSearch = document.getElementById("homeSearch");
+    const homeType = document.getElementById("homeType");
+
+    if (q && homeSearch) q.value = homeSearch.value;
+    if (type && homeType) type.value = homeType.value;
+
+    renderCatalog();
+  }, 0);
+}
+
+function resetFilters() {
+  const q = document.getElementById("q");
+  const genre = document.getElementById("genre");
+  const type = document.getElementById("type");
+  const price = document.getElementById("price");
+
+  if (q) q.value = "";
+  if (genre) genre.value = "";
+  if (type) type.value = "";
+  if (price) price.value = "";
+
+  renderCatalog();
+}
+
 function notice(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = "block";
@@ -731,38 +1156,5 @@ function showToast(message, type = "success") {
     toast.remove();
   }, 3000);
 }
-function getCurrentLanguage() {
-  return localStorage.getItem("questhubLanguage") || "it";
-}
 
-function applyTranslations() {
-  const language = getCurrentLanguage();
-  const dictionary = translations[language] || translations.it;
-
-  document.querySelectorAll("[data-i18n]").forEach(element => {
-    const key = element.getAttribute("data-i18n");
-
-    if (dictionary[key]) {
-      element.textContent = dictionary[key];
-    }
-  });
-
-  const switcher = document.getElementById("languageSwitcher");
-  if (switcher) {
-    switcher.value = language;
-  }
-}
-
-function setupLanguageSwitcher() {
-  const switcher = document.getElementById("languageSwitcher");
-
-  if (!switcher) return;
-
-  switcher.value = getCurrentLanguage();
-
-  switcher.addEventListener("change", function () {
-    localStorage.setItem("questhubLanguage", switcher.value);
-    applyTranslations();
-  });
-}
 loadSections();

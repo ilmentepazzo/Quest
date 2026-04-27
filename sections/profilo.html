@@ -1,12 +1,66 @@
 <section id="profilo" class="page">
   <h1>Profilo utente</h1>
-  <p>Gestisci il tuo account, le tue preferenze e la modalità Master.</p>
+  <p>Gestisci il tuo profilo, le tue attività da Player e la modalità Master.</p>
 
-  <div class="grid">
-    <div class="card">
-      <h2>Account</h2>
+  <div class="detail">
+    <div>
+      <div class="card profile-hero-card">
+        <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
+
+        <div>
+          <h2 id="profileDisplayName">Utente Lorecast</h2>
+          <p id="profileDisplayEmail">Non hai ancora effettuato l’accesso.</p>
+          <span class="tag" id="profileRoleBadge">Player</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Storie create</h2>
+          <p id="profileStoriesCreated">0</p>
+        </div>
+
+        <div class="card">
+          <h2>Sessioni prenotate</h2>
+          <p id="profileBookingsCount">0</p>
+        </div>
+
+        <div class="card">
+          <h2>Storie sbloccate</h2>
+          <p id="profileUnlockedCount">0</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Le mie storie pubblicate</h2>
+        <div id="profilePublishedStories">
+          <p>Non hai ancora pubblicato storie.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recensioni ricevute</h2>
+
+        <div class="card">
+          <p>★★★★★</p>
+          <p><strong>Marco</strong></p>
+          <p>“Master molto coinvolgente, sessione fluida e ben preparata.”</p>
+        </div>
+
+        <div class="card">
+          <p>★★★★★</p>
+          <p><strong>Elena</strong></p>
+          <p>“Ottima gestione del gruppo, atmosfera bellissima.”</p>
+        </div>
+      </div>
+    </div>
+
+    <aside class="card">
+      <h2>Impostazioni account</h2>
+
       <input id="profileName" placeholder="Nome utente" />
       <input id="profileEmail" placeholder="Email" />
+
       <select id="profileLanguage">
         <option>Italiano</option>
         <option>English</option>
@@ -15,19 +69,18 @@
       </select>
 
       <button class="primary" onclick="saveUserProfile()">Salva profilo</button>
-    </div>
-
-    <div class="card">
-      <h2>Modalità Master</h2>
-      <p>Puoi giocare come utente e pubblicare storie come Master con lo stesso account.</p>
 
       <button class="dark" onclick="activateMasterMode()">
         Attiva modalità Master
       </button>
 
+      <button class="light" onclick="logoutUser()">
+        Esci dall’account
+      </button>
+
       <div id="masterModeStatus" class="notice">
         Modalità Master attiva.
       </div>
-    </div>
+    </aside>
   </div>
 </section>

@@ -14,7 +14,7 @@ const storiesData = [
     master: "Arianna V.",
     desc: "Intrighi, reliquie proibite e tradimenti in una corte decadente.",
     long: "Esperienza guidata da Master, ideale per gruppi che amano scelte morali, misteri e momenti epici.",
-    cover: "",
+    cover: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80",
     trailer: "",
     materials: [
       {
@@ -46,7 +46,7 @@ const storiesData = [
     master: "Studio Enigma",
     desc: "Un ricevimento elegante, un omicidio improvviso e troppi sospettati.",
     long: "Storia pronta da giocare senza Master. Include ruoli, indizi e struttura della serata.",
-    cover: "",
+    cover: "https://images.unsplash.com/photo-1527529482837-4698179dc6ce?auto=format&fit=crop&w=1200&q=80",
     trailer: "",
     materials: [
       {
@@ -72,7 +72,7 @@ const storiesData = [
     master: "Lorenzo M.",
     desc: "Un manicomio abbandonato custodisce qualcosa che non vuole essere trovato.",
     long: "Esperienza horror investigativa con atmosfera cupa, tensione crescente e scene intense.",
-    cover: "",
+    cover: "https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=1200&q=80",
     trailer: "",
     materials: [
       {

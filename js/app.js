@@ -18,7 +18,9 @@ async function loadSections() {
   const app = document.getElementById("app");
 
   for (const section of sections) {
-    const response = await fetch(`sections/${section}.html`);
+   const response = await fetch(`sections/${section}.html?v=${Date.now()}`, {
+  cache: "no-store"
+});
     const html = await response.text();
     app.insertAdjacentHTML("beforeend", html);
   }
@@ -72,7 +74,54 @@ function go(page) {
   if (page === "login") renderAuthState();
 }
 
-/* AUTH */
+/* AUTH + SUPABASE PROFILE */
+
+async function upsertSupabaseProfile(user) {
+  if (!user) return null;
+
+  const profileData = {
+    id: user.id,
+    name: user.user_metadata?.name || user.user_metadata?.full_name || user.email,
+    email: user.email,
+    avatar_url: user.user_metadata?.avatar_url || "",
+    language: "it"
+  };
+
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .upsert(profileData)
+    .select()
+    .single();
+
+  if (error) {
+    showToast("Errore profilo: " + error.message, "error");
+    return null;
+  }
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify({
+    name: data.name,
+    email: data.email,
+    avatar_url: data.avatar_url,
+    language: data.language || "it",
+    isMaster: data.is_master || false
+  }));
+
+  updateHeaderUser();
+  return data;
+}
+
+async function checkAuthSession() {
+  const { data } = await supabaseClient.auth.getUser();
+
+  if (data.user) {
+    await upsertSupabaseProfile(data.user);
+  } else {
+    localStorage.removeItem("questhubUserProfile");
+  }
+
+  updateHeaderUser();
+  renderAuthState();
+}
 
 async function signUpWithEmail() {
   const name = document.getElementById("signupName")?.value.trim() || "";
@@ -84,7 +133,7 @@ async function signUpWithEmail() {
     return;
   }
 
-  const { error } = await supabaseClient.auth.signUp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email,
     password,
     options: {
@@ -97,12 +146,9 @@ async function signUpWithEmail() {
     return;
   }
 
-  localStorage.setItem("questhubUserProfile", JSON.stringify({
-    name,
-    email,
-    language: "Italiano",
-    isMaster: false
-  }));
+  if (data.user) {
+    await upsertSupabaseProfile(data.user);
+  }
 
   showToast("Account creato. Controlla l’email se richiesta conferma.", "success");
   updateHeaderUser();
@@ -128,15 +174,7 @@ async function loginWithEmail() {
     return;
   }
 
-  const user = data.user;
-  const oldProfile = getUserProfile();
-
-  localStorage.setItem("questhubUserProfile", JSON.stringify({
-    name: user.user_metadata?.name || oldProfile.name || user.email,
-    email: user.email,
-    language: oldProfile.language || "Italiano",
-    isMaster: oldProfile.isMaster || false
-  }));
+  await upsertSupabaseProfile(data.user);
 
   showToast("Accesso effettuato.", "success");
   updateHeaderUser();
@@ -190,24 +228,6 @@ window.logoutUser = async function () {
   }, 500);
 };
 
-async function checkAuthSession() {
-  const { data } = await supabaseClient.auth.getUser();
-
-  if (data.user) {
-    const oldProfile = getUserProfile();
-
-    localStorage.setItem("questhubUserProfile", JSON.stringify({
-      name: data.user.user_metadata?.name || oldProfile.name || data.user.email,
-      email: data.user.email,
-      language: oldProfile.language || "Italiano",
-      isMaster: oldProfile.isMaster || false
-    }));
-  }
-
-  updateHeaderUser();
-  renderAuthState();
-}
-
 async function renderAuthState() {
   const status = document.getElementById("authStatus");
   if (!status) return;
@@ -219,7 +239,7 @@ async function renderAuthState() {
     : "Non hai ancora effettuato l’accesso.";
 }
 
-/* PROFILO */
+/* HEADER / PROFILE */
 
 function updateHeaderUser() {
   const profile = getUserProfile();
@@ -228,16 +248,52 @@ function updateHeaderUser() {
   const avatarEl = document.getElementById("headerUserAvatar");
   const roleEl = document.getElementById("headerUserRole");
 
-  const name = profile.name || "Utente";
+  const loginButton = document.getElementById("headerLoginButton");
+  const userChip = document.getElementById("headerUserChip");
+  const notificationButton = document.getElementById("notificationButton");
+
+  const isLoggedIn = Boolean(profile.email);
+  document.body.classList.toggle("is-logged-in", isLoggedIn);
+
+const dropdown = document.getElementById("notificationsDropdown");
+if (!isLoggedIn && dropdown) {
+  dropdown.classList.remove("open");
+}
+
+  if (loginButton) loginButton.style.display = isLoggedIn ? "none" : "inline-flex";
+  if (userChip) userChip.style.display = isLoggedIn ? "flex" : "none";
+  if (notificationButton) notificationButton.style.display = isLoggedIn ? "block" : "none";
+
+  if (!isLoggedIn) return;
+
+  const name = profile.name || profile.email || "Utente";
 
   if (nameEl) nameEl.textContent = name;
   if (avatarEl) avatarEl.textContent = name.charAt(0).toUpperCase();
   if (roleEl) roleEl.textContent = profile.isMaster ? "Player + Master" : "Player";
 }
 
-function renderUserProfile() {
-  const profile = getUserProfile();
+async function renderUserProfile() {
+  const { data } = await supabaseClient.auth.getUser();
 
+  if (!data.user) {
+    localStorage.removeItem("questhubUserProfile");
+    updateHeaderUser();
+
+    const profileName = document.getElementById("profileDisplayName");
+    const profileEmail = document.getElementById("profileDisplayEmail");
+    const roleBadge = document.getElementById("profileRoleBadge");
+
+    if (profileName) profileName.textContent = "Non hai effettuato l’accesso";
+    if (profileEmail) profileEmail.textContent = "Vai su Accedi per entrare nel tuo account.";
+    if (roleBadge) roleBadge.textContent = "Guest";
+
+    return;
+  }
+
+  await upsertSupabaseProfile(data.user);
+
+  const profile = getUserProfile();
   const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
   const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
   const unlockedIds = getUnlockedStories();
@@ -252,7 +308,7 @@ function renderUserProfile() {
 
   if (nameInput) nameInput.value = profile.name || "";
   if (emailInput) emailInput.value = profile.email || "";
-  if (languageInput) languageInput.value = profile.language || "Italiano";
+  if (languageInput) languageInput.value = profile.language || "it";
   if (status) status.style.display = profile.isMaster ? "block" : "none";
 
   const avatarLarge = document.getElementById("profileAvatarLarge");
@@ -290,23 +346,45 @@ function renderUserProfile() {
   }
 }
 
-function saveUserProfile() {
+async function saveUserProfile() {
+  const { data: authData } = await supabaseClient.auth.getUser();
+
+  if (!authData.user) {
+    showToast("Devi effettuare l’accesso.", "warning");
+    return;
+  }
+
   const name = document.getElementById("profileName")?.value.trim() || "";
   const email = document.getElementById("profileEmail")?.value.trim() || "";
-  const language = document.getElementById("profileLanguage")?.value || "Italiano";
+  const language = document.getElementById("profileLanguage")?.value || "it";
 
   if (!name || !email) {
     showToast("Inserisci nome ed email.", "warning");
     return;
   }
 
-  const oldProfile = getUserProfile();
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .update({
+      name,
+      email,
+      language
+    })
+    .eq("id", authData.user.id)
+    .select()
+    .single();
+
+  if (error) {
+    showToast("Errore salvataggio profilo: " + error.message, "error");
+    return;
+  }
 
   localStorage.setItem("questhubUserProfile", JSON.stringify({
-    name,
-    email,
-    language,
-    isMaster: oldProfile.isMaster || false
+    name: data.name,
+    email: data.email,
+    avatar_url: data.avatar_url,
+    language: data.language,
+    isMaster: data.is_master || false
   }));
 
   showToast("Profilo salvato.", "success");
@@ -314,16 +392,33 @@ function saveUserProfile() {
   renderUserProfile();
 }
 
-function activateMasterMode() {
-  const profile = getUserProfile();
+async function activateMasterMode() {
+  const { data: authData } = await supabaseClient.auth.getUser();
+
+  if (!authData.user) {
+    showToast("Devi effettuare l’accesso.", "warning");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .update({ is_master: true })
+    .eq("id", authData.user.id)
+    .select()
+    .single();
+
+  if (error) {
+    showToast("Errore attivazione Master: " + error.message, "error");
+    return;
+  }
 
   localStorage.setItem("questhubUserProfile", JSON.stringify({
-    ...profile,
-    isMaster: true
+    name: data.name,
+    email: data.email,
+    avatar_url: data.avatar_url,
+    language: data.language,
+    isMaster: data.is_master
   }));
-
-  const status = document.getElementById("masterModeStatus");
-  if (status) status.style.display = "block";
 
   showToast("Modalità Master attivata.", "success");
   addNotification("Modalità Master attivata sul tuo profilo.", "success");
@@ -334,18 +429,44 @@ function activateMasterMode() {
 
 /* STORIES */
 
+function getGenreClass(genre) {
+  return "genre-" + genre
+    .toLowerCase()
+    .replaceAll(" ", "-")
+    .replaceAll("è", "e")
+    .replaceAll("é", "e");
+}
+
 function card(story) {
   const priceLabel = story.isFree || Number(story.price) === 0
     ? `<span class="story-price-free">Gratis</span>`
     : `<span class="story-price-paid">${story.price}€</span>`;
 
+  const genreClass = getGenreClass(story.genre);
+
   return `
-    <div class="card story" onclick="openStory(${story.id})">
-      <span class="tag">${story.genre}</span>
-      <span class="tag gold">${story.type}</span>
-      <h2>${story.title}</h2>
-      <p>${story.desc}</p>
-      <strong>${story.players} giocatori · ${priceLabel}</strong>
+    <div class="story-card" onclick="openStory(${story.id})">
+      <div class="story-card-cover ${genreClass}">
+  <div class="story-cover-title">
+    <span>${story.genre}</span>
+    <strong>${story.title}</strong>
+  </div>
+</div>
+
+      <div class="story-card-body">
+        <div>
+          <span class="tag ${genreClass}">${story.genre}</span>
+          <span class="tag gold">${story.type}</span>
+        </div>
+
+        <h2>${story.title}</h2>
+        <p>${story.desc}</p>
+
+        <div class="story-card-meta">
+          <span>${story.players} giocatori</span>
+          <strong>${priceLabel}</strong>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -557,7 +678,39 @@ function openMasterProfile() {
   go("profilo-master");
 }
 
-/* BOOKING */
+/* SEARCH */
+
+function searchHome() {
+  go("catalogo");
+
+  setTimeout(() => {
+    const q = document.getElementById("q");
+    const type = document.getElementById("type");
+    const homeSearch = document.getElementById("homeSearch");
+    const homeType = document.getElementById("homeType");
+
+    if (q && homeSearch) q.value = homeSearch.value;
+    if (type && homeType) type.value = homeType.value;
+
+    renderCatalog();
+  }, 0);
+}
+
+function resetFilters() {
+  const q = document.getElementById("q");
+  const genre = document.getElementById("genre");
+  const type = document.getElementById("type");
+  const price = document.getElementById("price");
+
+  if (q) q.value = "";
+  if (genre) genre.value = "";
+  if (type) type.value = "";
+  if (price) price.value = "";
+
+  renderCatalog();
+}
+
+/* BOOKINGS */
 
 function createBooking() {
   if (!currentStory || !currentMaster) return;
@@ -759,7 +912,7 @@ function joinPublicSession() {
   }
 }
 
-/* DASHBOARD STORY CREATION */
+/* CREATE STORY */
 
 function addMaterialField() {
   const container = document.getElementById("materialsBuilder");
@@ -796,9 +949,7 @@ function addMaterialField() {
 
     <textarea class="material-notes" placeholder="Note sul materiale"></textarea>
 
-    <button class="light" type="button" onclick="this.parentElement.remove()">
-      Rimuovi materiale
-    </button>
+    <button class="light" type="button" onclick="this.parentElement.remove()">Rimuovi materiale</button>
   `;
 
   container.appendChild(block);
@@ -920,9 +1071,7 @@ function renderMyStories() {
         <div class="card">
           <h3>${story.title}</h3>
           <p>${story.desc}</p>
-          <button class="primary" onclick="openStory(${story.id})">
-            Apri storia
-          </button>
+          <button class="primary" onclick="openStory(${story.id})">Apri storia</button>
         </div>
       `).join("")
     : "<p>Non hai ancora storie sbloccate.</p>";
@@ -1028,7 +1177,7 @@ function renderNotificationsPreview() {
     : "<p>Nessuna notifica.</p>";
 }
 
-/* FORMS / UI */
+/* HELPERS */
 
 function clearFieldErrors() {
   document.querySelectorAll(".field-error").forEach(field => {
@@ -1071,8 +1220,6 @@ function togglePriceField() {
   }
 }
 
-/* TRANSLATIONS */
-
 function getCurrentLanguage() {
   return localStorage.getItem("questhubLanguage") || "it";
 }
@@ -1105,38 +1252,6 @@ function setupLanguageSwitcher() {
   };
 }
 
-/* HELPERS */
-
-function searchHome() {
-  go("catalogo");
-
-  setTimeout(() => {
-    const q = document.getElementById("q");
-    const type = document.getElementById("type");
-    const homeSearch = document.getElementById("homeSearch");
-    const homeType = document.getElementById("homeType");
-
-    if (q && homeSearch) q.value = homeSearch.value;
-    if (type && homeType) type.value = homeType.value;
-
-    renderCatalog();
-  }, 0);
-}
-
-function resetFilters() {
-  const q = document.getElementById("q");
-  const genre = document.getElementById("genre");
-  const type = document.getElementById("type");
-  const price = document.getElementById("price");
-
-  if (q) q.value = "";
-  if (genre) genre.value = "";
-  if (type) type.value = "";
-  if (price) price.value = "";
-
-  renderCatalog();
-}
-
 function notice(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = "block";
@@ -1156,5 +1271,15 @@ function showToast(message, type = "success") {
     toast.remove();
   }, 3000);
 }
+function goCreateStory() {
+  const profile = getUserProfile();
 
+  if (!profile.email) {
+    showToast("Devi accedere per creare una storia.", "warning");
+    go("login");
+    return;
+  }
+
+  go("dashboard");
+}
 loadSections();

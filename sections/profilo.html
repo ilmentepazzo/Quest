@@ -1,86 +1,129 @@
 <section id="profilo" class="page">
-  <h1>Profilo utente</h1>
-  <p>Gestisci il tuo profilo, le tue attività da Player e la modalità Master.</p>
+  <div class="profile-new-layout">
+    <aside class="profile-sidebar card">
+      <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
 
-  <div class="detail">
-    <div>
-      <div class="card profile-hero-card">
-        <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
+      <h2 id="profileDisplayName">Utente Lorecast</h2>
+      <p id="profileDisplayEmail">email@example.com</p>
+      <span class="tag" id="profileRoleBadge">Player</span>
+
+      <div class="profile-side-stats">
+        <div>
+          <strong id="profileStoriesCreated">0</strong>
+          <span>Storie create</span>
+        </div>
 
         <div>
-          <h2 id="profileDisplayName">Utente Lorecast</h2>
-          <p id="profileDisplayEmail">Non hai ancora effettuato l’accesso.</p>
-          <span class="tag" id="profileRoleBadge">Player</span>
+          <strong id="profileBookingsCount">0</strong>
+          <span>Sessioni giocate</span>
+        </div>
+
+        <div>
+          <strong id="profileUnlockedCount">0</strong>
+          <span>Storie sbloccate</span>
         </div>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <h2>Storie create</h2>
-          <p id="profileStoriesCreated">0</p>
+      <button class="primary" onclick="goCreateStory()">Crea storia</button>
+      <button class="light" onclick="openProfileEdit()">Modifica informazioni account</button>
+      <button class="light" onclick="logoutUser()">Esci</button>
+    </aside>
+
+    <main class="profile-main">
+      <section class="card profile-summary-card">
+        <div>
+          <h1 id="profileMainName">Utente Lorecast</h1>
+          <p>
+            <a href="#profileReviewsList" class="profile-review-link">
+              0 recensioni ricevute
+            </a>
+          </p>
         </div>
 
-        <div class="card">
-          <h2>Sessioni prenotate</h2>
-          <p id="profileBookingsCount">0</p>
+        <div class="profile-rating-box">
+          <strong>0.0</strong>
+          <span>★★★★★</span>
+          <small>Valutazione media</small>
         </div>
+      </section>
 
-        <div class="card">
-          <h2>Storie sbloccate</h2>
-          <p id="profileUnlockedCount">0</p>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Le mie storie pubblicate</h2>
-        <div id="profilePublishedStories">
+      <section class="card">
+        <h2>Le mie storie create</h2>
+        <div id="profilePublishedStories" class="profile-story-list">
           <p>Non hai ancora pubblicato storie.</p>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
-        <h2>Recensioni ricevute</h2>
+      <section class="card">
+        <h2>Storie giocate</h2>
+        <div id="profilePlayedStories">
+          <p>Non hai ancora partecipato a sessioni.</p>
+        </div>
+      </section>
 
-        <div class="card">
-          <p>★★★★★</p>
-          <p><strong>Marco</strong></p>
-          <p>“Master molto coinvolgente, sessione fluida e ben preparata.”</p>
+      <section class="card">
+        <div class="reviews-header">
+          <div>
+            <h2>Recensioni ricevute</h2>
+            <p>Feedback dei giocatori, filtrabile per valutazione.</p>
+          </div>
+
+          <select id="reviewFilter" onchange="renderUserReviews()">
+            <option value="all">Tutte</option>
+            <option value="5">5 stelle</option>
+            <option value="4">4 stelle</option>
+            <option value="3">3 stelle</option>
+          </select>
         </div>
 
-        <div class="card">
-          <p>★★★★★</p>
-          <p><strong>Elena</strong></p>
-          <p>“Ottima gestione del gruppo, atmosfera bellissima.”</p>
+        <div class="restaurant-review-summary">
+          <div>
+            <strong>0.0</strong>
+            <span>★★★★★</span>
+            <small>Media recensioni</small>
+          </div>
+
+          <div class="review-bars">
+            <p>5 stelle <span></span></p>
+            <p>4 stelle <span></span></p>
+            <p>3 stelle <span></span></p>
+          </div>
         </div>
+
+        <div id="profileReviewsList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="profileEditModal" class="profile-edit-modal" onclick="closeProfileEditOnBackdrop(event)">
+    <div class="profile-edit-box" onclick="event.stopPropagation()">
+      <div class="profile-edit-header">
+        <div>
+          <h2>Modifica profilo</h2>
+          <p>Aggiorna nome pubblico, lingua e immagine profilo.</p>
+        </div>
+        <button class="light icon-button" onclick="closeProfileEdit()" aria-label="Chiudi modale">×</button>
       </div>
-    </div>
 
-    <aside class="card">
-      <h2>Impostazioni account</h2>
+      <label for="profileAvatarFile">Foto profilo</label>
+      <input id="profileAvatarFile" type="file" accept="image/jpeg,image/png" />
+      <p class="profile-upload-hint">Formati accettati: JPG o PNG, massimo 3 MB.</p>
 
+      <label for="profileName">Nome pubblico</label>
       <input id="profileName" placeholder="Nome utente" />
-      <input id="profileEmail" placeholder="Email" />
 
+      <label for="profileLanguage">Lingua preferita</label>
       <select id="profileLanguage">
-        <option>Italiano</option>
-        <option>English</option>
-        <option>Español</option>
-        <option>Français</option>
+        <option value="it">Italiano</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
       </select>
 
-      <button class="primary" onclick="saveUserProfile()">Salva profilo</button>
-
-      <button class="dark" onclick="activateMasterMode()">
-        Attiva modalità Master
-      </button>
-
-      <button class="light" onclick="logoutUser()">
-        Esci dall’account
-      </button>
-
-      <div id="masterModeStatus" class="notice">
-        Modalità Master attiva.
+      <div class="profile-edit-actions">
+        <button class="primary" onclick="saveUserProfile()">Salva modifiche</button>
+        <button class="light" onclick="closeProfileEdit()">Annulla</button>
       </div>
-    </aside>
+    </div>
   </div>
 </section>

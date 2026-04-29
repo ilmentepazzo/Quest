@@ -9,59 +9,69 @@
 
 <body>
   <header class="app-header">
-    <div class="brand" onclick="go('home')">
+    <div class="brand" onclick="go('home')" aria-label="Vai alla home">
       <img src="assets/lorecast-logo.png" alt="Lorecast" class="brand-logo" />
     </div>
 
-    <nav class="main-nav">
+    <nav class="main-nav" aria-label="Navigazione principale">
       <a onclick="go('catalogo')" data-i18n="navStories">Storie</a>
-      <a onclick="goCreateStory()">Crea storia</a>
+      <a onclick="goCreateStory()" data-i18n="navCreateStory">Crea storia</a>
+      <a onclick="go('contatti')" data-i18n="navContact">Contattaci</a>
     </nav>
 
     <div class="header-actions">
-  <select id="languageSwitcher" class="language-switcher">
-    <option value="it">🇮🇹 IT</option>
-    <option value="en">🇬🇧 EN</option>
-    <option value="es">🇪🇸 ES</option>
-    <option value="fr">🇫🇷 FR</option>
-  </select>
+      <select id="languageSwitcher" class="language-switcher" aria-label="Seleziona lingua">
+        <option value="it">🇮🇹 IT</option>
+        <option value="en">🇬🇧 EN</option>
+        <option value="es">🇪🇸 ES</option>
+        <option value="fr">🇫🇷 FR</option>
+      </select>
 
-  <button id="headerLoginButton" class="login-header-button" onclick="go('login')">
-    Accedi
-  </button>
+      <button id="headerLoginButton" class="login-header-button" onclick="go('login')" data-i18n="navLogin">
+        Accedi
+      </button>
 
-  <button id="notificationButton" class="notification-button" onclick="toggleNotificationsDropdown()">
-    🔔
-    <span id="notificationBadge" class="notification-badge">0</span>
-  </button>
+      <button id="notificationButton" class="notification-button" onclick="toggleNotificationsDropdown()" aria-label="Apri notifiche">
+        🔔
+        <span id="notificationBadge" class="notification-badge">0</span>
+      </button>
 
-  <div id="headerUserChip" class="user-chip" onclick="go('profilo')">
-    <div class="user-avatar" id="headerUserAvatar">U</div>
-    <div>
-      <strong id="headerUserName">Utente</strong>
-      <span id="headerUserRole">Player</span>
+      <div id="headerUserChip" class="user-chip" onclick="go('profilo')">
+        <div class="user-avatar" id="headerUserAvatar">U</div>
+        <div>
+          <strong id="headerUserName">Utente</strong>
+          <span id="headerUserRole">Player</span>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
   </header>
 
   <div id="notificationsDropdown" class="notifications-popover">
     <div class="notifications-popover-header">
-      <strong>Notifiche</strong>
-      <button class="light" onclick="toggleNotificationsDropdown()">×</button>
+      <strong data-i18n="notificationsTitle">Notifiche</strong>
+      <small data-i18n="notificationsHint">Click sulla campanella per aprire o chiudere</small>
     </div>
 
     <div id="notificationsPreview"></div>
 
-    <button class="light" onclick="go('notifiche'); toggleNotificationsDropdown();">
+    <button class="light" onclick="go('notifiche'); closeNotificationsDropdown();" data-i18n="notificationsSeeAll">
       Vedi tutte
     </button>
   </div>
 
   <main id="app" class="app-shell"></main>
 
-  <footer>
-    <strong>Lorecast</strong> — Marketplace professionale per Master e giocatori.
+  <footer class="site-footer">
+    <div>
+      <strong>Lorecast</strong>
+      <p data-i18n="footerTagline">Marketplace professionale per Master e giocatori.</p>
+    </div>
+
+    <nav class="footer-links" aria-label="Link footer">
+      <a onclick="go('contatti')" data-i18n="footerContact">Contattaci</a>
+      <a onclick="go('privacy')" data-i18n="footerPrivacy">Privacy Policy</a>
+      <a onclick="go('condizioni')" data-i18n="footerTerms">Condizioni di servizio</a>
+    </nav>
   </footer>
 
   <script src="js/translations.js"></script>

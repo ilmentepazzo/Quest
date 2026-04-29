@@ -24,10 +24,11 @@
       </select>
 
       <select id="price" onchange="renderCatalog()">
-        <option value="">Qualsiasi prezzo</option>
-        <option value="10">Fino a 10€</option>
-        <option value="20">Fino a 20€</option>
-        <option value="30">Fino a 30€</option>
+        <option value="" data-i18n="priceAny">Qualsiasi prezzo</option>
+        <option value="free" data-i18n="priceFree">Gratis</option>
+        <option value="10" data-i18n="priceUpTo10">Fino a 10€</option>
+        <option value="20" data-i18n="priceUpTo20">Fino a 20€</option>
+        <option value="30" data-i18n="priceUpTo30">Fino a 30€</option>
       </select>
 
       <button class="light" onclick="resetFilters()">Reset</button>

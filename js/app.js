@@ -676,35 +676,51 @@ function renderCatalog() {
 }
 
 function openStory(id) {
-  const story = getAllStories().find(s => s.id === id);
-  if (!story) return;
+  const story = getAllStories().find(s => Number(s.id) === Number(id));
+
+  if (!story) {
+    showToast("Storia non trovata.", "warning");
+    return;
+  }
 
   currentStory = story;
-  currentMaster = mastersData.find(m => m.id === story.masterId);
+  currentMaster = mastersData.find(m => Number(m.id) === Number(story.masterId)) || null;
 
-  document.getElementById("detailTags").innerHTML = `
-    <span class="tag">${story.genre}</span>
+  const setText = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.textContent = value ?? "";
+  };
+
+  const setHtml = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.innerHTML = value ?? "";
+  };
+
+  setHtml("detailTags", `
+    <span class="tag ${getGenreClass(story.genre)}">${story.genre}</span>
     <span class="tag gold">${story.type}</span>
-  `;
+  `);
 
-  document.getElementById("detailTitle").textContent = story.title;
-  document.getElementById("detailDesc").textContent = story.desc;
-  document.getElementById("detailLong").textContent = story.long;
-  document.getElementById("detailDuration").textContent = story.duration;
-  document.getElementById("detailPlayers").textContent = story.players;
-  document.getElementById("detailLevel").textContent = story.level;
-  document.getElementById("detailMode").textContent = story.mode;
+  setText("detailTitle", story.title);
+  setText("detailDesc", story.desc);
+  setText("detailLong", story.long);
+  setText("detailDuration", story.duration);
+  setText("detailPlayers", story.players);
+  setText("detailLevel", story.level);
+  setText("detailMode", story.mode);
+  setText("detailMaster", story.master || currentMaster?.name || "Master non indicato");
 
-  document.getElementById("detailPrice").textContent =
-    story.isFree || Number(story.price) === 0 ? "Gratis" : story.price + "€";
+  // Compatibilità con vecchi template: se detailPrice non esiste, non blocca più l'apertura della scheda.
+  setText("detailPrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
 
-  document.getElementById("detailMaster").textContent = story.master;
   renderStoryPaymentPanel(story);
 
-  document.getElementById("detailAction").textContent =
+  setText(
+    "detailAction",
     story.type === "Con Master"
-      ? "Prenota una sessione guidata o sblocca i materiali della storia."
-      : "Acquista e gioca in autonomia.";
+      ? "Prenota una sessione guidata con il Master oppure sblocca i materiali della storia."
+      : "Acquista o sblocca la storia e giocala in autonomia, quando vuoi e con chi vuoi."
+  );
 
   renderStoryMedia(story);
   renderStoryMaterials(story);

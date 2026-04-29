@@ -1,10 +1,18 @@
 let currentStory = null;
 let currentMaster = null;
+let bookingCalendarOffsetDays = 0;
+let bookingCalendarExpanded = false;
+let selectedBookingSlot = null;
+let profileReviewFilter = "all";
+let visibleReviewsCount = 3;
 
 const sections = [
   "home",
   "catalogo",
+  "sessioni",
   "scheda",
+  "crea-storia",
+  "area-master",
   "profilo-master",
   "master",
   "dashboard",
@@ -54,6 +62,9 @@ function getUserProfile() {
 }
 
 function go(page) {
+  closeNotificationsDropdown();
+  closeUserMenu();
+
   document.querySelectorAll(".page").forEach(pageEl => {
     pageEl.classList.remove("active");
   });
@@ -64,6 +75,18 @@ function go(page) {
   window.scrollTo(0, 0);
 
   if (page === "catalogo") renderCatalog();
+  if (page === "sessioni") renderOpenSessions();
+
+  if (page === "crea-storia") {
+    togglePriceField();
+  }
+
+  if (page === "area-master") {
+    renderDashboardBookings();
+    renderDashboardStats();
+    renderOpenSessions();
+    renderMasterAvailability();
+  }
 
   if (page === "dashboard") {
     renderDashboardBookings();
@@ -261,7 +284,7 @@ async function renderAuthState() {
   const { data } = await supabaseClient.auth.getUser();
 
   status.textContent = data.user
-    ? `Accesso effettuato come ${data.user.email}`
+     ? `Accesso effettuato.`
     : "Non hai ancora effettuato l’accesso.";
 }
 
@@ -276,19 +299,24 @@ function updateHeaderUser() {
   const roleEl = document.getElementById("headerUserRole");
 
   const loginButton = document.getElementById("headerLoginButton");
+  const userMenuWrapper = document.getElementById("userMenuWrapper");
   const userChip = document.getElementById("headerUserChip");
   const notificationButton = document.getElementById("notificationButton");
+  const areaMasterLink = document.getElementById("headerAreaMasterLink");
 
   const isLoggedIn = Boolean(profile.email);
   document.body.classList.toggle("is-logged-in", isLoggedIn);
 
   if (!isLoggedIn) {
     closeNotificationsDropdown();
+    closeUserMenu();
   }
 
   if (loginButton) loginButton.style.display = isLoggedIn ? "none" : "inline-flex";
+  if (userMenuWrapper) userMenuWrapper.style.display = isLoggedIn ? "flex" : "none";
   if (userChip) userChip.style.display = isLoggedIn ? "flex" : "none";
   if (notificationButton) notificationButton.style.display = isLoggedIn ? "grid" : "none";
+  if (areaMasterLink) areaMasterLink.style.display = isLoggedIn ? "inline-flex" : "none";
 
   if (!isLoggedIn) {
     if (avatarEl) avatarEl.textContent = "U";
@@ -316,7 +344,7 @@ async function renderUserProfile() {
 
   const avatarLarge = document.getElementById("profileAvatarLarge");
   const profileName = document.getElementById("profileDisplayName");
-  const profileEmail = document.getElementById("profileDisplayEmail");
+  const profileMeta = document.getElementById("profileDisplayMeta") || document.getElementById("profileDisplayEmail");
   const profileMainName = document.getElementById("profileMainName");
   const roleBadge = document.getElementById("profileRoleBadge");
   const reviewLink = document.querySelector(".profile-review-link");
@@ -327,7 +355,7 @@ async function renderUserProfile() {
 
     if (avatarLarge) avatarLarge.textContent = "U";
     if (profileName) profileName.textContent = "Non hai effettuato l’accesso";
-    if (profileEmail) profileEmail.textContent = "Vai su Accedi per entrare nel tuo account.";
+    if (profileMeta) profileMeta.textContent = "Accedi per personalizzare il profilo.";
     if (profileMainName) profileMainName.textContent = "Profilo utente";
     if (roleBadge) roleBadge.textContent = "Guest";
     if (reviewLink) reviewLink.textContent = "0 recensioni ricevute";
@@ -344,8 +372,7 @@ async function renderUserProfile() {
   const reviews = getProfileReviews();
 
   const displayName = profile.name || "Utente Lorecast";
-  const displayEmail = profile.email || data.user.email || "Email non disponibile";
-
+  
   const nameInput = document.getElementById("profileName");
   const languageInput = document.getElementById("profileLanguage");
   const status = document.getElementById("masterModeStatus");
@@ -363,7 +390,7 @@ async function renderUserProfile() {
   }
 
   if (profileName) profileName.textContent = displayName;
-  if (profileEmail) profileEmail.textContent = displayEmail;
+  if (profileMeta) profileMeta.textContent = "Membro Lorecast";
   if (profileMainName) profileMainName.textContent = displayName;
   if (roleBadge) roleBadge.textContent = profile.isMaster ? "Player + Master" : "Player";
   if (reviewLink) {
@@ -570,15 +597,23 @@ function card(story) {
     : `<span class="story-price-paid">${story.price}€</span>`;
 
   const genreClass = getGenreClass(story.genre);
+  const coverHtml = story.cover
+    ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
+         <div class="story-cover-title image-cover-title">
+           <span>${story.genre}</span>
+           <strong>${story.title}</strong>
+         </div>
+       </div>`
+    : `<div class="story-card-cover ${genreClass}">
+         <div class="story-cover-title">
+           <span>${story.genre}</span>
+           <strong>${story.title}</strong>
+         </div>
+       </div>`;
 
   return `
     <div class="story-card" onclick="openStory(${story.id})">
-      <div class="story-card-cover ${genreClass}">
-  <div class="story-cover-title">
-    <span>${story.genre}</span>
-    <strong>${story.title}</strong>
-  </div>
-</div>
+      ${coverHtml}
 
       <div class="story-card-body">
         <div>
@@ -664,6 +699,7 @@ function openStory(id) {
     story.isFree || Number(story.price) === 0 ? "Gratis" : story.price + "€";
 
   document.getElementById("detailMaster").textContent = story.master;
+  renderStoryPaymentPanel(story);
 
   document.getElementById("detailAction").textContent =
     story.type === "Con Master"
@@ -673,8 +709,93 @@ function openStory(id) {
   renderStoryMedia(story);
   renderStoryMaterials(story);
   renderJoinSession(story);
+  renderStoryBookingMode(story);
 
   go("scheda");
+}
+
+function renderStoryPaymentPanel(story) {
+  const priceEl = document.getElementById("paymentTotalPrice");
+  const titleEl = document.getElementById("paymentStoryTitle");
+  const hintEl = document.getElementById("paymentHint");
+  const payButton = document.getElementById("paymentButton");
+
+  if (!story) return;
+
+  const priceLabel = story.isFree || Number(story.price) === 0
+    ? "Gratis"
+    : `${story.price}€`;
+
+  if (priceEl) priceEl.textContent = priceLabel;
+  if (titleEl) titleEl.textContent = story.title;
+
+  if (hintEl) {
+    hintEl.textContent = story.type === "Con Master"
+      ? "Pagamento storia/materiali. La prenotazione resta in attesa finché il Master accetta lo slot."
+      : "Dopo il pagamento sblocchi subito tutti i materiali self-play.";
+  }
+
+  if (payButton) {
+    payButton.textContent = story.isFree || Number(story.price) === 0
+      ? "Sblocca gratis"
+      : "Paga ora";
+  }
+}
+
+function payForCurrentStory() {
+  if (!currentStory) return;
+
+  const profile = getUserProfile();
+  if (!profile.email) {
+    showToast("Accedi per completare il pagamento o sbloccare la storia.", "warning");
+    go("login");
+    return;
+  }
+
+  const method = document.querySelector('input[name="paymentMethod"]:checked')?.value || "card";
+  const payments = JSON.parse(localStorage.getItem("questhubPayments") || "[]");
+
+  payments.push({
+    id: Date.now(),
+    storyId: currentStory.id,
+    story: currentStory.title,
+    amount: currentStory.isFree || Number(currentStory.price) === 0 ? 0 : Number(currentStory.price),
+    method,
+    status: "Simulato",
+    createdAt: new Date().toISOString()
+  });
+
+  localStorage.setItem("questhubPayments", JSON.stringify(payments));
+
+  unlockCurrentStory();
+
+  showToast(
+    currentStory.isFree || Number(currentStory.price) === 0
+      ? "Storia sbloccata gratuitamente."
+      : "Pagamento simulato completato. Materiali sbloccati.",
+    "success"
+  );
+}
+
+function renderStoryBookingMode(story) {
+  const masterPanel = document.getElementById("storyMasterBookingPanel");
+  const selfPlayPanel = document.getElementById("storySelfPlayPanel");
+  const unlockButton = document.getElementById("unlockStoryButton");
+
+  const isWithMaster = story?.type === "Con Master";
+
+  if (masterPanel) masterPanel.style.display = isWithMaster ? "block" : "none";
+  if (selfPlayPanel) selfPlayPanel.style.display = isWithMaster ? "none" : "block";
+  if (unlockButton) unlockButton.textContent = isWithMaster ? "Sblocca / Acquista materiali" : "Sblocca materiali self-play";
+
+  selectedBookingSlot = null;
+  bookingCalendarOffsetDays = 0;
+  bookingCalendarExpanded = false;
+
+  if (isWithMaster) {
+    renderBookingCalendar(story);
+    updateSelectedSlotLabel();
+  }
 }
 
 function renderStoryMedia(story) {
@@ -843,47 +964,321 @@ function resetFilters() {
 
 /* BOOKINGS */
 
-function createBooking() {
-  if (!currentStory || !currentMaster) return;
+function getStoryDurationMinutes(story) {
+  const raw = String(story?.duration || "2 ore").toLowerCase();
+  const number = Number((raw.match(/\d+/) || [2])[0]);
 
-  const group = document.getElementById("bookingGroup")?.value || "";
-  const date = document.getElementById("bookingDate")?.value || "";
-  const time = document.getElementById("bookingTime")?.value || "";
-  const players = document.getElementById("bookingPlayers")?.value || "";
-  const message = document.getElementById("bookingMessage")?.value || "";
+  if (raw.includes("min")) return number;
+  if (raw.includes("90")) return 90;
+  return number * 60;
+}
 
-  if (!group || !date || !time || !players) {
-    showToast("Compila tutti i campi principali della prenotazione.", "warning");
+function timeToMinutes(time) {
+  const [hours, minutes] = String(time).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(totalMinutes) {
+  const hours = Math.floor(totalMinutes / 60).toString().padStart(2, "0");
+  const minutes = (totalMinutes % 60).toString().padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function formatISODate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatItalianDate(date) {
+  return date.toLocaleDateString("it-IT", {
+    weekday: "short",
+    day: "numeric",
+    month: "short"
+  });
+}
+
+function formatLongItalianDate(dateString) {
+  const date = new Date(`${dateString}T12:00:00`);
+  return date.toLocaleDateString("it-IT", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function getDefaultMasterAvailability() {
+  return [
+    { id: 1, masterId: 1, weekday: 6, startTime: "13:00", endTime: "17:30" },
+    { id: 2, masterId: 1, weekday: 2, startTime: "19:00", endTime: "22:30" },
+    { id: 3, masterId: 2, weekday: 0, startTime: "16:00", endTime: "21:00" },
+    { id: 4, masterId: 3, weekday: 5, startTime: "20:00", endTime: "23:30" },
+    { id: 5, masterId: 3, weekday: 6, startTime: "18:00", endTime: "23:30" }
+  ];
+}
+
+function getMasterAvailabilityRules() {
+  const saved = JSON.parse(localStorage.getItem("questhubMasterAvailability") || "null");
+
+  if (Array.isArray(saved) && saved.length) return saved;
+
+  const defaults = getDefaultMasterAvailability();
+  localStorage.setItem("questhubMasterAvailability", JSON.stringify(defaults));
+  return defaults;
+}
+
+function getAvailabilityForMaster(masterId) {
+  return getMasterAvailabilityRules().filter(rule => Number(rule.masterId) === Number(masterId));
+}
+
+function getBookings() {
+  return JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+}
+
+function hasBookingOverlap(masterId, date, startTime, endTime) {
+  const start = timeToMinutes(startTime);
+  const end = timeToMinutes(endTime);
+
+  return getBookings().some(booking => {
+    if (Number(booking.masterId) !== Number(masterId)) return false;
+    if (booking.date !== date) return false;
+    if (booking.status === "Rifiutata") return false;
+
+    const bookingStart = timeToMinutes(booking.startTime || booking.time);
+    const bookingEnd = timeToMinutes(booking.endTime || minutesToTime(bookingStart + (booking.durationMinutes || 120)));
+
+    return start < bookingEnd && end > bookingStart;
+  });
+}
+
+function getDaySlots(story, date) {
+  const duration = getStoryDurationMinutes(story);
+  const step = duration;
+  const rules = getAvailabilityForMaster(story.masterId).filter(rule => Number(rule.weekday) === date.getDay());
+  const dateIso = formatISODate(date);
+  const slots = [];
+  const seen = new Set();
+
+  rules.forEach(rule => {
+    const start = timeToMinutes(rule.startTime);
+    const end = timeToMinutes(rule.endTime);
+
+    for (let current = start; current + duration <= end; current += step) {
+      const startTime = minutesToTime(current);
+      const endTime = minutesToTime(current + duration);
+      const key = `${dateIso}-${startTime}-${endTime}`;
+
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const occupied = hasBookingOverlap(story.masterId, dateIso, startTime, endTime);
+
+      slots.push({
+        date: dateIso,
+        startTime,
+        endTime,
+        durationMinutes: duration,
+        occupied
+      });
+    }
+  });
+
+  return slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+}
+
+function renderBookingCalendar(story = currentStory) {
+  const container = document.getElementById("bookingCalendar");
+  if (!container || !story) return;
+
+  const baseDate = addDays(new Date(), bookingCalendarOffsetDays);
+  const days = Array.from({ length: 4 }, (_, index) => addDays(baseDate, index));
+  const slotsByDay = days.map(day => ({ day, slots: getDaySlots(story, day) }));
+  const allTimes = Array.from(new Set(slotsByDay.flatMap(item => item.slots.map(slot => slot.startTime)))).sort();
+  const visibleTimes = bookingCalendarExpanded ? allTimes : allTimes.slice(0, 5);
+
+  if (!allTimes.length) {
+    container.innerHTML = `
+      <div class="booking-calendar-empty">
+        <p>Nessuna disponibilità nei prossimi giorni mostrati.</p>
+        <button class="light" onclick="shiftBookingCalendar(4)">Mostra giorni successivi</button>
+      </div>
+    `;
     return;
   }
 
-  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  const head = days.map(day => `
+    <div class="booking-calendar-day">
+      <strong>${formatItalianDate(day).split(" ")[0]}</strong>
+      <span>${formatItalianDate(day).replace(formatItalianDate(day).split(" ")[0], "").trim()}</span>
+    </div>
+  `).join("");
 
-  bookings.push({
+  const rows = visibleTimes.map(time => {
+    const cells = slotsByDay.map(({ day, slots }) => {
+      const slot = slots.find(item => item.startTime === time);
+
+      if (!slot) return `<div class="booking-slot-cell empty">-</div>`;
+
+      if (slot.occupied) {
+        return `
+          <div class="booking-slot-cell occupied">
+            <span>${slot.startTime}</span>
+            <small>${slot.endTime}</small>
+          </div>
+        `;
+      }
+
+      const selected = selectedBookingSlot
+        && selectedBookingSlot.date === slot.date
+        && selectedBookingSlot.startTime === slot.startTime;
+
+      return `
+        <button
+          type="button"
+          class="booking-slot-cell available ${selected ? "selected" : ""}"
+          onclick="selectBookingSlot('${slot.date}', '${slot.startTime}', '${slot.endTime}')"
+          aria-label="Prenota dalle ${slot.startTime} alle ${slot.endTime}"
+        >
+          <span>${slot.startTime}</span>
+          <small>${slot.endTime}</small>
+        </button>
+      `;
+    }).join("");
+
+    return `<div class="booking-calendar-row">${cells}</div>`;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="booking-calendar-toolbar">
+      <button class="calendar-nav-button" type="button" onclick="shiftBookingCalendar(-4)">‹</button>
+      <div class="booking-calendar-head">${head}</div>
+      <button class="calendar-nav-button" type="button" onclick="shiftBookingCalendar(4)">›</button>
+    </div>
+    <div class="booking-calendar-body">${rows}</div>
+    ${allTimes.length > 5 ? `<button class="calendar-more-button" type="button" onclick="toggleMoreBookingTimes()">${bookingCalendarExpanded ? "Mostra meno orari" : "Mostra più orari"}⌄</button>` : ""}
+  `;
+}
+
+function shiftBookingCalendar(days) {
+  bookingCalendarOffsetDays = Math.max(0, bookingCalendarOffsetDays + days);
+  selectedBookingSlot = null;
+  renderBookingCalendar(currentStory);
+  updateSelectedSlotLabel();
+}
+
+function toggleMoreBookingTimes() {
+  bookingCalendarExpanded = !bookingCalendarExpanded;
+  renderBookingCalendar(currentStory);
+}
+
+function selectBookingSlot(date, startTime, endTime) {
+  selectedBookingSlot = { date, startTime, endTime };
+  renderBookingCalendar(currentStory);
+  updateSelectedSlotLabel();
+}
+
+function updateSelectedSlotLabel() {
+  const label = document.getElementById("bookingSelectedSlotLabel");
+  if (!label) return;
+
+  if (!selectedBookingSlot) {
+    label.textContent = "Nessuno slot selezionato.";
+    return;
+  }
+
+  label.textContent = `Slot selezionato: ${formatLongItalianDate(selectedBookingSlot.date)}, ${selectedBookingSlot.startTime}–${selectedBookingSlot.endTime}`;
+}
+
+async function notifyMasterBookingEmail(booking) {
+  if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) return;
+
+  try {
+    const { error } = await supabaseClient.functions.invoke("send-booking-email", {
+      body: { booking }
+    });
+
+    if (error) {
+      console.warn("Email prenotazione non inviata. Configura la Edge Function send-booking-email.", error);
+    }
+  } catch (error) {
+    console.warn("Email prenotazione non inviata. Configura la Edge Function send-booking-email.", error);
+  }
+}
+
+async function createBooking() {
+  if (!currentStory || !currentMaster) return;
+
+  const profile = getUserProfile();
+  if (!profile.email) {
+    showToast("Devi accedere per prenotare una sessione.", "warning");
+    go("login");
+    return;
+  }
+
+  const group = document.getElementById("bookingGroup")?.value.trim() || "";
+  const players = document.getElementById("bookingPlayers")?.value || "";
+  const message = document.getElementById("bookingMessage")?.value.trim() || "";
+
+  if (!selectedBookingSlot) {
+    showToast("Seleziona uno slot libero dal calendario.", "warning");
+    return;
+  }
+
+  if (!group || !players) {
+    showToast("Inserisci nome gruppo/referente e numero giocatori.", "warning");
+    return;
+  }
+
+  if (hasBookingOverlap(currentStory.masterId, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
+    showToast("Questo slot è appena stato occupato. Scegli un altro orario.", "warning");
+    renderBookingCalendar(currentStory);
+    return;
+  }
+
+  const bookings = getBookings();
+  const booking = {
     id: Date.now(),
     storyId: currentStory.id,
+    masterId: currentStory.masterId,
     story: currentStory.title,
     master: currentMaster.name,
     group,
-    date,
-    time,
+    date: selectedBookingSlot.date,
+    time: selectedBookingSlot.startTime,
+    startTime: selectedBookingSlot.startTime,
+    endTime: selectedBookingSlot.endTime,
+    durationMinutes: getStoryDurationMinutes(currentStory),
     players,
     message,
     status: "In attesa"
-  });
+  };
 
+  bookings.push(booking);
   localStorage.setItem("questhubBookings", JSON.stringify(bookings));
 
-  document.getElementById("bookNotice").style.display = "block";
+  const notice = document.getElementById("bookNotice");
+  if (notice) notice.style.display = "block";
 
   document.getElementById("bookingGroup").value = "";
-  document.getElementById("bookingDate").value = "";
-  document.getElementById("bookingTime").value = "";
   document.getElementById("bookingPlayers").value = "";
   document.getElementById("bookingMessage").value = "";
+  selectedBookingSlot = null;
 
-  showToast("Richiesta di prenotazione inviata.", "success");
+  renderBookingCalendar(currentStory);
+  updateSelectedSlotLabel();
+
+  showToast("Richiesta di prenotazione inviata al Master.", "success");
   addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success");
+  await notifyMasterBookingEmail(booking);
 }
 
 function renderDashboardBookings() {
@@ -910,7 +1305,7 @@ function renderDashboardBookings() {
             <h3>${booking.story}</h3>
             <p><strong>Gruppo:</strong> ${booking.group}</p>
             <p><strong>Master:</strong> ${booking.master}</p>
-            <p><strong>Data:</strong> ${booking.date} · ${booking.time}</p>
+            <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
             <p><strong>Giocatori:</strong> ${booking.players}</p>
             <p><strong>Messaggio:</strong> ${booking.message || "Nessun messaggio"}</p>
             <p><strong>Stato:</strong> <span class="status ${statusClass}">${booking.status}</span></p>
@@ -977,6 +1372,18 @@ function getJoinSessions() {
   return JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
 }
 
+function getJoinedOpenSessions() {
+  return JSON.parse(localStorage.getItem("questhubJoinedOpenSessions") || "[]");
+}
+
+function saveJoinedOpenSessions(ids) {
+  localStorage.setItem("questhubJoinedOpenSessions", JSON.stringify(ids));
+}
+
+function hasJoinedOpenSession(storyId) {
+  return getJoinedOpenSessions().includes(Number(storyId));
+}
+
 function renderJoinSession(story) {
   const container = document.getElementById("joinSessionStatus");
   if (!container || !story) return;
@@ -1000,27 +1407,103 @@ function renderJoinSession(story) {
   if (session.joined >= session.maxPlayers) status = "Gruppo completo";
   else if (session.joined >= session.minPlayers) status = "Sessione pronta a partire";
 
+  const joined = hasJoinedOpenSession(story.id);
+
   container.innerHTML = `
     <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
     <p>Minimo per partire: ${session.minPlayers}</p>
-    <p><strong>${status}</strong></p>
+    <p><strong>${joined ? "Ti sei già unito a questa sessione" : status}</strong></p>
   `;
 }
 
-function joinPublicSession() {
-  if (!currentStory) return;
+function getOpenSessionStories() {
+  return getAllStories().filter(story => story.type === "Con Master");
+}
+
+function renderOpenSessions() {
+  const containers = document.querySelectorAll("[data-open-sessions-list]");
+  const count = document.getElementById("openSessionsCount");
+  if (!containers.length) return;
+
+  const sessions = getJoinSessions();
+  const joinedIds = getJoinedOpenSessions();
+  const allOpenStories = getOpenSessionStories();
+  const visibleOpenStories = allOpenStories.filter(story => !joinedIds.includes(Number(story.id)));
+
+  if (count) {
+    count.textContent = visibleOpenStories.length === 1
+      ? "1 sessione aperta"
+      : `${visibleOpenStories.length} sessioni aperte`;
+  }
+
+  function buildHtml(stories, isMasterView = false) {
+    return stories.length
+      ? stories.map(story => {
+          const session = sessions[story.id] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
+          const genreClass = getGenreClass(story.genre);
+          const status = session.joined >= session.maxPlayers
+            ? "Completa"
+            : session.joined >= session.minPlayers
+              ? "Pronta a partire"
+              : "In attesa di giocatori";
+          const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
+          const alreadyJoined = joinedIds.includes(Number(story.id));
+
+          return `
+            <div class="card open-session-card ${alreadyJoined ? "joined" : ""}">
+              <div class="open-session-cover ${genreClass}" ${coverStyle}></div>
+              <div class="open-session-content">
+                <span class="tag ${genreClass}">${story.genre}</span>
+                <h3>${story.title}</h3>
+                <p>${story.desc}</p>
+                <div class="open-session-meta">
+                  <span><strong>Master:</strong> ${story.master}</span>
+                  <span><strong>Durata:</strong> ${story.duration}</span>
+                  <span><strong>Posti:</strong> ${session.joined} / ${session.maxPlayers}</span>
+                  <span><strong>Stato:</strong> ${alreadyJoined ? "Già unito" : status}</span>
+                </div>
+                <div class="open-session-actions">
+                  <button class="light" onclick="openStory(${story.id})">Vedi storia</button>
+                  ${isMasterView ? "" : alreadyJoined ? `<button class="light" onclick="openStory(${story.id})">Già unito</button>` : `<button class="primary" onclick="joinOpenSession(${story.id})">Unisciti</button>`}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("")
+      : "<p>Non ci sono sessioni aperte al momento.</p>";
+  }
+
+  containers.forEach(container => {
+    const isMasterView = Boolean(container.closest("#area-master"));
+    container.innerHTML = buildHtml(isMasterView ? allOpenStories : visibleOpenStories, isMasterView);
+  });
+}
+
+function joinOpenSession(storyId) {
+  const profile = getUserProfile();
+
+  if (!profile.email) {
+    showToast("Devi accedere per unirti a una sessione.", "warning");
+    go("login");
+    return;
+  }
+
+  const story = getAllStories().find(item => Number(item.id) === Number(storyId));
+  if (!story) return;
+
+  if (hasJoinedOpenSession(story.id)) {
+    showToast("Ti sei già unito a questa storia.", "success");
+    openStory(story.id);
+    return;
+  }
 
   const sessions = getJoinSessions();
 
-  if (!sessions[currentStory.id]) {
-    sessions[currentStory.id] = {
-      joined: 0,
-      minPlayers: 2,
-      maxPlayers: 6
-    };
+  if (!sessions[story.id]) {
+    sessions[story.id] = { joined: 0, minPlayers: 2, maxPlayers: 6 };
   }
 
-  const session = sessions[currentStory.id];
+  const session = sessions[story.id];
 
   if (session.joined >= session.maxPlayers) {
     showToast("Gruppo già completo.", "warning");
@@ -1028,19 +1511,26 @@ function joinPublicSession() {
   }
 
   session.joined += 1;
-
   localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
 
-  renderJoinSession(currentStory);
+  const joined = getJoinedOpenSessions();
+  joined.push(Number(story.id));
+  saveJoinedOpenSessions(Array.from(new Set(joined)));
 
-  addNotification(`Ti sei unito alla sessione pubblica: ${currentStory.title}`, "success");
+  addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success");
+  showToast("Ti sei unito a questa storia.", "success");
 
   if (session.joined >= session.minPlayers) {
-    showToast("Sessione pronta a partire!", "success");
-    addNotification(`La sessione "${currentStory.title}" è pronta a partire.`, "success");
-  } else {
-    showToast("Ti sei unito alla sessione pubblica.", "success");
+    addNotification(`La sessione "${story.title}" è pronta a partire.`, "success");
   }
+
+  renderOpenSessions();
+  openStory(story.id);
+}
+
+function joinPublicSession() {
+  if (!currentStory) return;
+  joinOpenSession(currentStory.id);
 }
 
 /* CREATE STORY */
@@ -1164,7 +1654,7 @@ function createStory() {
   showToast("Storia pubblicata correttamente.", "success");
   addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success");
 
-  document.querySelectorAll("#dashboard input, #dashboard textarea, #dashboard select")
+  document.querySelectorAll("#crea-storia input, #crea-storia textarea, #crea-storia select, #dashboard input, #dashboard textarea, #dashboard select")
     .forEach(field => field.value = "");
 
   const materialsBuilder = document.getElementById("materialsBuilder");
@@ -1173,6 +1663,7 @@ function createStory() {
   togglePriceField();
   renderDashboardStats();
   renderFeatured();
+  renderCatalog();
 }
 
 function renderDashboardStats() {
@@ -1184,6 +1675,69 @@ function renderDashboardStats() {
   storiesCount.textContent = totalStories === 1
     ? "1 storia attiva"
     : totalStories + " storie attive";
+}
+
+
+/* MASTER AVAILABILITY */
+
+function getWeekdayLabel(weekday) {
+  return ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"][Number(weekday)] || "Giorno";
+}
+
+function renderMasterAvailability() {
+  const container = document.getElementById("masterAvailabilityList");
+  if (!container) return;
+
+  const rules = getAvailabilityForMaster(1).sort((a, b) => Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime));
+
+  container.innerHTML = rules.length
+    ? rules.map(rule => `
+        <div class="availability-row">
+          <div>
+            <strong>${getWeekdayLabel(rule.weekday)}</strong>
+            <span>${rule.startTime}–${rule.endTime}</span>
+          </div>
+          <button class="light" type="button" onclick="removeMasterAvailability(${rule.id})">Rimuovi</button>
+        </div>
+      `).join("")
+    : "<p>Non hai ancora impostato disponibilità.</p>";
+}
+
+function addMasterAvailability() {
+  const weekday = document.getElementById("availabilityWeekday")?.value;
+  const startTime = document.getElementById("availabilityStart")?.value;
+  const endTime = document.getElementById("availabilityEnd")?.value;
+
+  if (!weekday || !startTime || !endTime) {
+    showToast("Completa giorno, ora inizio e ora fine.", "warning");
+    return;
+  }
+
+  if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+    showToast("L'orario di fine deve essere dopo l'inizio.", "warning");
+    return;
+  }
+
+  const rules = getMasterAvailabilityRules();
+  rules.push({
+    id: Date.now(),
+    masterId: 1,
+    weekday: Number(weekday),
+    startTime,
+    endTime
+  });
+
+  localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+  renderMasterAvailability();
+  renderBookingCalendar(currentStory);
+  showToast("Disponibilità aggiunta.", "success");
+}
+
+function removeMasterAvailability(id) {
+  const rules = getMasterAvailabilityRules().filter(rule => Number(rule.id) !== Number(id));
+  localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+  renderMasterAvailability();
+  renderBookingCalendar(currentStory);
 }
 
 /* MY STORIES */
@@ -1213,7 +1767,7 @@ function renderMyStories() {
     ? bookings.map(booking => `
         <div class="card">
           <h3>${booking.story}</h3>
-          <p><strong>Data:</strong> ${booking.date} · ${booking.time}</p>
+          <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
           <p><strong>Giocatori:</strong> ${booking.players}</p>
           <p><strong>Stato:</strong> ${booking.status}</p>
         </div>
@@ -1227,6 +1781,10 @@ function getNotifications() {
   return JSON.parse(localStorage.getItem("questhubNotifications") || "[]");
 }
 
+function saveNotifications(notifications) {
+  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+}
+
 function addNotification(message, type = "info") {
   const notifications = getNotifications();
 
@@ -1238,7 +1796,7 @@ function addNotification(message, type = "info") {
     date: new Date().toLocaleString()
   });
 
-  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+  saveNotifications(notifications);
   updateNotificationBadge();
 }
 
@@ -1258,18 +1816,49 @@ function renderNotifications() {
     : "<p>Non hai notifiche.</p>";
 }
 
-function clearNotifications() {
-  const notifications = getNotifications().map(notification => ({
+function markNotificationsAsRead(showMessage = false) {
+  const notifications = getNotifications();
+  const hasUnread = notifications.some(notification => !notification.read);
+
+  if (!hasUnread) return;
+
+  const updated = notifications.map(notification => ({
     ...notification,
     read: true
   }));
 
-  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+  saveNotifications(updated);
   updateNotificationBadge();
   renderNotifications();
   renderNotificationsPreview();
 
-  showToast("Notifiche segnate come lette.", "success");
+  if (showMessage) {
+    showToast("Notifiche segnate come lette.", "success");
+  }
+}
+
+function clearNotifications() {
+  markNotificationsAsRead(true);
+}
+
+function handleNotificationButtonClick(event) {
+  if (event) event.stopPropagation();
+
+  const profile = getUserProfile();
+
+  if (!profile.email) {
+    closeNotificationsDropdown(false);
+    return;
+  }
+
+  const dropdown = document.getElementById("notificationsDropdown");
+  const isOpen = dropdown?.classList.contains("open");
+
+  if (isOpen) {
+    closeNotificationsDropdown(true);
+  } else {
+    openNotificationsDropdown();
+  }
 }
 
 function updateNotificationBadge() {
@@ -1285,28 +1874,43 @@ function updateNotificationBadge() {
   badge.style.display = unread > 0 ? "grid" : "none";
 }
 
-
-function closeNotificationsDropdown() {
-  const dropdown = document.getElementById("notificationsDropdown");
-  if (dropdown) dropdown.classList.remove("open");
-}
-
-function toggleNotificationsDropdown() {
+function openNotificationsDropdown() {
   const profile = getUserProfile();
 
   if (!profile.email) {
-    closeNotificationsDropdown();
+    closeNotificationsDropdown(false);
     return;
   }
 
   const dropdown = document.getElementById("notificationsDropdown");
   if (!dropdown) return;
 
-  dropdown.classList.toggle("open");
+  renderNotificationsPreview();
+  dropdown.classList.add("open");
+}
 
-  if (dropdown.classList.contains("open")) {
-    renderNotificationsPreview();
+function closeNotificationsDropdown(markAsRead = true) {
+  const dropdown = document.getElementById("notificationsDropdown");
+  const wasOpen = dropdown?.classList.contains("open");
+
+  if (dropdown) dropdown.classList.remove("open");
+
+  if (wasOpen && markAsRead) {
+    markNotificationsAsRead(false);
   }
+}
+
+function toggleNotificationsDropdown() {
+  const dropdown = document.getElementById("notificationsDropdown");
+  if (dropdown?.classList.contains("open")) {
+    closeNotificationsDropdown(true);
+  } else {
+    openNotificationsDropdown();
+  }
+}
+
+function handleNotificationItemClick(notificationId) {
+  closeNotificationsDropdown(true);
 }
 
 function renderNotificationsPreview() {
@@ -1317,10 +1921,10 @@ function renderNotificationsPreview() {
 
   container.innerHTML = notifications.length
     ? notifications.map(notification => `
-        <div class="notification-preview-item">
+        <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick="handleNotificationItemClick(${notification.id})">
           <p><strong>${notification.message}</strong></p>
           <small>${notification.date}</small>
-        </div>
+        </button>
       `).join("")
     : "<p>Nessuna notifica.</p>";
 }
@@ -1448,7 +2052,29 @@ function goCreateStory() {
     return;
   }
 
-  go("dashboard");
+  go("crea-storia");
+}
+
+function toggleUserMenu(event) {
+  if (event) event.stopPropagation();
+
+  const profile = getUserProfile();
+  if (!profile.email) return;
+
+  const menu = document.getElementById("userDropdown");
+  const chip = document.getElementById("headerUserChip");
+  if (!menu) return;
+
+  menu.classList.toggle("open");
+  if (chip) chip.setAttribute("aria-expanded", menu.classList.contains("open") ? "true" : "false");
+}
+
+function closeUserMenu() {
+  const menu = document.getElementById("userDropdown");
+  const chip = document.getElementById("headerUserChip");
+
+  if (menu) menu.classList.remove("open");
+  if (chip) chip.setAttribute("aria-expanded", "false");
 }
 
 function openProfileEdit() {
@@ -1490,6 +2116,11 @@ function closeProfileEditOnBackdrop(event) {
   }
 }
 
+function scrollToProfileReviews() {
+  const section = document.getElementById("profileReviewsSection") || document.getElementById("profileReviewsList");
+  if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function getProfileReviews() {
   return [
     {
@@ -1506,20 +2137,49 @@ function getProfileReviews() {
       author: "Davide",
       rating: 4,
       text: "Bella esperienza, storia interessante e ben organizzata."
+    },
+    {
+      author: "Giulia",
+      rating: 5,
+      text: "La storia è stata gestita con grande cura e tutti hanno avuto spazio."
+    },
+    {
+      author: "Nico",
+      rating: 4,
+      text: "Molto bella la parte investigativa, qualche passaggio poteva essere più rapido."
+    },
+    {
+      author: "Sara",
+      rating: 3,
+      text: "Buona sessione, atmosfera riuscita, ma avrei preferito più interazione."
+    },
+    {
+      author: "Luca",
+      rating: 5,
+      text: "Master preparato e finale memorabile."
     }
   ];
 }
 
+function setReviewFilter(rating) {
+  profileReviewFilter = String(rating);
+  visibleReviewsCount = 3;
+  renderUserReviews();
+}
+
+function showMoreReviews() {
+  visibleReviewsCount += 3;
+  renderUserReviews();
+}
 
 function renderUserReviews() {
   const container = document.getElementById("profileReviewsList");
   if (!container) return;
 
-  const filter = document.getElementById("reviewFilter")?.value || "all";
   const reviews = getProfileReviews();
-  const filtered = filter === "all"
+  const filtered = profileReviewFilter === "all"
     ? reviews
-    : reviews.filter(review => String(review.rating) === filter);
+    : reviews.filter(review => String(review.rating) === profileReviewFilter);
 
   const average = reviews.length
     ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)
@@ -1528,34 +2188,77 @@ function renderUserReviews() {
   document.querySelectorAll(".profile-rating-box strong, .restaurant-review-summary strong")
     .forEach(element => element.textContent = average);
 
-  container.innerHTML = filtered.length
-    ? filtered.map(review => `
-        <div class="card review-card">
-          <p class="review-stars">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</p>
-          <p><strong>${review.author}</strong></p>
+  const filters = document.getElementById("profileReviewFilters");
+  if (filters) {
+    filters.innerHTML = [5, 4, 3, 2, 1].map(rating => {
+      const count = reviews.filter(review => review.rating === rating).length;
+      const percent = reviews.length ? Math.round((count / reviews.length) * 100) : 0;
+      const active = profileReviewFilter === String(rating);
+
+      return `
+        <button type="button" class="review-filter-row ${active ? "active" : ""}" onclick="setReviewFilter('${rating}')">
+          <span>${rating} stelle</span>
+          <i><b style="width:${percent}%"></b></i>
+          <strong>${count}</strong>
+        </button>
+      `;
+    }).join("");
+  }
+
+  const activeFilter = document.getElementById("activeReviewFilter");
+  if (activeFilter) {
+    activeFilter.innerHTML = profileReviewFilter === "all"
+      ? ""
+      : `<button class="light" type="button" onclick="setReviewFilter('all')">Filtro attivo: ${profileReviewFilter} stelle ×</button>`;
+  }
+
+  const visible = filtered.slice(0, visibleReviewsCount);
+
+  container.innerHTML = visible.length
+    ? visible.map(review => `
+        <article class="compact-review-card">
+          <div>
+            <strong>${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</strong>
+            <span>${review.author}</span>
+          </div>
           <p>${review.text}</p>
-        </div>
+        </article>
       `).join("")
     : "<p>Nessuna recensione con questo filtro.</p>";
+
+  const actions = document.getElementById("profileReviewsActions");
+  if (actions) {
+    actions.innerHTML = filtered.length > visibleReviewsCount
+      ? `<button class="light" type="button" onclick="showMoreReviews()">Mostra altre</button>`
+      : "";
+  }
 }
 
 function setupGlobalUiHandlers() {
   document.addEventListener("click", function (event) {
-    const dropdown = document.getElementById("notificationsDropdown");
-    const button = document.getElementById("notificationButton");
+    const notificationsDropdown = document.getElementById("notificationsDropdown");
+    const notificationButton = document.getElementById("notificationButton");
+    const userDropdown = document.getElementById("userDropdown");
+    const userMenuWrapper = document.getElementById("userMenuWrapper");
+  const userChip = document.getElementById("headerUserChip");
 
-    if (!dropdown || !button) return;
-
-    if (dropdown.contains(event.target) || button.contains(event.target)) {
-      return;
+    if (notificationsDropdown && notificationButton) {
+      if (!notificationsDropdown.contains(event.target) && !notificationButton.contains(event.target)) {
+        closeNotificationsDropdown(true);
+      }
     }
 
-    closeNotificationsDropdown();
+    if (userDropdown && userChip) {
+      if (!userDropdown.contains(event.target) && !userChip.contains(event.target)) {
+        closeUserMenu();
+      }
+    }
   });
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
-      closeNotificationsDropdown();
+      closeNotificationsDropdown(true);
+      closeUserMenu();
       closeProfileEdit();
     }
   });

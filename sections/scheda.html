@@ -1,86 +1,154 @@
 <section id="scheda" class="page">
   <button class="light" onclick="go('catalogo')">← Torna al catalogo</button>
 
-  <div class="detail">
-    <div class="card">
-      <div id="detailTags"></div>
+  <div class="detail story-detail-layout">
+    <main>
+      <div class="card">
+        <div id="detailTags"></div>
 
-      <h1 id="detailTitle"></h1>
-      <p id="detailDesc"></p>
+        <h1 id="detailTitle"></h1>
+        <p id="detailDesc"></p>
 
-      <div id="detailMedia"></div>
+        <div id="detailMedia"></div>
 
-      <h2>Cosa aspettarsi</h2>
-      <p id="detailLong"></p>
+        <h2>Cosa aspettarsi</h2>
+        <p id="detailLong"></p>
 
-      <hr />
+        <hr />
 
-      <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
-      <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
-      <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
-      <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
+        <div class="story-facts-grid">
+          <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
+          <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
+          <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
+          <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
+        </div>
+      </div>
 
-      <hr />
+      <div class="card story-play-card">
+        <h2>Come vuoi giocare?</h2>
+        <p id="detailAction"></p>
 
-      <h2>Materiali di gioco</h2>
-      <div id="storyMaterials"></div>
-    </div>
+        <div id="storySelfPlayPanel" class="play-mode-panel">
+          <h3>Gioca in autonomia</h3>
+          <p>
+            Questa storia è self-play: puoi sbloccare i materiali e usarli quando vuoi,
+            anche se vuoi fare tu da Master con i tuoi amici.
+          </p>
 
-    <aside class="card">
-      <h2 id="detailPrice"></h2>
-      <p id="detailAction"></p>
+          <button id="unlockStoryButton" class="primary" onclick="unlockCurrentStory()">
+            Sblocca materiali self-play
+          </button>
+        </div>
 
-      <p><strong>Master:</strong> <span id="detailMaster"></span></p>
+        <div id="storyMasterBookingPanel" class="play-mode-panel">
+          <h3>Prenota una sessione con il Master</h3>
+          <p>
+            Scegli uno slot libero nel calendario del Master. Se uno slot è già occupato,
+            resta visibile ma non è prenotabile.
+          </p>
+
+          <div class="booking-choice-grid booking-choice-grid-calendar">
+            <div class="booking-choice-box calendar-choice-box">
+              <div class="booking-calendar-header-copy">
+                <h3>Calendario disponibilità</h3>
+                <p>La durata dello slot segue la durata della storia selezionata.</p>
+              </div>
+
+              <div id="bookingCalendar" class="booking-calendar"></div>
+
+              <div class="selected-slot-box" id="bookingSelectedSlotLabel">
+                Nessuno slot selezionato.
+              </div>
+
+              <input id="bookingGroup" type="text" placeholder="Nome gruppo / referente" />
+
+              <select id="bookingPlayers">
+                <option value="">Numero giocatori</option>
+                <option>1</option>
+                <option>2</option>
+                <option>3</option>
+                <option>4</option>
+                <option>5+</option>
+              </select>
+
+              <textarea id="bookingMessage" placeholder="Messaggio per il Master (facoltativo)"></textarea>
+
+              <button class="primary" onclick="createBooking()">
+                Richiedi prenotazione privata
+              </button>
+            </div>
+
+            <div class="booking-choice-box public-choice-box">
+              <h3>Sessione pubblica join-in</h3>
+              <p>
+                Non hai un gruppo? Entra nella sessione pubblica e gioca con altri utenti.
+              </p>
+
+              <div id="joinSessionStatus"></div>
+
+              <div class="join-session-actions">
+                <button id="joinPublicSessionButton" class="dark" onclick="joinPublicSession()">
+                  Partecipa alla sessione
+                </button>
+
+                <button id="cancelJoinSessionButton" class="light danger-light" onclick="cancelOpenSession(currentStory?.id)" hidden>
+                  Annulla partecipazione
+                </button>
+
+                <button class="light" onclick="go('sessioni')">
+                  Vedi tutte le sessioni aperte
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="bookNotice" class="notice">
+            Richiesta inviata correttamente. Ora compare nell’Area Master.
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Materiali di gioco</h2>
+        <div id="storyMaterials"></div>
+      </div>
+    </main>
+
+    <aside class="card story-summary-card payment-summary-card">
+      <div class="payment-summary-header">
+        <span>Pagamento</span>
+        <h2 id="paymentTotalPrice">0€</h2>
+        <span id="detailPrice" hidden></span>
+      </div>
+
+      <p class="payment-story-title" id="paymentStoryTitle"></p>
+      <p><strong>Master / Autore:</strong> <span id="detailMaster"></span></p>
+      <p class="payment-hint" id="paymentHint"></p>
+
+      <div class="payment-methods" aria-label="Modalità di pagamento">
+        <label>
+          <input type="radio" name="paymentMethod" value="card" checked />
+          <span>Carta</span>
+        </label>
+        <label>
+          <input type="radio" name="paymentMethod" value="paypal" />
+          <span>PayPal</span>
+        </label>
+        <label>
+          <input type="radio" name="paymentMethod" value="wallet" />
+          <span>Google / Apple Pay</span>
+        </label>
+      </div>
+
+      <button id="paymentButton" class="primary payment-button" onclick="payForCurrentStory()">
+        Paga ora
+      </button>
 
       <button class="light" onclick="openMasterProfile()">Vedi profilo Master</button>
 
-      <button class="primary" onclick="unlockCurrentStory()">
-        Sblocca / Acquista storia
-      </button>
-
-      <h2>Prenota sessione</h2>
-<div class="card">
-  <h2>Join-in Session</h2>
-
-  <p>
-    Non hai un gruppo? Entra nella sessione pubblica e gioca con altri utenti.
-  </p>
-
-  <div id="joinSessionStatus"></div>
-
-  <button class="primary" onclick="joinPublicSession()">
-    Partecipa alla sessione
-  </button>
-</div>
-      <input id="bookingGroup" type="text" placeholder="Nome gruppo / referente" />
-      <input id="bookingDate" type="date" />
-
-      <select id="bookingTime">
-        <option value="">Orario preferito</option>
-        <option>18:00</option>
-        <option>20:00</option>
-        <option>21:00</option>
-        <option>22:00</option>
-      </select>
-
-      <select id="bookingPlayers">
-        <option value="">Numero giocatori</option>
-        <option>1</option>
-        <option>2</option>
-        <option>3</option>
-        <option>4</option>
-        <option>5+</option>
-      </select>
-
-      <textarea id="bookingMessage" placeholder="Messaggio per il Master (facoltativo)"></textarea>
-
-      <button class="primary" onclick="createBooking()">
-        Invia richiesta di prenotazione
-      </button>
-
-      <div id="bookNotice" class="notice">
-        Richiesta inviata correttamente. Ora compare nella Dashboard Master.
-      </div>
+      <small class="payment-note">
+        Pagamento simulato in fase prototipo. In produzione collegheremo Stripe o altro provider.
+      </small>
     </aside>
   </div>
 </section>

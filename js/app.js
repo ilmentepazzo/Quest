@@ -906,7 +906,7 @@ function unlockCurrentStory() {
 
   renderStoryMaterials(currentStory);
   showToast("Storia sbloccata. Ora puoi vedere i materiali riservati.", "success");
-  addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success");
+  addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success", { storyId: currentStory.id });
 }
 
 function openMasterProfile() {
@@ -1067,7 +1067,7 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
   return getBookings().some(booking => {
     if (Number(booking.masterId) !== Number(masterId)) return false;
     if (booking.date !== date) return false;
-    if (booking.status === "Rifiutata") return false;
+    if (["Rifiutata", "Annullata"].includes(booking.status)) return false;
 
     const bookingStart = timeToMinutes(booking.startTime || booking.time);
     const bookingEnd = timeToMinutes(booking.endTime || minutesToTime(bookingStart + (booking.durationMinutes || 120)));
@@ -1293,7 +1293,7 @@ async function createBooking() {
   updateSelectedSlotLabel();
 
   showToast("Richiesta di prenotazione inviata al Master.", "success");
-  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success");
+  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id });
   await notifyMasterBookingEmail(booking);
 }
 
@@ -1315,6 +1315,7 @@ function renderDashboardBookings() {
 
         if (booking.status === "Accettata") statusClass = "accepted";
         if (booking.status === "Rifiutata") statusClass = "rejected";
+        if (booking.status === "Annullata") statusClass = "rejected";
 
         return `
           <div class="card">
@@ -1359,7 +1360,7 @@ function updateBookingStatus(id, status) {
     showToast("Prenotazione accettata. Materiali sbloccati per l’utente.", "success");
 
     if (changedBooking) {
-      addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success");
+      addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success", { storyId: changedBooking.storyId });
     }
   }
 
@@ -1367,9 +1368,42 @@ function updateBookingStatus(id, status) {
     showToast("Prenotazione rifiutata.", "error");
 
     if (changedBooking) {
-      addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error");
+      addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error", { storyId: changedBooking.storyId });
     }
   }
+}
+
+function cancelBooking(id) {
+  const bookings = getBookings();
+  const booking = bookings.find(item => Number(item.id) === Number(id));
+
+  if (!booking) {
+    showToast("Prenotazione non trovata.", "warning");
+    return;
+  }
+
+  if (["Accettata", "Annullata", "Rifiutata"].includes(booking.status)) {
+    showToast("Questa prenotazione non può essere annullata da qui.", "warning");
+    return;
+  }
+
+  const updatedBookings = bookings.map(item => {
+    if (Number(item.id) === Number(id)) {
+      return { ...item, status: "Annullata" };
+    }
+
+    return item;
+  });
+
+  localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+
+  showToast("Prenotazione annullata.", "success");
+  addNotification(`Hai annullato la prenotazione per "${booking.story}".`, "info", { storyId: booking.storyId });
+
+  renderMyStories();
+  renderUserProfile();
+  renderDashboardBookings();
+  renderBookingCalendar(currentStory);
 }
 
 function unlockStoryById(storyId) {
@@ -1417,18 +1451,46 @@ function renderJoinSession(story) {
   }
 
   const session = sessions[story.id];
+  const joined = hasJoinedOpenSession(story.id);
+  const isComplete = Number(session.joined) >= Number(session.maxPlayers);
+  const joinButton = document.getElementById("joinPublicSessionButton");
+  const cancelButton = document.getElementById("cancelJoinSessionButton");
+
+  if (joinButton) {
+    joinButton.hidden = joined || isComplete;
+    joinButton.disabled = joined || isComplete;
+  }
+
+  if (cancelButton) {
+    cancelButton.hidden = !joined;
+  }
+
+  if (joined) {
+    container.innerHTML = `
+      <div class="join-session-confirmation">
+        <div class="join-session-check">✓</div>
+        <div>
+          <strong>Ti sei unito a questa sessione</strong>
+          <p>${session.joined} / ${session.maxPlayers} giocatori iscritti</p>
+          <p>${isComplete ? "Gruppo completo" : "In attesa di conferma"}</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   let status = "In attesa di altri giocatori";
 
-  if (session.joined >= session.maxPlayers) status = "Gruppo completo";
+  if (isComplete) status = "Gruppo completo";
   else if (session.joined >= session.minPlayers) status = "Sessione pronta a partire";
 
-  const joined = hasJoinedOpenSession(story.id);
-
   container.innerHTML = `
-    <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
-    <p>Minimo per partire: ${session.minPlayers}</p>
-    <p><strong>${joined ? "Ti sei già unito a questa sessione" : status}</strong></p>
+    <div class="join-session-status-box ${isComplete ? "is-complete" : ""}">
+      <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
+      <p>Minimo per partire: ${session.minPlayers}</p>
+      <p><strong>${status}</strong></p>
+      ${isComplete ? `<p class="session-full-note">Questa sessione è completa e non accetta altri giocatori.</p>` : ""}
+    </div>
   `;
 }
 
@@ -1444,7 +1506,17 @@ function renderOpenSessions() {
   const sessions = getJoinSessions();
   const joinedIds = getJoinedOpenSessions();
   const allOpenStories = getOpenSessionStories();
-  const visibleOpenStories = allOpenStories.filter(story => !joinedIds.includes(Number(story.id)));
+
+  function getSessionForStory(story) {
+    return sessions[story.id] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
+  }
+
+  const visibleOpenStories = allOpenStories.filter(story => {
+    const session = getSessionForStory(story);
+    const alreadyJoined = joinedIds.includes(Number(story.id));
+    const isComplete = Number(session.joined) >= Number(session.maxPlayers);
+    return !alreadyJoined && !isComplete;
+  });
 
   if (count) {
     count.textContent = visibleOpenStories.length === 1
@@ -1455,18 +1527,29 @@ function renderOpenSessions() {
   function buildHtml(stories, isMasterView = false) {
     return stories.length
       ? stories.map(story => {
-          const session = sessions[story.id] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
+          const session = getSessionForStory(story);
           const genreClass = getGenreClass(story.genre);
-          const status = session.joined >= session.maxPlayers
+          const alreadyJoined = joinedIds.includes(Number(story.id));
+          const isComplete = Number(session.joined) >= Number(session.maxPlayers);
+          const status = isComplete
             ? "Completa"
             : session.joined >= session.minPlayers
               ? "Pronta a partire"
               : "In attesa di giocatori";
           const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
-          const alreadyJoined = joinedIds.includes(Number(story.id));
+          const publicAction = alreadyJoined
+            ? `<button class="light" onclick="openStory(${story.id})">Già unito</button>`
+            : isComplete
+              ? `<button class="light" disabled>Completa</button>`
+              : `<button class="primary" onclick="joinOpenSession(${story.id})">Unisciti</button>`;
 
           return `
-            <div class="card open-session-card ${alreadyJoined ? "joined" : ""}">
+            <div class="card open-session-card ${alreadyJoined ? "joined" : ""} ${isComplete ? "complete" : ""}" data-open-session-card="${story.id}">
+              <div class="join-success-overlay">
+                <div class="join-success-icon">✓</div>
+                <strong>Ti sei unito</strong>
+                <span>Ora apriamo la storia</span>
+              </div>
               <div class="open-session-cover ${genreClass}" ${coverStyle}></div>
               <div class="open-session-content">
                 <span class="tag ${genreClass}">${story.genre}</span>
@@ -1480,7 +1563,7 @@ function renderOpenSessions() {
                 </div>
                 <div class="open-session-actions">
                   <button class="light" onclick="openStory(${story.id})">Vedi storia</button>
-                  ${isMasterView ? "" : alreadyJoined ? `<button class="light" onclick="openStory(${story.id})">Già unito</button>` : `<button class="primary" onclick="joinOpenSession(${story.id})">Unisciti</button>`}
+                  ${isMasterView ? "" : publicAction}
                 </div>
               </div>
             </div>
@@ -1521,8 +1604,9 @@ function joinOpenSession(storyId) {
 
   const session = sessions[story.id];
 
-  if (session.joined >= session.maxPlayers) {
+  if (Number(session.joined) >= Number(session.maxPlayers)) {
     showToast("Gruppo già completo.", "warning");
+    renderOpenSessions();
     return;
   }
 
@@ -1533,20 +1617,64 @@ function joinOpenSession(storyId) {
   joined.push(Number(story.id));
   saveJoinedOpenSessions(Array.from(new Set(joined)));
 
-  addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success");
-  showToast("Ti sei unito a questa storia.", "success");
+  addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id });
 
   if (session.joined >= session.minPlayers) {
-    addNotification(`La sessione "${story.title}" è pronta a partire.`, "success");
+    addNotification(`La sessione "${story.title}" è pronta a partire.`, "success", { storyId: story.id });
   }
 
-  renderOpenSessions();
-  openStory(story.id);
+  const card = document.querySelector(`[data-open-session-card="${story.id}"]`);
+
+  if (card) {
+    card.classList.add("join-success");
+    card.querySelectorAll("button").forEach(button => {
+      button.disabled = true;
+    });
+  }
+
+  showToast("Ti sei unito a questa storia.", "success");
+
+  setTimeout(() => {
+    renderOpenSessions();
+    openStory(story.id);
+  }, card ? 950 : 0);
 }
 
 function joinPublicSession() {
   if (!currentStory) return;
   joinOpenSession(currentStory.id);
+}
+
+function cancelOpenSession(storyId) {
+  const id = Number(storyId);
+
+  if (!id || !hasJoinedOpenSession(id)) {
+    showToast("Non risulti iscritto a questa sessione.", "warning");
+    return;
+  }
+
+  const sessions = getJoinSessions();
+
+  if (sessions[id]) {
+    sessions[id].joined = Math.max(0, Number(sessions[id].joined || 0) - 1);
+    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+  }
+
+  const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => Number(joinedId) !== id);
+  saveJoinedOpenSessions(updatedJoinedIds);
+
+  const story = getAllStories().find(item => Number(item.id) === id);
+  addNotification(`Hai annullato la partecipazione alla sessione${story ? `: ${story.title}` : ""}.`, "info", story ? { storyId: story.id } : {});
+
+  showToast("Partecipazione annullata.", "success");
+
+  if (story && currentStory && Number(currentStory.id) === id) {
+    renderJoinSession(story);
+  }
+
+  renderOpenSessions();
+  renderUserProfile();
+  renderMyStories();
 }
 
 /* CREATE STORY */
@@ -1668,7 +1796,7 @@ function createStory() {
   localStorage.setItem("questhubStories", JSON.stringify(savedStories));
 
   showToast("Storia pubblicata correttamente.", "success");
-  addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success");
+  addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success", { storyId: newStory.id });
 
   document.querySelectorAll("#crea-storia input, #crea-storia textarea, #crea-storia select, #dashboard input, #dashboard textarea, #dashboard select")
     .forEach(field => field.value = "");
@@ -1680,6 +1808,8 @@ function createStory() {
   renderDashboardStats();
   renderFeatured();
   renderCatalog();
+
+  openStory(newStory.id);
 }
 
 function renderDashboardStats() {
@@ -1780,14 +1910,19 @@ function renderMyStories() {
   const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
 
   bookingsContainer.innerHTML = bookings.length
-    ? bookings.map(booking => `
-        <div class="card">
-          <h3>${booking.story}</h3>
-          <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
-          <p><strong>Giocatori:</strong> ${booking.players}</p>
-          <p><strong>Stato:</strong> ${booking.status}</p>
-        </div>
-      `).join("")
+    ? bookings.map(booking => {
+        const canCancel = !["Accettata", "Annullata", "Rifiutata"].includes(booking.status);
+
+        return `
+          <div class="card booking-user-card">
+            <h3>${booking.story}</h3>
+            <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
+            <p><strong>Giocatori:</strong> ${booking.players}</p>
+            <p><strong>Stato:</strong> ${booking.status}</p>
+            ${canCancel ? `<button class="light danger-light" onclick="cancelBooking(${booking.id})">Disdici prenotazione</button>` : ""}
+          </div>
+        `;
+      }).join("")
     : "<p>Non hai ancora prenotazioni.</p>";
 }
 
@@ -1801,7 +1936,7 @@ function saveNotifications(notifications) {
   localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
 }
 
-function addNotification(message, type = "info") {
+function addNotification(message, type = "info", options = {}) {
   const notifications = getNotifications();
 
   notifications.unshift({
@@ -1809,7 +1944,8 @@ function addNotification(message, type = "info") {
     message,
     type,
     read: false,
-    date: new Date().toLocaleString()
+    date: new Date().toLocaleString(),
+    ...options
   });
 
   saveNotifications(notifications);
@@ -1823,12 +1959,20 @@ function renderNotifications() {
   const notifications = getNotifications();
 
   container.innerHTML = notifications.length
-    ? notifications.map(notification => `
-        <div class="card notification-card ${notification.read ? "read" : "unread"}">
-          <p><strong>${notification.message}</strong></p>
-          <p>${notification.date}</p>
-        </div>
-      `).join("")
+    ? notifications.map(notification => {
+        const hasAction = notification.storyId || notification.page;
+
+        return `
+          <div
+            class="card notification-card ${notification.read ? "read" : "unread"} ${hasAction ? "notification-actionable" : ""}"
+            ${hasAction ? `role="button" tabindex="0" onclick="handleNotificationItemClick(${notification.id})"` : ""}
+          >
+            <p><strong>${notification.message}</strong></p>
+            <p>${notification.date}</p>
+            ${hasAction ? `<small>Apri dettaglio</small>` : ""}
+          </div>
+        `;
+      }).join("")
     : "<p>Non hai notifiche.</p>";
 }
 
@@ -1926,7 +2070,20 @@ function toggleNotificationsDropdown() {
 }
 
 function handleNotificationItemClick(notificationId) {
+  const notification = getNotifications().find(item => Number(item.id) === Number(notificationId));
+
   closeNotificationsDropdown(true);
+
+  if (!notification) return;
+
+  if (notification.storyId) {
+    openStory(notification.storyId);
+    return;
+  }
+
+  if (notification.page) {
+    go(notification.page);
+  }
 }
 
 function renderNotificationsPreview() {
@@ -1936,12 +2093,17 @@ function renderNotificationsPreview() {
   const notifications = getNotifications().slice(0, 5);
 
   container.innerHTML = notifications.length
-    ? notifications.map(notification => `
-        <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick="handleNotificationItemClick(${notification.id})">
-          <p><strong>${notification.message}</strong></p>
-          <small>${notification.date}</small>
-        </button>
-      `).join("")
+    ? notifications.map(notification => {
+        const hasAction = notification.storyId || notification.page;
+
+        return `
+          <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick="handleNotificationItemClick(${notification.id})">
+            <p><strong>${notification.message}</strong></p>
+            <small>${notification.date}</small>
+            ${hasAction ? `<em>Apri dettaglio</em>` : ""}
+          </button>
+        `;
+      }).join("")
     : "<p>Nessuna notifica.</p>";
 }
 

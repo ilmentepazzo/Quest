@@ -4,7 +4,7 @@
       <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
 
       <h2 id="profileDisplayName">Utente Lorecast</h2>
-      <p id="profileDisplayEmail">email@example.com</p>
+      <p id="profileDisplayMeta">Membro Lorecast</p>
       <span class="tag" id="profileRoleBadge">Player</span>
 
       <div class="profile-side-stats">
@@ -20,7 +20,7 @@
 
         <div>
           <strong id="profileUnlockedCount">0</strong>
-          <span>Storie sbloccate</span>
+          <span>Storie prenotate</span>
         </div>
       </div>
 
@@ -47,17 +47,36 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>Le mie storie create</h2>
-        <div id="profilePublishedStories" class="profile-story-list">
-          <p>Non hai ancora pubblicato storie.</p>
+      <section class="card profile-library-card">
+        <div class="profile-library-header">
+          <div>
+            <h2>La mia libreria</h2>
+            <p>Gestisci rapidamente storie create, giocate e prenotate.</p>
+          </div>
         </div>
-      </section>
 
-      <section class="card">
-        <h2>Storie giocate</h2>
-        <div id="profilePlayedStories">
-          <p>Non hai ancora partecipato a sessioni.</p>
+        <div class="profile-tabs" role="tablist" aria-label="Libreria profilo">
+          <button class="profile-tab-button active" data-profile-tab="created" onclick="setProfileLibraryTab('created')">Create</button>
+          <button class="profile-tab-button" data-profile-tab="played" onclick="setProfileLibraryTab('played')">Giocate</button>
+          <button class="profile-tab-button" data-profile-tab="booked" onclick="setProfileLibraryTab('booked')">Prenotate</button>
+        </div>
+
+        <div class="profile-tab-panel active" data-profile-panel="created">
+          <div id="profileCreatedStories" class="profile-compact-list">
+            <p>Non hai ancora creato storie.</p>
+          </div>
+        </div>
+
+        <div class="profile-tab-panel" data-profile-panel="played">
+          <div id="profilePlayedStories" class="profile-compact-list">
+            <p>Non hai ancora storie giocate.</p>
+          </div>
+        </div>
+
+        <div class="profile-tab-panel" data-profile-panel="booked">
+          <div id="profileBookedStories" class="profile-compact-list">
+            <p>Non hai ancora storie prenotate.</p>
+          </div>
         </div>
       </section>
 

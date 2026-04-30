@@ -127,7 +127,7 @@ function getAllStories() {
 }
 
 function getUnlockedStories() {
-  return JSON.parse(localStorage.getItem("questhubUnlockedStories") || "[]");
+  return readJsonStorage(getUserScopedKey("questhubUnlockedStories"), []);
 }
 
 function isStoryUnlocked(id) {
@@ -136,6 +136,36 @@ function isStoryUnlocked(id) {
 
 function getUserProfile() {
   return JSON.parse(localStorage.getItem("questhubUserProfile") || "{}");
+}
+
+function getCurrentUserId() {
+  const profile = getUserProfile();
+  return profile.id || profile.user_id || "";
+}
+
+function getUserScopedKey(baseKey) {
+  const userId = getCurrentUserId();
+  return userId ? `${baseKey}:${userId}` : `${baseKey}:guest`;
+}
+
+function readJsonStorage(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getCurrentUserBookings() {
+  const userId = getCurrentUserId();
+  return getBookings().filter(booking => {
+    if (!userId) return false;
+    return booking.user_id && storyId(booking.user_id) === storyId(userId);
+  });
 }
 
 function isCurrentUserStory(story) {
@@ -451,25 +481,24 @@ async function renderUserProfile() {
     if (profileMainName) profileMainName.textContent = "Profilo utente";
     if (roleBadge) roleBadge.textContent = "Guest";
     if (reviewLink) reviewLink.textContent = "0 recensioni ricevute";
-
+    renderProfileLibrary([], [], []);
     return;
   }
 
   await upsertSupabaseProfile(data.user);
+  await loadSupabaseStories();
 
   const profile = getUserProfile();
-  const localSavedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
   const userId = data.user.id;
-  const savedStories = [
-    ...localSavedStories,
-    ...supabaseStoriesCache.filter(story => story.author_id === userId)
-  ];
-  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  const createdStories = supabaseStoriesCache.filter(story => story.author_id && storyId(story.author_id) === storyId(userId));
+  const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
+  const bookedStories = userBookings.filter(booking => !["Annullata", "Rifiutata"].includes(booking.status));
+  const playedStories = userBookings.filter(booking => ["Accettata", "Completata"].includes(booking.status));
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
   const displayName = profile.name || "Utente Lorecast";
-  
+
   const nameInput = document.getElementById("profileName");
   const languageInput = document.getElementById("profileLanguage");
   const status = document.getElementById("masterModeStatus");
@@ -500,46 +529,66 @@ async function renderUserProfile() {
   const bookingsCount = document.getElementById("profileBookingsCount");
   const unlockedCount = document.getElementById("profileUnlockedCount");
 
-  if (storiesCreated) storiesCreated.textContent = savedStories.length;
-  if (bookingsCount) bookingsCount.textContent = bookings.length;
-  if (unlockedCount) unlockedCount.textContent = unlockedIds.length;
+  if (storiesCreated) storiesCreated.textContent = createdStories.length;
+  if (bookingsCount) bookingsCount.textContent = playedStories.length;
+  if (unlockedCount) unlockedCount.textContent = bookedStories.length;
 
-  const published = document.getElementById("profilePublishedStories");
-  if (published) {
-    published.innerHTML = savedStories.length
-      ? savedStories.map(story => {
-          const storyArg = storyJsArg(story.id);
-          return `
-          <div class="card profile-mini-story">
-            <div class="profile-mini-cover ${getGenreClass(story.genre)}">${story.genre}</div>
-            <div>
-              <h3>${story.title}</h3>
-              <p>${story.desc}</p>
-              <button class="primary" onclick='openStory(${storyArg})'>Apri storia</button>
-            </div>
-          </div>
-        `;
-        }).join("")
-      : "<p>Non hai ancora pubblicato storie.</p>";
-  }
-
-  const played = document.getElementById("profilePlayedStories");
-  if (played) {
-    played.innerHTML = bookings.length
-      ? bookings.map(booking => `
-          <div class="card profile-mini-story">
-            <div class="profile-mini-cover">${booking.status || "Sessione"}</div>
-            <div>
-              <h3>${booking.story}</h3>
-              <p><strong>Data:</strong> ${booking.date || "Da definire"} · ${booking.time || ""}</p>
-              <p><strong>Stato:</strong> ${booking.status || "In attesa"}</p>
-            </div>
-          </div>
-        `).join("")
-      : "<p>Non hai ancora partecipato a sessioni.</p>";
-  }
-
+  renderProfileLibrary(createdStories, playedStories, bookedStories);
   renderUserReviews();
+}
+
+function compactStoryCover(story) {
+  if (story?.cover) {
+    return `<div class="profile-mini-cover image-cover"><img src="${story.cover}" alt="${story.title}" /></div>`;
+  }
+  return `<div class="profile-mini-cover ${getGenreClass(story?.genre || "")}">${story?.genre || "Storia"}</div>`;
+}
+
+function renderCompactStoryList(containerId, items, emptyText, type = "story") {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!items.length) {
+    container.innerHTML = `<p>${emptyText}</p>`;
+    return;
+  }
+
+  container.innerHTML = items.map(item => {
+    const story = type === "booking"
+      ? getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: item.message || "", genre: item.status || "Sessione" }
+      : item;
+    const storyArg = storyJsArg(story.id || item.storyId);
+    const meta = type === "booking"
+      ? `${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""} · ${item.status || "In attesa"}`
+      : `${story.genre || ""}${story.type ? ` · ${story.type}` : ""}`;
+
+    return `
+      <article class="profile-compact-item">
+        ${compactStoryCover(story)}
+        <div class="profile-compact-body">
+          <h3>${story.title || item.story || "Storia"}</h3>
+          <p>${meta}</p>
+        </div>
+        <button class="light compact-action" onclick='openStory(${storyArg})'>Apri</button>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderProfileLibrary(createdStories, playedStories, bookedStories) {
+  renderCompactStoryList("profileCreatedStories", createdStories, "Non hai ancora creato storie.");
+  renderCompactStoryList("profilePlayedStories", playedStories, "Non hai ancora storie giocate.", "booking");
+  renderCompactStoryList("profileBookedStories", bookedStories, "Non hai ancora storie prenotate.", "booking");
+}
+
+function setProfileLibraryTab(tabName) {
+  document.querySelectorAll(".profile-tab-button").forEach(button => {
+    button.classList.toggle("active", button.dataset.profileTab === tabName);
+  });
+
+  document.querySelectorAll(".profile-tab-panel").forEach(panel => {
+    panel.classList.toggle("active", panel.dataset.profilePanel === tabName);
+  });
 }
 
 async function uploadProfileAvatar(userId) {
@@ -1034,7 +1083,7 @@ function unlockCurrentStory() {
     unlockedStories.push(currentStory.id);
   }
 
-  localStorage.setItem("questhubUnlockedStories", JSON.stringify(unlockedStories));
+  writeJsonStorage(getUserScopedKey("questhubUnlockedStories"), unlockedStories);
 
   renderStoryMaterials(currentStory);
   showToast("Storia sbloccata. Ora puoi vedere i materiali riservati.", "success");
@@ -1407,7 +1456,8 @@ async function createBooking() {
     durationMinutes: getStoryDurationMinutes(currentStory),
     players,
     message,
-    status: "In attesa"
+    status: "In attesa",
+    user_id: getCurrentUserId()
   };
 
   bookings.push(booking);
@@ -1546,7 +1596,7 @@ function unlockStoryById(id) {
     unlockedStories.push(normalizedId);
   }
 
-  localStorage.setItem("questhubUnlockedStories", JSON.stringify(unlockedStories));
+  writeJsonStorage(getUserScopedKey("questhubUnlockedStories"), unlockedStories);
 }
 
 /* JOIN-IN */
@@ -1556,11 +1606,11 @@ function getJoinSessions() {
 }
 
 function getJoinedOpenSessions() {
-  return JSON.parse(localStorage.getItem("questhubJoinedOpenSessions") || "[]");
+  return readJsonStorage(getUserScopedKey("questhubJoinedOpenSessions"), []);
 }
 
 function saveJoinedOpenSessions(ids) {
-  localStorage.setItem("questhubJoinedOpenSessions", JSON.stringify(ids));
+  writeJsonStorage(getUserScopedKey("questhubJoinedOpenSessions"), ids);
 }
 
 function hasJoinedOpenSession(id) {
@@ -2386,7 +2436,7 @@ function renderMyStories() {
       `).join("")
     : "<p>Non hai ancora storie sbloccate.</p>";
 
-  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  const bookings = getCurrentUserBookings();
 
   bookingsContainer.innerHTML = bookings.length
     ? bookings.map(booking => {
@@ -2408,11 +2458,11 @@ function renderMyStories() {
 /* NOTIFICATIONS */
 
 function getNotifications() {
-  return JSON.parse(localStorage.getItem("questhubNotifications") || "[]");
+  return readJsonStorage(getUserScopedKey("questhubNotifications"), []);
 }
 
 function saveNotifications(notifications) {
-  localStorage.setItem("questhubNotifications", JSON.stringify(notifications));
+  writeJsonStorage(getUserScopedKey("questhubNotifications"), notifications);
 }
 
 function addNotification(message, type = "info", options = {}) {

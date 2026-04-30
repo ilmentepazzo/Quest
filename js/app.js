@@ -5,6 +5,8 @@ let bookingCalendarExpanded = false;
 let selectedBookingSlot = null;
 let profileReviewFilter = "all";
 let visibleReviewsCount = 3;
+let supabaseStoriesCache = [];
+let supabaseStoriesLoaded = false;
 
 const sections = [
   "home",
@@ -36,6 +38,7 @@ async function loadSections() {
     app.insertAdjacentHTML("beforeend", html);
   }
 
+  await loadSupabaseStories();
   renderFeatured();
   go("home");
   setupLanguageSwitcher();
@@ -44,17 +47,90 @@ async function loadSections() {
   await checkAuthSession();
 }
 
+function storyId(value) {
+  return String(value ?? "");
+}
+
+function storyIdsMatch(a, b) {
+  return storyId(a) === storyId(b);
+}
+
+function storyJsArg(id) {
+  return JSON.stringify(storyId(id));
+}
+
+function normalizeSupabaseStory(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    source: "supabase",
+    author_id: row.author_id || null,
+    masterId: row.master_id || row.author_id || row.id,
+    title: row.title,
+    genre: row.genre,
+    type: row.type,
+    price: Number(row.price || 0),
+    isFree: Boolean(row.is_free || Number(row.price || 0) === 0),
+    duration: row.duration || "2 ore",
+    duration_minutes: row.duration_minutes || null,
+    players: row.players || "2–6",
+    level: row.level || "Intermedio",
+    mode: row.mode || "Online",
+    master: row.master || "Master Lorecast",
+    desc: row.description || "",
+    long: row.long_description || row.description || "",
+    cover: row.cover_url || "",
+    trailer: row.trailer_url || "",
+    materials: Array.isArray(row.materials) ? row.materials : [],
+    status: row.status || "published",
+    created_at: row.created_at || null
+  };
+}
+
+async function loadSupabaseStories() {
+  if (!window.supabaseClient) return [];
+
+  const { data, error } = await supabaseClient
+    .from("stories")
+    .select("*")
+    .eq("status", "published")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Impossibile caricare le storie da Supabase:", error.message);
+    supabaseStoriesLoaded = false;
+    supabaseStoriesCache = [];
+    return [];
+  }
+
+  supabaseStoriesCache = (data || [])
+    .map(normalizeSupabaseStory)
+    .filter(Boolean);
+
+  supabaseStoriesLoaded = true;
+  return supabaseStoriesCache;
+}
+
 function getAllStories() {
   const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
-  return [...storiesData, ...savedStories];
+  const merged = [...storiesData, ...savedStories, ...supabaseStoriesCache];
+  const seen = new Set();
+
+  return merged.filter(story => {
+    const id = storyId(story.id);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function getUnlockedStories() {
   return JSON.parse(localStorage.getItem("questhubUnlockedStories") || "[]");
 }
 
-function isStoryUnlocked(storyId) {
-  return getUnlockedStories().includes(storyId);
+function isStoryUnlocked(id) {
+  return getUnlockedStories().map(String).includes(storyId(id));
 }
 
 function getUserProfile() {
@@ -143,6 +219,7 @@ async function upsertSupabaseProfile(user) {
   }
 
   const localProfile = {
+    id: profile.id || fallbackProfile.id,
     name: profile.name || fallbackProfile.name,
     email: profile.email || fallbackProfile.email,
     avatar_url: profile.avatar_url || "",
@@ -366,7 +443,12 @@ async function renderUserProfile() {
   await upsertSupabaseProfile(data.user);
 
   const profile = getUserProfile();
-  const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
+  const localSavedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
+  const userId = data.user.id;
+  const savedStories = [
+    ...localSavedStories,
+    ...supabaseStoriesCache.filter(story => story.author_id === userId)
+  ];
   const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
@@ -410,16 +492,19 @@ async function renderUserProfile() {
   const published = document.getElementById("profilePublishedStories");
   if (published) {
     published.innerHTML = savedStories.length
-      ? savedStories.map(story => `
+      ? savedStories.map(story => {
+          const storyArg = storyJsArg(story.id);
+          return `
           <div class="card profile-mini-story">
             <div class="profile-mini-cover ${getGenreClass(story.genre)}">${story.genre}</div>
             <div>
               <h3>${story.title}</h3>
               <p>${story.desc}</p>
-              <button class="primary" onclick="openStory(${story.id})">Apri storia</button>
+              <button class="primary" onclick='openStory(${storyArg})'>Apri storia</button>
             </div>
           </div>
-        `).join("")
+        `;
+        }).join("")
       : "<p>Non hai ancora pubblicato storie.</p>";
   }
 
@@ -526,6 +611,7 @@ async function saveUserProfile() {
   }
 
   const localProfile = {
+    id: data.id || authData.user.id,
     name: data.name,
     email: data.email,
     avatar_url: data.avatar_url || "",
@@ -567,6 +653,7 @@ async function activateMasterMode() {
   }
 
   localStorage.setItem("questhubUserProfile", JSON.stringify({
+    id: data.id || authData.user.id,
     name: data.name,
     email: data.email,
     avatar_url: data.avatar_url,
@@ -592,6 +679,7 @@ function getGenreClass(genre) {
 }
 
 function card(story) {
+  const storyArg = storyJsArg(story.id);
   const priceLabel = story.isFree || Number(story.price) === 0
     ? `<span class="story-price-free">Gratis</span>`
     : `<span class="story-price-paid">${story.price}€</span>`;
@@ -612,7 +700,7 @@ function card(story) {
        </div>`;
 
   return `
-    <div class="story-card" onclick="openStory(${story.id})">
+    <div class="story-card" onclick='openStory(${storyArg})'>
       ${coverHtml}
 
       <div class="story-card-body">
@@ -676,7 +764,7 @@ function renderCatalog() {
 }
 
 function openStory(id) {
-  const story = getAllStories().find(s => Number(s.id) === Number(id));
+  const story = getAllStories().find(s => storyIdsMatch(s.id, id));
 
   if (!story) {
     showToast("Storia non trovata.", "warning");
@@ -1406,11 +1494,12 @@ function cancelBooking(id) {
   renderBookingCalendar(currentStory);
 }
 
-function unlockStoryById(storyId) {
+function unlockStoryById(id) {
   const unlockedStories = getUnlockedStories();
+  const normalizedId = storyId(id);
 
-  if (!unlockedStories.includes(storyId)) {
-    unlockedStories.push(storyId);
+  if (!unlockedStories.map(String).includes(normalizedId)) {
+    unlockedStories.push(normalizedId);
   }
 
   localStorage.setItem("questhubUnlockedStories", JSON.stringify(unlockedStories));
@@ -1430,8 +1519,8 @@ function saveJoinedOpenSessions(ids) {
   localStorage.setItem("questhubJoinedOpenSessions", JSON.stringify(ids));
 }
 
-function hasJoinedOpenSession(storyId) {
-  return getJoinedOpenSessions().includes(Number(storyId));
+function hasJoinedOpenSession(id) {
+  return getJoinedOpenSessions().map(String).includes(storyId(id));
 }
 
 function renderJoinSession(story) {
@@ -1513,7 +1602,7 @@ function renderOpenSessions() {
 
   const visibleOpenStories = allOpenStories.filter(story => {
     const session = getSessionForStory(story);
-    const alreadyJoined = joinedIds.includes(Number(story.id));
+    const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
     const isComplete = Number(session.joined) >= Number(session.maxPlayers);
     return !alreadyJoined && !isComplete;
   });
@@ -1529,7 +1618,7 @@ function renderOpenSessions() {
       ? stories.map(story => {
           const session = getSessionForStory(story);
           const genreClass = getGenreClass(story.genre);
-          const alreadyJoined = joinedIds.includes(Number(story.id));
+          const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
           const isComplete = Number(session.joined) >= Number(session.maxPlayers);
           const status = isComplete
             ? "Completa"
@@ -1537,11 +1626,12 @@ function renderOpenSessions() {
               ? "Pronta a partire"
               : "In attesa di giocatori";
           const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
+          const storyArg = storyJsArg(story.id);
           const publicAction = alreadyJoined
-            ? `<button class="light" onclick="openStory(${story.id})">Già unito</button>`
+            ? `<button class="light" onclick='openStory(${storyArg})'>Già unito</button>`
             : isComplete
               ? `<button class="light" disabled>Completa</button>`
-              : `<button class="primary" onclick="joinOpenSession(${story.id})">Unisciti</button>`;
+              : `<button class="primary" onclick='joinOpenSession(${storyArg})'>Unisciti</button>`;
 
           return `
             <div class="card open-session-card ${alreadyJoined ? "joined" : ""} ${isComplete ? "complete" : ""}" data-open-session-card="${story.id}">
@@ -1562,7 +1652,7 @@ function renderOpenSessions() {
                   <span><strong>Stato:</strong> ${alreadyJoined ? "Già unito" : status}</span>
                 </div>
                 <div class="open-session-actions">
-                  <button class="light" onclick="openStory(${story.id})">Vedi storia</button>
+                  <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
                   ${isMasterView ? "" : publicAction}
                 </div>
               </div>
@@ -1587,7 +1677,7 @@ function joinOpenSession(storyId) {
     return;
   }
 
-  const story = getAllStories().find(item => Number(item.id) === Number(storyId));
+  const story = getAllStories().find(item => storyIdsMatch(item.id, storyId));
   if (!story) return;
 
   if (hasJoinedOpenSession(story.id)) {
@@ -1614,8 +1704,8 @@ function joinOpenSession(storyId) {
   localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
 
   const joined = getJoinedOpenSessions();
-  joined.push(Number(story.id));
-  saveJoinedOpenSessions(Array.from(new Set(joined)));
+  joined.push(storyId(story.id));
+  saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
 
   addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id });
 
@@ -1645,8 +1735,8 @@ function joinPublicSession() {
   joinOpenSession(currentStory.id);
 }
 
-function cancelOpenSession(storyId) {
-  const id = Number(storyId);
+function cancelOpenSession(storyIdValue) {
+  const id = storyId(storyIdValue);
 
   if (!id || !hasJoinedOpenSession(id)) {
     showToast("Non risulti iscritto a questa sessione.", "warning");
@@ -1660,15 +1750,15 @@ function cancelOpenSession(storyId) {
     localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
   }
 
-  const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => Number(joinedId) !== id);
+  const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => storyId(joinedId) !== id);
   saveJoinedOpenSessions(updatedJoinedIds);
 
-  const story = getAllStories().find(item => Number(item.id) === id);
+  const story = getAllStories().find(item => storyIdsMatch(item.id, id));
   addNotification(`Hai annullato la partecipazione alla sessione${story ? `: ${story.title}` : ""}.`, "info", story ? { storyId: story.id } : {});
 
   showToast("Partecipazione annullata.", "success");
 
-  if (story && currentStory && Number(currentStory.id) === id) {
+  if (story && currentStory && storyIdsMatch(currentStory.id, id)) {
     renderJoinSession(story);
   }
 
@@ -1733,8 +1823,16 @@ function getCreatedMaterials() {
     .filter(material => material.name);
 }
 
-function createStory() {
+async function createStory() {
   clearFieldErrors();
+
+  const { data: authData } = await supabaseClient.auth.getUser();
+
+  if (!authData.user) {
+    showToast("Devi accedere per creare una storia.", "warning");
+    go("login");
+    return;
+  }
 
   const title = document.getElementById("newStoryTitle")?.value.trim() || "";
   const genre = document.getElementById("newStoryGenre")?.value || "";
@@ -1770,30 +1868,45 @@ function createStory() {
     return;
   }
 
-  const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
+  const profile = getUserProfile();
 
-  const newStory = {
-    id: Date.now(),
-    masterId: 1,
+  const payload = {
+    author_id: authData.user.id,
     title,
     genre,
     type,
     price: priceMode === "free" ? 0 : Number(priceValue),
-    isFree: priceMode === "free",
+    is_free: priceMode === "free",
     duration,
+    duration_minutes: getStoryDurationMinutes({ duration }),
     players,
     level: "Intermedio",
     mode: "Online",
-    master: "Arianna V.",
-    desc,
-    long: long || desc,
-    cover,
-    trailer,
-    materials
+    master: profile.name || authData.user.user_metadata?.name || "Master Lorecast",
+    description: desc,
+    long_description: long || desc,
+    cover_url: cover,
+    trailer_url: trailer,
+    materials,
+    status: "published"
   };
 
-  savedStories.push(newStory);
-  localStorage.setItem("questhubStories", JSON.stringify(savedStories));
+  const { data, error } = await supabaseClient
+    .from("stories")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    showToast("Errore pubblicazione storia: " + error.message, "error");
+    return;
+  }
+
+  const newStory = normalizeSupabaseStory(data);
+  supabaseStoriesCache = [
+    newStory,
+    ...supabaseStoriesCache.filter(story => !storyIdsMatch(story.id, newStory.id))
+  ];
 
   showToast("Storia pubblicata correttamente.", "success");
   addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success", { storyId: newStory.id });
@@ -1808,6 +1921,7 @@ function createStory() {
   renderDashboardStats();
   renderFeatured();
   renderCatalog();
+  renderUserProfile();
 
   openStory(newStory.id);
 }
@@ -1895,14 +2009,15 @@ function renderMyStories() {
   if (!unlockedContainer || !bookingsContainer) return;
 
   const unlockedIds = getUnlockedStories();
-  const unlockedStories = getAllStories().filter(story => unlockedIds.includes(story.id));
+  const unlockedStoryIds = unlockedIds.map(String);
+  const unlockedStories = getAllStories().filter(story => unlockedStoryIds.includes(storyId(story.id)));
 
   unlockedContainer.innerHTML = unlockedStories.length
     ? unlockedStories.map(story => `
         <div class="card">
           <h3>${story.title}</h3>
           <p>${story.desc}</p>
-          <button class="primary" onclick="openStory(${story.id})">Apri storia</button>
+          <button class="primary" onclick='openStory(${storyJsArg(story.id)})'>Apri storia</button>
         </div>
       `).join("")
     : "<p>Non hai ancora storie sbloccate.</p>";

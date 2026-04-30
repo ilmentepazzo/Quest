@@ -2621,3 +2621,35 @@ input[type="file"] {
 #createStorySubmitButton + #cancelStoryEditButton {
   margin-left: 10px;
 }
+
+/* HOTFIX 16 - story ownership and creator links */
+.inline-link,
+.creator-profile-link {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: #4f46e5;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.inline-link:hover,
+.creator-profile-link:hover {
+  text-decoration: underline;
+}
+
+.owner-story-actions {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.owner-story-actions[hidden],
+.payment-methods[hidden],
+.payment-button[hidden],
+.payment-note[hidden] {
+  display: none !important;
+}

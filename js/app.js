@@ -7,6 +7,14 @@ let profileReviewFilter = "all";
 let visibleReviewsCount = 3;
 let supabaseStoriesCache = [];
 let supabaseStoriesLoaded = false;
+let supabaseBookingsCache = [];
+let supabaseBookingsLoaded = false;
+let supabaseAvailabilityCache = [];
+let supabaseAvailabilityLoaded = false;
+let supabasePublicSessionsCache = [];
+let supabasePublicSessionsLoaded = false;
+let supabaseSessionParticipantsCache = [];
+let supabaseSessionParticipantsLoaded = false;
 let editingStoryId = null;
 
 const sections = [
@@ -40,12 +48,13 @@ async function loadSections() {
   }
 
   await loadSupabaseStories();
-  renderFeatured();
-  go("home");
   setupLanguageSwitcher();
   applyTranslations();
   updateNotificationBadge();
   await checkAuthSession();
+  await loadSupabaseMarketplaceState();
+  renderFeatured();
+  go("home");
 }
 
 function storyId(value) {
@@ -160,6 +169,148 @@ function writeJsonStorage(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizeTime(value) {
+  if (!value) return "";
+  return String(value).slice(0, 5);
+}
+
+function normalizeBooking(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    storyId: row.story_id,
+    masterId: row.master_id,
+    story: row.story_title || "Storia Lorecast",
+    master: row.master_name || "Master Lorecast",
+    group: row.group_name || "",
+    date: row.booking_date,
+    time: normalizeTime(row.start_time),
+    startTime: normalizeTime(row.start_time),
+    endTime: normalizeTime(row.end_time),
+    durationMinutes: row.duration_minutes || 120,
+    players: row.players || "",
+    message: row.message || "",
+    status: row.status || "In attesa",
+    user_id: row.user_id,
+    created_at: row.created_at || null,
+    source: "supabase"
+  };
+}
+
+function normalizeAvailability(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    masterId: row.master_id,
+    weekday: Number(row.weekday),
+    startTime: normalizeTime(row.start_time),
+    endTime: normalizeTime(row.end_time),
+    source: "supabase"
+  };
+}
+
+function normalizePublicSession(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    storyId: storyId(row.story_id),
+    storyTitle: row.story_title || "",
+    storyAuthorId: row.story_author_id || null,
+    minPlayers: Number(row.min_players || 2),
+    maxPlayers: Number(row.max_players || 6),
+    joined: Number(row.current_players || 0),
+    status: row.status || "open",
+    createdBy: row.created_by || null,
+    source: "supabase"
+  };
+}
+
+async function loadSupabaseMarketplaceState() {
+  await Promise.all([
+    loadSupabaseAvailability(),
+    loadSupabaseBookings(),
+    loadSupabasePublicSessions()
+  ]);
+}
+
+async function loadSupabaseAvailability() {
+  if (!window.supabaseClient) return [];
+
+  const { data, error } = await supabaseClient
+    .from("master_availability")
+    .select("*")
+    .order("weekday", { ascending: true })
+    .order("start_time", { ascending: true });
+
+  if (error) {
+    console.warn("Impossibile caricare disponibilità Master:", error.message);
+    supabaseAvailabilityLoaded = false;
+    return [];
+  }
+
+  supabaseAvailabilityCache = (data || []).map(normalizeAvailability).filter(Boolean);
+  supabaseAvailabilityLoaded = true;
+  return supabaseAvailabilityCache;
+}
+
+async function loadSupabaseBookings() {
+  if (!window.supabaseClient) return [];
+
+  const { data: authData } = await supabaseClient.auth.getUser();
+  if (!authData.user) {
+    supabaseBookingsCache = [];
+    supabaseBookingsLoaded = true;
+    return [];
+  }
+
+  const { data, error } = await supabaseClient
+    .from("bookings")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Impossibile caricare prenotazioni:", error.message);
+    supabaseBookingsLoaded = false;
+    return [];
+  }
+
+  supabaseBookingsCache = (data || []).map(normalizeBooking).filter(Boolean);
+  supabaseBookingsLoaded = true;
+  return supabaseBookingsCache;
+}
+
+async function loadSupabasePublicSessions() {
+  if (!window.supabaseClient) return [];
+
+  const [{ data: sessions, error: sessionsError }, { data: participants, error: participantsError }] = await Promise.all([
+    supabaseClient.from("public_sessions").select("*").order("created_at", { ascending: false }),
+    supabaseClient.from("session_participants").select("*").eq("status", "joined")
+  ]);
+
+  if (sessionsError) {
+    console.warn("Impossibile caricare sessioni aperte:", sessionsError.message);
+    supabasePublicSessionsLoaded = false;
+    return [];
+  }
+
+  if (participantsError) {
+    console.warn("Impossibile caricare partecipanti sessioni:", participantsError.message);
+  }
+
+  supabasePublicSessionsCache = (sessions || []).map(normalizePublicSession).filter(Boolean);
+  supabaseSessionParticipantsCache = participants || [];
+  supabasePublicSessionsLoaded = true;
+  supabaseSessionParticipantsLoaded = !participantsError;
+  return supabasePublicSessionsCache;
+}
+
+function getStoryAuthorId(story) {
+  return story?.author_id || (story?.source === "supabase" ? story?.masterId : null) || null;
+}
+
 function getCurrentUserBookings() {
   const userId = getCurrentUserId();
   return getBookings().filter(booking => {
@@ -205,7 +356,6 @@ function go(page) {
   if (page === "area-master") {
     renderDashboardBookings();
     renderDashboardStats();
-    renderOpenSessions();
     renderMasterAvailability();
   }
 
@@ -292,6 +442,7 @@ async function checkAuthSession() {
 
   updateHeaderUser();
   renderAuthState();
+  await loadSupabaseMarketplaceState();
 }
 
 async function signUpWithEmail() {
@@ -346,6 +497,7 @@ async function loginWithEmail() {
   }
 
   await upsertSupabaseProfile(data.user);
+  await loadSupabaseMarketplaceState();
 
   showToast("Accesso effettuato.", "success");
   updateHeaderUser();
@@ -544,6 +696,53 @@ function compactStoryCover(story) {
   return `<div class="profile-mini-cover ${getGenreClass(story?.genre || "")}">${story?.genre || "Storia"}</div>`;
 }
 
+function getStoryReviewsStore() {
+  return readJsonStorage("questhubStoryReviews", []);
+}
+
+function getStoryReviewSummary(storyIdValue) {
+  const reviews = getStoryReviewsStore().filter(review => storyIdsMatch(review.storyId, storyIdValue));
+
+  if (!reviews.length) {
+    return { count: 0, average: null, label: "Nessuna recensione" };
+  }
+
+  const average = reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length;
+  return {
+    count: reviews.length,
+    average,
+    label: `${average.toFixed(1)} ★ · ${reviews.length} ${reviews.length === 1 ? "recensione" : "recensioni"}`
+  };
+}
+
+function getStoryBookingSummary(storyIdValue) {
+  const bookings = getBookings().filter(booking =>
+    storyIdsMatch(booking.storyId, storyIdValue) &&
+    !["Annullata", "Rifiutata"].includes(booking.status)
+  );
+
+  return {
+    count: bookings.length,
+    label: bookings.length === 1 ? "1 prenotazione" : `${bookings.length} prenotazioni`
+  };
+}
+
+function setProfileTabLabel(tabName, label, count) {
+  const button = document.querySelector(`.profile-tab-button[data-profile-tab="${tabName}"]`);
+  if (!button) return;
+
+  button.innerHTML = `
+    <span>${label}</span>
+    <strong>${count}</strong>
+  `;
+}
+
+function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount) {
+  setProfileTabLabel("created", "Create", createdCount);
+  setProfileTabLabel("played", "Giocate", playedCount);
+  setProfileTabLabel("booked", "Prenotate", bookedCount);
+}
+
 function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -557,10 +756,24 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
     const story = type === "booking"
       ? getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: item.message || "", genre: item.status || "Sessione" }
       : item;
+
     const storyArg = storyJsArg(story.id || item.storyId);
+    const reviewSummary = getStoryReviewSummary(story.id || item.storyId);
+    const bookingSummary = getStoryBookingSummary(story.id || item.storyId);
+
     const meta = type === "booking"
-      ? `${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""} · ${item.status || "In attesa"}`
+      ? `${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
       : `${story.genre || ""}${story.type ? ` · ${story.type}` : ""}`;
+
+    const statusChip = type === "booking"
+      ? `<span class="profile-info-chip status-chip">${item.status || "In attesa"}</span>`
+      : "";
+
+    const bookingChip = type === "story"
+      ? `<span class="profile-info-chip">${bookingSummary.label}</span>`
+      : "";
+
+    const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
 
     return `
       <article class="profile-compact-item">
@@ -569,6 +782,11 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
           <h3>${story.title || item.story || "Storia"}</h3>
           <p>${meta}</p>
         </div>
+        <div class="profile-compact-meta">
+          ${statusChip}
+          ${bookingChip}
+          ${reviewChip}
+        </div>
         <button class="light compact-action" onclick='openStory(${storyArg})'>Apri</button>
       </article>
     `;
@@ -576,6 +794,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 }
 
 function renderProfileLibrary(createdStories, playedStories, bookedStories) {
+  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length);
   renderCompactStoryList("profileCreatedStories", createdStories, "Non hai ancora creato storie.");
   renderCompactStoryList("profilePlayedStories", playedStories, "Non hai ancora storie giocate.", "booking");
   renderCompactStoryList("profileBookedStories", bookedStories, "Non hai ancora storie prenotate.", "booking");
@@ -744,6 +963,7 @@ function getGenreClass(genre) {
 
 function card(story) {
   const storyArg = storyJsArg(story.id);
+  const authorName = story.master || "Autore Lorecast";
   const priceLabel = story.isFree || Number(story.price) === 0
     ? `<span class="story-price-free">Gratis</span>`
     : `<span class="story-price-paid">${story.price}€</span>`;
@@ -775,6 +995,9 @@ function card(story) {
 
         <h2>${story.title}</h2>
         <p>${story.desc}</p>
+        <button type="button" class="story-card-author" onclick='event.stopPropagation(); openStoryAuthorProfile(${storyArg})'>
+          di ${escapeHtml(authorName)}
+        </button>
 
         <div class="story-card-meta">
           <span>${story.players} giocatori</span>
@@ -860,7 +1083,11 @@ function openStory(id) {
   setText("detailPlayers", story.players);
   setText("detailLevel", story.level);
   setText("detailMode", story.mode);
-  setText("detailMaster", story.master || currentMaster?.name || "Master non indicato");
+  setHtml("detailMaster", `
+    <button type="button" class="inline-author-link" onclick='openStoryAuthorProfile(${storyJsArg(story.id)})'>
+      ${escapeHtml(story.master || currentMaster?.name || "Master non indicato")}
+    </button>
+  `);
 
   // Compatibilità con vecchi template: se detailPrice non esiste, non blocca più l'apertura della scheda.
   setText("detailPrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
@@ -1090,6 +1317,56 @@ function unlockCurrentStory() {
   addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success", { storyId: currentStory.id });
 }
 
+function openStoryAuthorProfile(storyIdValue) {
+  const story = getAllStories().find(item => storyIdsMatch(item.id, storyIdValue)) || currentStory;
+
+  if (!story) {
+    showToast("Profilo autore non disponibile.", "warning");
+    return;
+  }
+
+  if (isCurrentUserStory(story)) {
+    go("profilo");
+    return;
+  }
+
+  const demoMaster = mastersData.find(master => Number(master.id) === Number(story.masterId));
+  if (demoMaster) {
+    currentMaster = demoMaster;
+    openMasterProfile();
+    return;
+  }
+
+  renderBasicAuthorProfile(story);
+}
+
+function renderBasicAuthorProfile(story) {
+  const authorName = story.master || "Autore Lorecast";
+
+  const setText = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.textContent = value ?? "";
+  };
+
+  const setHtml = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.innerHTML = value ?? "";
+  };
+
+  setText("masterProfileName", authorName);
+  setText("masterProfileStats", "Autore Lorecast");
+  setText("masterProfileBio", `Creatore della storia \"${story.title}\".`);
+  setText("masterProfileLongBio", "Profilo pubblico in costruzione. Qui mostreremo bio, recensioni, disponibilità e altre storie pubblicate dall’autore.");
+  setText("masterProfilePrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
+  setText("masterProfileMode", story.mode || "Online");
+  setText("masterProfileLanguage", "Italiano");
+  setText("masterProfileAvailability", "Disponibilità gestita dal calendario");
+  setHtml("masterProfileSpecialties", `<span class="tag ${getGenreClass(story.genre)}">${escapeHtml(story.genre)}</span>`);
+  setHtml("masterReviews", "<p>Nessuna recensione pubblica disponibile.</p>");
+
+  go("profilo-master");
+}
+
 function openMasterProfile() {
   if (!currentMaster) return;
 
@@ -1224,8 +1501,11 @@ function getDefaultMasterAvailability() {
 }
 
 function getMasterAvailabilityRules() {
-  const saved = JSON.parse(localStorage.getItem("questhubMasterAvailability") || "null");
+  if (supabaseAvailabilityLoaded) {
+    return [...getDefaultMasterAvailability(), ...supabaseAvailabilityCache];
+  }
 
+  const saved = JSON.parse(localStorage.getItem("questhubMasterAvailability") || "null");
   if (Array.isArray(saved) && saved.length) return saved;
 
   const defaults = getDefaultMasterAvailability();
@@ -1234,10 +1514,11 @@ function getMasterAvailabilityRules() {
 }
 
 function getAvailabilityForMaster(masterId) {
-  return getMasterAvailabilityRules().filter(rule => Number(rule.masterId) === Number(masterId));
+  return getMasterAvailabilityRules().filter(rule => storyIdsMatch(rule.masterId, masterId));
 }
 
 function getBookings() {
+  if (supabaseBookingsLoaded) return supabaseBookingsCache;
   return JSON.parse(localStorage.getItem("questhubBookings") || "[]");
 }
 
@@ -1246,7 +1527,7 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
   const end = timeToMinutes(endTime);
 
   return getBookings().some(booking => {
-    if (Number(booking.masterId) !== Number(masterId)) return false;
+    if (!storyIdsMatch(booking.masterId, masterId)) return false;
     if (booking.date !== date) return false;
     if (["Rifiutata", "Annullata"].includes(booking.status)) return false;
 
@@ -1412,7 +1693,7 @@ async function notifyMasterBookingEmail(booking) {
 }
 
 async function createBooking() {
-  if (!currentStory || !currentMaster) return;
+  if (!currentStory) return;
 
   const profile = getUserProfile();
   if (!profile.email) {
@@ -1435,33 +1716,68 @@ async function createBooking() {
     return;
   }
 
+  await loadSupabaseBookings();
+
   if (hasBookingOverlap(currentStory.masterId, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
     showToast("Questo slot è appena stato occupato. Scegli un altro orario.", "warning");
     renderBookingCalendar(currentStory);
     return;
   }
 
-  const bookings = getBookings();
-  const booking = {
-    id: Date.now(),
-    storyId: currentStory.id,
-    masterId: currentStory.masterId,
-    story: currentStory.title,
-    master: currentMaster.name,
-    group,
-    date: selectedBookingSlot.date,
-    time: selectedBookingSlot.startTime,
-    startTime: selectedBookingSlot.startTime,
-    endTime: selectedBookingSlot.endTime,
-    durationMinutes: getStoryDurationMinutes(currentStory),
+  const bookingPayload = {
+    story_id: storyId(currentStory.id),
+    story_title: currentStory.title,
+    master_id: currentStory.source === "supabase" ? currentStory.author_id : null,
+    user_id: getCurrentUserId(),
+    group_name: group,
+    booking_date: selectedBookingSlot.date,
+    start_time: selectedBookingSlot.startTime,
+    end_time: selectedBookingSlot.endTime,
+    duration_minutes: getStoryDurationMinutes(currentStory),
     players,
     message,
-    status: "In attesa",
-    user_id: getCurrentUserId()
+    status: "In attesa"
   };
 
-  bookings.push(booking);
-  localStorage.setItem("questhubBookings", JSON.stringify(bookings));
+  let booking = null;
+
+  if (window.supabaseClient && getCurrentUserId()) {
+    const { data, error } = await supabaseClient
+      .from("bookings")
+      .insert(bookingPayload)
+      .select()
+      .single();
+
+    if (error) {
+      showToast("Errore prenotazione: " + error.message, "error");
+      return;
+    }
+
+    booking = normalizeBooking(data);
+    supabaseBookingsCache = [booking, ...supabaseBookingsCache.filter(item => !storyIdsMatch(item.id, booking.id))];
+    supabaseBookingsLoaded = true;
+  } else {
+    const bookings = getBookings();
+    booking = {
+      id: Date.now(),
+      storyId: currentStory.id,
+      masterId: currentStory.masterId,
+      story: currentStory.title,
+      master: currentStory.master || currentMaster?.name || "Master Lorecast",
+      group,
+      date: selectedBookingSlot.date,
+      time: selectedBookingSlot.startTime,
+      startTime: selectedBookingSlot.startTime,
+      endTime: selectedBookingSlot.endTime,
+      durationMinutes: getStoryDurationMinutes(currentStory),
+      players,
+      message,
+      status: "In attesa",
+      user_id: getCurrentUserId()
+    };
+    bookings.push(booking);
+    localStorage.setItem("questhubBookings", JSON.stringify(bookings));
+  }
 
   const notice = document.getElementById("bookNotice");
   if (notice) notice.style.display = "block";
@@ -1477,6 +1793,7 @@ async function createBooking() {
   showToast("Richiesta di prenotazione inviata al Master.", "success");
   addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id });
   await notifyMasterBookingEmail(booking);
+  renderUserProfile();
 }
 
 function renderDashboardBookings() {
@@ -1485,7 +1802,14 @@ function renderDashboardBookings() {
 
   if (!container || !count) return;
 
-  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
+  const userId = getCurrentUserId();
+  const myStoryIds = getAllStories()
+    .filter(story => story.source === "supabase" && story.author_id && storyIdsMatch(story.author_id, userId))
+    .map(story => storyId(story.id));
+
+  const bookings = getBookings().filter(booking =>
+    (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId))
+  );
 
   count.textContent = bookings.length === 1
     ? "1 richiesta"
@@ -1496,68 +1820,80 @@ function renderDashboardBookings() {
         let statusClass = "pending";
 
         if (booking.status === "Accettata") statusClass = "accepted";
-        if (booking.status === "Rifiutata") statusClass = "rejected";
-        if (booking.status === "Annullata") statusClass = "rejected";
+        if (["Rifiutata", "Annullata"].includes(booking.status)) statusClass = "rejected";
+
+        const bookingArg = JSON.stringify(storyId(booking.id));
 
         return `
-          <div class="card">
-            <h3>${booking.story}</h3>
-            <p><strong>Gruppo:</strong> ${booking.group}</p>
-            <p><strong>Master:</strong> ${booking.master}</p>
+          <div class="card booking-master-card">
+            <h3>${escapeHtml(booking.story)}</h3>
+            <p><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</p>
             <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
-            <p><strong>Giocatori:</strong> ${booking.players}</p>
-            <p><strong>Messaggio:</strong> ${booking.message || "Nessun messaggio"}</p>
+            <p><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</p>
+            <p><strong>Messaggio:</strong> ${escapeHtml(booking.message || "Nessun messaggio")}</p>
             <p><strong>Stato:</strong> <span class="status ${statusClass}">${booking.status}</span></p>
 
-            <button class="primary" onclick="updateBookingStatus(${booking.id}, 'Accettata')">Accetta</button>
-            <button class="light" onclick="updateBookingStatus(${booking.id}, 'Rifiutata')">Rifiuta</button>
+            ${booking.status === "In attesa" ? `
+              <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
+              <button class="light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
+            ` : ""}
           </div>
         `;
       }).join("")
     : "<p>Nessuna richiesta di prenotazione al momento.</p>";
 }
 
-function updateBookingStatus(id, status) {
-  const bookings = JSON.parse(localStorage.getItem("questhubBookings") || "[]");
-  let changedBooking = null;
+async function updateBookingStatus(id, status) {
+  const bookingId = storyId(id);
+  let changedBooking = getBookings().find(booking => storyIdsMatch(booking.id, bookingId));
 
-  const updatedBookings = bookings.map(booking => {
-    if (booking.id === id) {
-      changedBooking = booking;
+  if (!changedBooking) {
+    showToast("Prenotazione non trovata.", "warning");
+    return;
+  }
 
-      if (status === "Accettata" && booking.storyId) {
-        unlockStoryById(booking.storyId);
-      }
+  if (window.supabaseClient && changedBooking.source === "supabase") {
+    const { data, error } = await supabaseClient
+      .from("bookings")
+      .update({ status })
+      .eq("id", bookingId)
+      .select()
+      .single();
 
-      return { ...booking, status };
+    if (error) {
+      showToast("Errore aggiornamento prenotazione: " + error.message, "error");
+      return;
     }
 
-    return booking;
-  });
+    changedBooking = normalizeBooking(data);
+    supabaseBookingsCache = supabaseBookingsCache.map(booking => storyIdsMatch(booking.id, bookingId) ? changedBooking : booking);
+  } else {
+    const bookings = getBookings();
+    const updatedBookings = bookings.map(booking => storyIdsMatch(booking.id, bookingId) ? { ...booking, status } : booking);
+    localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+  }
 
-  localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+  if (status === "Accettata" && changedBooking.storyId) {
+    unlockStoryById(changedBooking.storyId);
+  }
+
   renderDashboardBookings();
+  renderBookingCalendar(currentStory);
 
   if (status === "Accettata") {
     showToast("Prenotazione accettata. Materiali sbloccati per l’utente.", "success");
-
-    if (changedBooking) {
-      addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success", { storyId: changedBooking.storyId });
-    }
+    addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success", { storyId: changedBooking.storyId });
   }
 
   if (status === "Rifiutata") {
     showToast("Prenotazione rifiutata.", "error");
-
-    if (changedBooking) {
-      addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error", { storyId: changedBooking.storyId });
-    }
+    addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error", { storyId: changedBooking.storyId });
   }
 }
 
-function cancelBooking(id) {
-  const bookings = getBookings();
-  const booking = bookings.find(item => Number(item.id) === Number(id));
+async function cancelBooking(id) {
+  const bookingId = storyId(id);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
 
   if (!booking) {
     showToast("Prenotazione non trovata.", "warning");
@@ -1569,15 +1905,25 @@ function cancelBooking(id) {
     return;
   }
 
-  const updatedBookings = bookings.map(item => {
-    if (Number(item.id) === Number(id)) {
-      return { ...item, status: "Annullata" };
+  if (window.supabaseClient && booking.source === "supabase") {
+    const { data, error } = await supabaseClient
+      .from("bookings")
+      .update({ status: "Annullata" })
+      .eq("id", bookingId)
+      .select()
+      .single();
+
+    if (error) {
+      showToast("Errore annullamento prenotazione: " + error.message, "error");
+      return;
     }
 
-    return item;
-  });
-
-  localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+    const updated = normalizeBooking(data);
+    supabaseBookingsCache = supabaseBookingsCache.map(item => storyIdsMatch(item.id, bookingId) ? updated : item);
+  } else {
+    const updatedBookings = getBookings().map(item => storyIdsMatch(item.id, bookingId) ? { ...item, status: "Annullata" } : item);
+    localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+  }
 
   showToast("Prenotazione annullata.", "success");
   addNotification(`Hai annullato la prenotazione per "${booking.story}".`, "info", { storyId: booking.storyId });
@@ -1602,10 +1948,32 @@ function unlockStoryById(id) {
 /* JOIN-IN */
 
 function getJoinSessions() {
+  if (supabasePublicSessionsLoaded) {
+    return supabasePublicSessionsCache.reduce((acc, session) => {
+      acc[storyId(session.storyId)] = {
+        id: session.id,
+        joined: session.joined,
+        minPlayers: session.minPlayers,
+        maxPlayers: session.maxPlayers,
+        status: session.status,
+        source: "supabase"
+      };
+      return acc;
+    }, {});
+  }
+
   return JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
 }
 
 function getJoinedOpenSessions() {
+  const userId = getCurrentUserId();
+
+  if (supabaseSessionParticipantsLoaded && userId) {
+    return supabaseSessionParticipantsCache
+      .filter(participant => storyIdsMatch(participant.user_id, userId) && participant.status === "joined")
+      .map(participant => storyId(participant.story_id));
+  }
+
   return readJsonStorage(getUserScopedKey("questhubJoinedOpenSessions"), []);
 }
 
@@ -1617,23 +1985,16 @@ function hasJoinedOpenSession(id) {
   return getJoinedOpenSessions().map(String).includes(storyId(id));
 }
 
+function getSessionForStoryId(id) {
+  const sessions = getJoinSessions();
+  return sessions[storyId(id)] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
+}
+
 function renderJoinSession(story) {
   const container = document.getElementById("joinSessionStatus");
   if (!container || !story) return;
 
-  const sessions = getJoinSessions();
-
-  if (!sessions[story.id]) {
-    sessions[story.id] = {
-      joined: 0,
-      minPlayers: 2,
-      maxPlayers: 6
-    };
-
-    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
-  }
-
-  const session = sessions[story.id];
+  const session = getSessionForStoryId(story.id);
   const joined = hasJoinedOpenSession(story.id);
   const isComplete = Number(session.joined) >= Number(session.maxPlayers);
   const joinButton = document.getElementById("joinPublicSessionButton");
@@ -1686,16 +2047,11 @@ function renderOpenSessions() {
   const count = document.getElementById("openSessionsCount");
   if (!containers.length) return;
 
-  const sessions = getJoinSessions();
   const joinedIds = getJoinedOpenSessions();
   const allOpenStories = getOpenSessionStories();
 
-  function getSessionForStory(story) {
-    return sessions[story.id] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
-  }
-
   const visibleOpenStories = allOpenStories.filter(story => {
-    const session = getSessionForStory(story);
+    const session = getSessionForStoryId(story.id);
     const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
     const isComplete = Number(session.joined) >= Number(session.maxPlayers);
     return !alreadyJoined && !isComplete;
@@ -1707,10 +2063,10 @@ function renderOpenSessions() {
       : `${visibleOpenStories.length} sessioni aperte`;
   }
 
-  function buildHtml(stories, isMasterView = false) {
+  function buildHtml(stories) {
     return stories.length
       ? stories.map(story => {
-          const session = getSessionForStory(story);
+          const session = getSessionForStoryId(story.id);
           const genreClass = getGenreClass(story.genre);
           const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
           const isComplete = Number(session.joined) >= Number(session.maxPlayers);
@@ -1747,7 +2103,7 @@ function renderOpenSessions() {
                 </div>
                 <div class="open-session-actions">
                   <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
-                  ${isMasterView ? "" : publicAction}
+                  ${publicAction}
                 </div>
               </div>
             </div>
@@ -1757,12 +2113,46 @@ function renderOpenSessions() {
   }
 
   containers.forEach(container => {
-    const isMasterView = Boolean(container.closest("#area-master"));
-    container.innerHTML = buildHtml(isMasterView ? allOpenStories : visibleOpenStories, isMasterView);
+    container.innerHTML = buildHtml(visibleOpenStories);
   });
 }
 
-function joinOpenSession(storyId) {
+async function ensurePublicSession(story) {
+  const existing = supabasePublicSessionsCache.find(session => storyIdsMatch(session.storyId, story.id));
+  if (existing) return existing;
+
+  const { data: authData } = await supabaseClient.auth.getUser();
+
+  const { data, error } = await supabaseClient
+    .from("public_sessions")
+    .insert({
+      story_id: storyId(story.id),
+      story_title: story.title,
+      story_author_id: story.source === "supabase" ? story.author_id : null,
+      min_players: 2,
+      max_players: 6,
+      current_players: 0,
+      status: "open",
+      created_by: authData.user?.id || getCurrentUserId() || null
+    })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      await loadSupabasePublicSessions();
+      return supabasePublicSessionsCache.find(session => storyIdsMatch(session.storyId, story.id));
+    }
+    throw error;
+  }
+
+  const session = normalizePublicSession(data);
+  supabasePublicSessionsCache = [session, ...supabasePublicSessionsCache];
+  supabasePublicSessionsLoaded = true;
+  return session;
+}
+
+async function joinOpenSession(targetStoryId) {
   const profile = getUserProfile();
 
   if (!profile.email) {
@@ -1771,8 +2161,10 @@ function joinOpenSession(storyId) {
     return;
   }
 
-  const story = getAllStories().find(item => storyIdsMatch(item.id, storyId));
+  const story = getAllStories().find(item => storyIdsMatch(item.id, targetStoryId));
   if (!story) return;
+
+  await loadSupabasePublicSessions();
 
   if (hasJoinedOpenSession(story.id)) {
     showToast("Ti sei già unito a questa storia.", "success");
@@ -1780,32 +2172,82 @@ function joinOpenSession(storyId) {
     return;
   }
 
-  const sessions = getJoinSessions();
+  if (window.supabaseClient && getCurrentUserId()) {
+    let session;
+    try {
+      session = await ensurePublicSession(story);
+    } catch (error) {
+      showToast("Errore apertura sessione: " + error.message, "error");
+      return;
+    }
 
-  if (!sessions[story.id]) {
-    sessions[story.id] = { joined: 0, minPlayers: 2, maxPlayers: 6 };
+    if (Number(session.joined) >= Number(session.maxPlayers)) {
+      showToast("Gruppo già completo.", "warning");
+      renderOpenSessions();
+      return;
+    }
+
+    const { data: participant, error: participantError } = await supabaseClient
+      .from("session_participants")
+      .upsert({
+        session_id: session.id,
+        story_id: storyId(story.id),
+        user_id: getCurrentUserId(),
+        status: "joined"
+      }, { onConflict: "session_id,user_id" })
+      .select()
+      .single();
+
+    if (participantError) {
+      showToast("Errore iscrizione sessione: " + participantError.message, "error");
+      return;
+    }
+
+    const newCount = Math.min(Number(session.maxPlayers), Number(session.joined) + 1);
+    const newStatus = newCount >= Number(session.maxPlayers) ? "complete" : "open";
+
+    const { data: updatedSession, error: sessionError } = await supabaseClient
+      .from("public_sessions")
+      .update({ current_players: newCount, status: newStatus })
+      .eq("id", session.id)
+      .select()
+      .single();
+
+    if (sessionError) {
+      showToast("Errore aggiornamento sessione: " + sessionError.message, "error");
+      return;
+    }
+
+    supabaseSessionParticipantsCache = [
+      participant,
+      ...supabaseSessionParticipantsCache.filter(item => !(storyIdsMatch(item.session_id, session.id) && storyIdsMatch(item.user_id, getCurrentUserId())))
+    ];
+    const normalizedSession = normalizePublicSession(updatedSession);
+    supabasePublicSessionsCache = supabasePublicSessionsCache.map(item => storyIdsMatch(item.id, normalizedSession.id) ? normalizedSession : item);
+  } else {
+    const sessions = getJoinSessions();
+
+    if (!sessions[story.id]) {
+      sessions[story.id] = { joined: 0, minPlayers: 2, maxPlayers: 6 };
+    }
+
+    const session = sessions[story.id];
+
+    if (Number(session.joined) >= Number(session.maxPlayers)) {
+      showToast("Gruppo già completo.", "warning");
+      renderOpenSessions();
+      return;
+    }
+
+    session.joined += 1;
+    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+
+    const joined = getJoinedOpenSessions();
+    joined.push(storyId(story.id));
+    saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
   }
-
-  const session = sessions[story.id];
-
-  if (Number(session.joined) >= Number(session.maxPlayers)) {
-    showToast("Gruppo già completo.", "warning");
-    renderOpenSessions();
-    return;
-  }
-
-  session.joined += 1;
-  localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
-
-  const joined = getJoinedOpenSessions();
-  joined.push(storyId(story.id));
-  saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
 
   addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id });
-
-  if (session.joined >= session.minPlayers) {
-    addNotification(`La sessione "${story.title}" è pronta a partire.`, "success", { storyId: story.id });
-  }
 
   const card = document.querySelector(`[data-open-session-card="${story.id}"]`);
 
@@ -1829,7 +2271,7 @@ function joinPublicSession() {
   joinOpenSession(currentStory.id);
 }
 
-function cancelOpenSession(storyIdValue) {
+async function cancelOpenSession(storyIdValue) {
   const id = storyId(storyIdValue);
 
   if (!id || !hasJoinedOpenSession(id)) {
@@ -1837,15 +2279,51 @@ function cancelOpenSession(storyIdValue) {
     return;
   }
 
-  const sessions = getJoinSessions();
+  if (window.supabaseClient && getCurrentUserId()) {
+    const session = supabasePublicSessionsCache.find(item => storyIdsMatch(item.storyId, id));
 
-  if (sessions[id]) {
-    sessions[id].joined = Math.max(0, Number(sessions[id].joined || 0) - 1);
-    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+    if (session) {
+      const participant = supabaseSessionParticipantsCache.find(item => storyIdsMatch(item.story_id, id) && storyIdsMatch(item.user_id, getCurrentUserId()));
+
+      if (participant) {
+        const { error } = await supabaseClient
+          .from("session_participants")
+          .update({ status: "cancelled" })
+          .eq("id", participant.id);
+
+        if (error) {
+          showToast("Errore annullamento partecipazione: " + error.message, "error");
+          return;
+        }
+      }
+
+      const newCount = Math.max(0, Number(session.joined || 0) - 1);
+      const { data, error } = await supabaseClient
+        .from("public_sessions")
+        .update({ current_players: newCount, status: "open" })
+        .eq("id", session.id)
+        .select()
+        .single();
+
+      if (error) {
+        showToast("Errore aggiornamento sessione: " + error.message, "error");
+        return;
+      }
+
+      supabasePublicSessionsCache = supabasePublicSessionsCache.map(item => storyIdsMatch(item.id, session.id) ? normalizePublicSession(data) : item);
+      supabaseSessionParticipantsCache = supabaseSessionParticipantsCache.filter(item => !(storyIdsMatch(item.story_id, id) && storyIdsMatch(item.user_id, getCurrentUserId())));
+    }
+  } else {
+    const sessions = getJoinSessions();
+
+    if (sessions[id]) {
+      sessions[id].joined = Math.max(0, Number(sessions[id].joined || 0) - 1);
+      localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+    }
+
+    const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => storyId(joinedId) !== id);
+    saveJoinedOpenSessions(updatedJoinedIds);
   }
-
-  const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => storyId(joinedId) !== id);
-  saveJoinedOpenSessions(updatedJoinedIds);
 
   const story = getAllStories().find(item => storyIdsMatch(item.id, id));
   addNotification(`Hai annullato la partecipazione alla sessione${story ? `: ${story.title}` : ""}.`, "info", story ? { storyId: story.id } : {});
@@ -2344,7 +2822,8 @@ function renderDashboardStats() {
   const storiesCount = document.getElementById("dashboardStoriesCount");
   if (!storiesCount) return;
 
-  const totalStories = getAllStories().length;
+  const userId = getCurrentUserId();
+  const totalStories = getAllStories().filter(story => story.source === "supabase" && story.author_id && storyIdsMatch(story.author_id, userId)).length;
 
   storiesCount.textContent = totalStories === 1
     ? "1 storia attiva"
@@ -2362,7 +2841,10 @@ function renderMasterAvailability() {
   const container = document.getElementById("masterAvailabilityList");
   if (!container) return;
 
-  const rules = getAvailabilityForMaster(1).sort((a, b) => Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime));
+  const userId = getCurrentUserId();
+  const rules = getMasterAvailabilityRules()
+    .filter(rule => !userId || storyIdsMatch(rule.masterId, userId) || Number(rule.masterId) === 1)
+    .sort((a, b) => Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime));
 
   container.innerHTML = rules.length
     ? rules.map(rule => `
@@ -2371,13 +2853,13 @@ function renderMasterAvailability() {
             <strong>${getWeekdayLabel(rule.weekday)}</strong>
             <span>${rule.startTime}–${rule.endTime}</span>
           </div>
-          <button class="light" type="button" onclick="removeMasterAvailability(${rule.id})">Rimuovi</button>
+          <button class="light" type="button" onclick='removeMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Rimuovi</button>
         </div>
       `).join("")
     : "<p>Non hai ancora impostato disponibilità.</p>";
 }
 
-function addMasterAvailability() {
+async function addMasterAvailability() {
   const weekday = document.getElementById("availabilityWeekday")?.value;
   const startTime = document.getElementById("availabilityStart")?.value;
   const endTime = document.getElementById("availabilityEnd")?.value;
@@ -2392,24 +2874,66 @@ function addMasterAvailability() {
     return;
   }
 
-  const rules = getMasterAvailabilityRules();
-  rules.push({
-    id: Date.now(),
-    masterId: 1,
-    weekday: Number(weekday),
-    startTime,
-    endTime
-  });
+  const userId = getCurrentUserId();
 
-  localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+  if (window.supabaseClient && userId) {
+    const { data, error } = await supabaseClient
+      .from("master_availability")
+      .insert({
+        master_id: userId,
+        weekday: Number(weekday),
+        start_time: startTime,
+        end_time: endTime
+      })
+      .select()
+      .single();
+
+    if (error) {
+      showToast("Errore disponibilità: " + error.message, "error");
+      return;
+    }
+
+    const rule = normalizeAvailability(data);
+    supabaseAvailabilityCache = [...supabaseAvailabilityCache, rule];
+    supabaseAvailabilityLoaded = true;
+  } else {
+    const rules = getMasterAvailabilityRules();
+    rules.push({
+      id: Date.now(),
+      masterId: 1,
+      weekday: Number(weekday),
+      startTime,
+      endTime
+    });
+    localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+  }
+
   renderMasterAvailability();
   renderBookingCalendar(currentStory);
   showToast("Disponibilità aggiunta.", "success");
 }
 
-function removeMasterAvailability(id) {
-  const rules = getMasterAvailabilityRules().filter(rule => Number(rule.id) !== Number(id));
-  localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+async function removeMasterAvailability(id) {
+  const ruleId = storyId(id);
+  const existingRule = getMasterAvailabilityRules().find(rule => storyIdsMatch(rule.id, ruleId));
+
+  if (window.supabaseClient && existingRule?.source === "supabase") {
+    const { error } = await supabaseClient
+      .from("master_availability")
+      .delete()
+      .eq("id", ruleId);
+
+    if (error) {
+      showToast("Errore rimozione disponibilità: " + error.message, "error");
+      return;
+    }
+
+    supabaseAvailabilityCache = supabaseAvailabilityCache.filter(rule => !storyIdsMatch(rule.id, ruleId));
+  } else {
+    const rules = getMasterAvailabilityRules().filter(rule => !storyIdsMatch(rule.id, ruleId));
+    localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
+  }
+
   renderMasterAvailability();
   renderBookingCalendar(currentStory);
 }
@@ -2448,7 +2972,7 @@ function renderMyStories() {
             <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
             <p><strong>Giocatori:</strong> ${booking.players}</p>
             <p><strong>Stato:</strong> ${booking.status}</p>
-            ${canCancel ? `<button class="light danger-light" onclick="cancelBooking(${booking.id})">Disdici prenotazione</button>` : ""}
+            ${canCancel ? `<button class="light danger-light" onclick='cancelBooking(${JSON.stringify(storyId(booking.id))})'>Disdici prenotazione</button>` : ""}
           </div>
         `;
       }).join("")
@@ -2570,6 +3094,8 @@ function openNotificationsDropdown() {
     closeNotificationsDropdown(false);
     return;
   }
+
+  closeUserMenu();
 
   const dropdown = document.getElementById("notificationsDropdown");
   if (!dropdown) return;
@@ -2776,7 +3302,15 @@ function toggleUserMenu(event) {
   const chip = document.getElementById("headerUserChip");
   if (!menu) return;
 
-  menu.classList.toggle("open");
+  const shouldOpen = !menu.classList.contains("open");
+
+  if (shouldOpen) {
+    closeNotificationsDropdown(true);
+    menu.classList.add("open");
+  } else {
+    menu.classList.remove("open");
+  }
+
   if (chip) chip.setAttribute("aria-expanded", menu.classList.contains("open") ? "true" : "false");
 }
 

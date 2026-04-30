@@ -7,6 +7,7 @@ let profileReviewFilter = "all";
 let visibleReviewsCount = 3;
 let supabaseStoriesCache = [];
 let supabaseStoriesLoaded = false;
+let editingStoryId = null;
 
 const sections = [
   "home",
@@ -137,6 +138,19 @@ function getUserProfile() {
   return JSON.parse(localStorage.getItem("questhubUserProfile") || "{}");
 }
 
+function isCurrentUserStory(story) {
+  if (!story) return false;
+  const profile = getUserProfile();
+  const userId = profile.id || "";
+  if (!userId) return false;
+
+  return Boolean(
+    story.source === "supabase" &&
+    story.author_id &&
+    storyId(story.author_id) === storyId(userId)
+  );
+}
+
 function go(page) {
   closeNotificationsDropdown();
   closeUserMenu();
@@ -154,6 +168,7 @@ function go(page) {
   if (page === "sessioni") renderOpenSessions();
 
   if (page === "crea-storia") {
+    updateCreateStoryMode();
     togglePriceField();
   }
 
@@ -823,8 +838,35 @@ function renderStoryPaymentPanel(story) {
   const titleEl = document.getElementById("paymentStoryTitle");
   const hintEl = document.getElementById("paymentHint");
   const payButton = document.getElementById("paymentButton");
+  const panelLabel = document.getElementById("paymentPanelLabel");
+  const paymentMethods = document.getElementById("paymentMethods");
+  const paymentNote = document.getElementById("paymentNote");
+  const ownerActions = document.getElementById("ownerStoryActions");
+  const masterButton = document.getElementById("summaryMasterButton");
 
   if (!story) return;
+
+  const isOwner = isCurrentUserStory(story);
+
+  if (ownerActions) ownerActions.hidden = !isOwner;
+  if (paymentMethods) paymentMethods.hidden = isOwner;
+  if (paymentNote) paymentNote.hidden = isOwner;
+  if (payButton) payButton.hidden = isOwner;
+
+  if (masterButton) {
+    masterButton.style.display = story.type === "Con Master" && !isOwner ? "inline-flex" : "none";
+  }
+
+  if (panelLabel) panelLabel.textContent = isOwner ? "Gestione storia" : "Pagamento";
+
+  if (isOwner) {
+    if (priceEl) priceEl.textContent = "Gestisci";
+    if (titleEl) titleEl.textContent = story.title;
+    if (hintEl) {
+      hintEl.textContent = "Questa storia è tua: modifica informazioni, disponibilità e materiali senza passare dal pagamento.";
+    }
+    return;
+  }
 
   const priceLabel = story.isFree || Number(story.price) === 0
     ? "Gratis"
@@ -933,7 +975,7 @@ function renderStoryMaterials(story) {
   if (!container) return;
 
   const materials = story.materials || [];
-  const unlocked = isStoryUnlocked(story.id);
+  const unlocked = isStoryUnlocked(story.id) || isCurrentUserStory(story);
 
   if (!materials.length || !materials.some(material => material.name)) {
     container.innerHTML = `<div class="locked-box">🔒 Questa storia non ha ancora materiali caricati.</div>`;
@@ -1771,44 +1813,55 @@ function cancelOpenSession(storyIdValue) {
 
 /* CREATE STORY */
 
-function addMaterialField() {
+function addMaterialField(existingMaterial = null) {
   const container = document.getElementById("materialsBuilder");
   if (!container) return;
 
   const index = container.children.length + 1;
+  const material = existingMaterial || {};
 
   const block = document.createElement("div");
   block.className = "card material-field";
+  block.dataset.existingMaterial = JSON.stringify({
+    url: material.url || "",
+    file_name: material.file_name || "",
+    file_type: material.file_type || "",
+    file_size: material.file_size || "",
+    file_path: material.file_path || ""
+  });
+
+  const typeOptions = ["Indizio", "Mappa", "Scheda personaggio", "PDF", "Audio", "Immagine", "Altro"]
+    .map(option => `<option ${material.type === option ? "selected" : ""}>${option}</option>`)
+    .join("");
+
+  const visibilityOptions = ["Visibile subito", "Dopo acquisto", "Durante sessione", "Solo Master"]
+    .map(option => `<option ${material.visibility === option ? "selected" : ""}>${option}</option>`)
+    .join("");
 
   block.innerHTML = `
     <h3>Materiale ${index}</h3>
 
-    <input class="material-name" placeholder="Nome materiale, es. Mappa del castello" />
+    <input class="material-name" placeholder="Nome materiale, es. Mappa del castello" value="${escapeHtmlAttribute(material.name || "")}" />
 
     <select class="material-type">
       <option value="">Tipo materiale</option>
-      <option>Indizio</option>
-      <option>Mappa</option>
-      <option>Scheda personaggio</option>
-      <option>PDF</option>
-      <option>Audio</option>
-      <option>Immagine</option>
-      <option>Altro</option>
+      ${typeOptions}
     </select>
 
     <select class="material-visibility">
       <option value="">Visibilità materiale</option>
-      <option>Visibile subito</option>
-      <option>Dopo acquisto</option>
-      <option>Durante sessione</option>
-      <option>Solo Master</option>
+      ${visibilityOptions}
     </select>
 
-    <textarea class="material-notes" placeholder="Note sul materiale"></textarea>
+    <textarea class="material-notes" placeholder="Note sul materiale">${escapeHtml(material.notes || "")}</textarea>
+
+    ${material.url ? `
+      <p class="existing-material-note">File attuale: <a href="${material.url}" target="_blank" rel="noopener">${escapeHtml(material.file_name || "Apri materiale")}</a></p>
+    ` : ""}
 
     <label>File materiale</label>
     <input class="material-file" type="file" accept=".pdf,image/jpeg,image/png,image/webp,audio/*,video/*,.txt,.doc,.docx" />
-    <p class="form-help">Facoltativo. Il file verrà caricato nel bucket Supabase <strong>story-materials</strong>.</p>
+    <p class="form-help">Facoltativo. Se scegli un nuovo file, sostituirà quello attuale per questo materiale.</p>
 
     <button class="light" type="button" onclick="this.parentElement.remove()">Rimuovi materiale</button>
   `;
@@ -1816,19 +1869,46 @@ function addMaterialField() {
   container.appendChild(block);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeHtmlAttribute(value) {
+  return escapeHtml(value);
+}
+
 function getCreatedMaterials() {
   const materialBlocks = document.querySelectorAll(".material-field");
 
   return Array.from(materialBlocks)
-    .map((block, index) => ({
-      name: block.querySelector(".material-name")?.value.trim() || "",
-      type: block.querySelector(".material-type")?.value || "Altro",
-      visibility: block.querySelector(".material-visibility")?.value || "Dopo acquisto",
-      notes: block.querySelector(".material-notes")?.value.trim() || "",
-      file: block.querySelector(".material-file")?.files?.[0] || null,
-      order: index + 1
-    }))
-    .filter(material => material.name || material.file);
+    .map((block, index) => {
+      let existing = {};
+      try {
+        existing = JSON.parse(block.dataset.existingMaterial || "{}");
+      } catch (_) {
+        existing = {};
+      }
+
+      return {
+        name: block.querySelector(".material-name")?.value.trim() || "",
+        type: block.querySelector(".material-type")?.value || "Altro",
+        visibility: block.querySelector(".material-visibility")?.value || "Dopo acquisto",
+        notes: block.querySelector(".material-notes")?.value.trim() || "",
+        file: block.querySelector(".material-file")?.files?.[0] || null,
+        order: index + 1,
+        url: existing.url || "",
+        file_name: existing.file_name || "",
+        file_type: existing.file_type || "",
+        file_size: existing.file_size || "",
+        file_path: existing.file_path || ""
+      };
+    })
+    .filter(material => material.name || material.file || material.url);
 }
 
 function sanitizeStorageName(value) {
@@ -1992,9 +2072,19 @@ async function createStory() {
   }
 
   const profile = getUserProfile();
-  const storyDraftId = `${Date.now()}-${sanitizeStorageName(title)}`;
+  const isEditing = Boolean(editingStoryId);
+  const existingStory = isEditing
+    ? getAllStories().find(story => storyIdsMatch(story.id, editingStoryId))
+    : null;
 
-  showToast("Caricamento contenuti in corso...", "success");
+  if (isEditing && !isCurrentUserStory(existingStory)) {
+    showToast("Puoi modificare solo le storie create da te.", "warning");
+    return;
+  }
+
+  const storyDraftId = isEditing ? storyId(editingStoryId) : `${Date.now()}-${sanitizeStorageName(title)}`;
+
+  showToast(isEditing ? "Aggiornamento storia in corso..." : "Caricamento contenuti in corso...", "success");
 
   const uploadedCoverUrl = await uploadStoryCover(authData.user.id, storyDraftId);
   if (uploadedCoverUrl === null) return;
@@ -2003,7 +2093,6 @@ async function createStory() {
   if (materials === null) return;
 
   const payload = {
-    author_id: authData.user.id,
     title,
     genre,
     type,
@@ -2012,52 +2101,193 @@ async function createStory() {
     duration,
     duration_minutes: getStoryDurationMinutes({ duration }),
     players,
-    level: "Intermedio",
-    mode: "Online",
+    level: existingStory?.level || "Intermedio",
+    mode: existingStory?.mode || "Online",
     master: profile.name || authData.user.user_metadata?.name || "Master Lorecast",
     description: desc,
     long_description: long || desc,
-    cover_url: uploadedCoverUrl || coverUrlInput,
+    cover_url: uploadedCoverUrl || coverUrlInput || existingStory?.cover || "",
     trailer_url: trailer,
     materials,
     status: "published"
   };
 
-  const { data, error } = await supabaseClient
-    .from("stories")
-    .insert(payload)
-    .select()
-    .single();
+  let data = null;
+  let error = null;
+
+  if (isEditing) {
+    const result = await supabaseClient
+      .from("stories")
+      .update(payload)
+      .eq("id", editingStoryId)
+      .eq("author_id", authData.user.id)
+      .select()
+      .single();
+
+    data = result.data;
+    error = result.error;
+  } else {
+    const result = await supabaseClient
+      .from("stories")
+      .insert({
+        ...payload,
+        author_id: authData.user.id
+      })
+      .select()
+      .single();
+
+    data = result.data;
+    error = result.error;
+  }
 
   if (error) {
-    showToast("Errore pubblicazione storia: " + error.message, "error");
+    showToast((isEditing ? "Errore aggiornamento storia: " : "Errore pubblicazione storia: ") + error.message, "error");
     return;
   }
 
-  const newStory = normalizeSupabaseStory(data);
+  const savedStory = normalizeSupabaseStory(data);
   supabaseStoriesCache = [
-    newStory,
-    ...supabaseStoriesCache.filter(story => !storyIdsMatch(story.id, newStory.id))
+    savedStory,
+    ...supabaseStoriesCache.filter(story => !storyIdsMatch(story.id, savedStory.id))
   ];
 
-  showToast("Storia pubblicata correttamente.", "success");
-  addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success", { storyId: newStory.id });
+  showToast(isEditing ? "Storia aggiornata correttamente." : "Storia pubblicata correttamente.", "success");
+  addNotification(
+    isEditing ? `Hai aggiornato la storia: "${title}".` : `Hai pubblicato una nuova storia: "${title}".`,
+    "success",
+    { storyId: savedStory.id }
+  );
 
-  document.querySelectorAll("#crea-storia input, #crea-storia textarea, #crea-storia select, #dashboard input, #dashboard textarea, #dashboard select")
-    .forEach(field => {
-      field.value = "";
-    });
-
-  const materialsBuilder = document.getElementById("materialsBuilder");
-  if (materialsBuilder) materialsBuilder.innerHTML = "";
-
+  clearStoryForm();
+  editingStoryId = null;
+  updateCreateStoryMode();
   togglePriceField();
   renderDashboardStats();
   renderFeatured();
   renderCatalog();
   renderUserProfile();
 
-  openStory(newStory.id);
+  openStory(savedStory.id);
+}
+
+function clearStoryForm() {
+  document.querySelectorAll("#crea-storia input, #crea-storia textarea, #crea-storia select")
+    .forEach(field => {
+      field.value = "";
+    });
+
+  const materialsBuilder = document.getElementById("materialsBuilder");
+  if (materialsBuilder) materialsBuilder.innerHTML = "";
+}
+
+function updateCreateStoryMode() {
+  const title = document.getElementById("createStoryPageTitle");
+  const intro = document.getElementById("createStoryPageIntro");
+  const button = document.getElementById("createStorySubmitButton");
+  const cancelButton = document.getElementById("cancelStoryEditButton");
+
+  const isEditing = Boolean(editingStoryId);
+
+  if (title) title.textContent = isEditing ? "Modifica storia" : "Crea nuova storia";
+  if (intro) {
+    intro.textContent = isEditing
+      ? "Aggiorna informazioni, copertina e materiali della tua storia."
+      : "Pubblica una storia self-play o una storia con Master. I materiali possono essere visibili subito, dopo acquisto, durante la sessione o solo al Master.";
+  }
+  if (button) button.textContent = isEditing ? "Salva modifiche" : "Pubblica storia";
+  if (cancelButton) cancelButton.hidden = !isEditing;
+}
+
+function cancelStoryEdit() {
+  editingStoryId = null;
+  clearStoryForm();
+  updateCreateStoryMode();
+  togglePriceField();
+  showToast("Modifica annullata.", "success");
+}
+
+function openEditCurrentStory(options = {}) {
+  if (!currentStory || !isCurrentUserStory(currentStory)) {
+    showToast("Puoi modificare solo le storie create da te.", "warning");
+    return;
+  }
+
+  editingStoryId = currentStory.id;
+  populateStoryFormForEdit(currentStory);
+  go("crea-storia");
+  updateCreateStoryMode();
+  togglePriceField();
+
+  if (options.focus === "materials") {
+    setTimeout(() => {
+      document.getElementById("materialsBuilder")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }
+}
+
+function populateStoryFormForEdit(story) {
+  clearFieldErrors();
+  clearStoryForm();
+
+  const setValue = (id, value) => {
+    const field = document.getElementById(id);
+    if (field) field.value = value ?? "";
+  };
+
+  setValue("newStoryTitle", story.title);
+  setValue("newStoryGenre", story.genre);
+  setValue("newStoryType", story.type);
+  setValue("newStoryPriceMode", story.isFree || Number(story.price) === 0 ? "free" : "paid");
+  setValue("newStoryPrice", story.isFree ? "" : story.price);
+  setValue("newStoryDuration", story.duration);
+  setValue("newStoryPlayers", story.players);
+  setValue("newStoryDesc", story.desc);
+  setValue("newStoryLong", story.long);
+  setValue("newStoryCover", story.cover);
+  setValue("newStoryTrailer", story.trailer);
+
+  const materials = story.materials || [];
+  materials.forEach(material => addMaterialField(material));
+}
+
+async function deleteCurrentStory() {
+  if (!currentStory || !isCurrentUserStory(currentStory)) {
+    showToast("Puoi eliminare solo le storie create da te.", "warning");
+    return;
+  }
+
+  const confirmed = window.confirm(`Vuoi eliminare definitivamente "${currentStory.title}"?`);
+  if (!confirmed) return;
+
+  const storyToDelete = currentStory;
+  const { data: authData } = await supabaseClient.auth.getUser();
+
+  if (!authData.user) {
+    showToast("Sessione non valida. Accedi di nuovo.", "warning");
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("stories")
+    .delete()
+    .eq("id", storyToDelete.id)
+    .eq("author_id", authData.user.id);
+
+  if (error) {
+    showToast("Errore eliminazione storia: " + error.message, "error");
+    return;
+  }
+
+  supabaseStoriesCache = supabaseStoriesCache.filter(story => !storyIdsMatch(story.id, storyToDelete.id));
+  currentStory = null;
+
+  showToast("Storia eliminata.", "success");
+  addNotification(`Hai eliminato la storia: "${storyToDelete.title}".`, "info");
+
+  renderCatalog();
+  renderFeatured();
+  renderUserProfile();
+  go("catalogo");
 }
 
 function renderDashboardStats() {
@@ -2479,7 +2709,11 @@ function goCreateStory() {
     return;
   }
 
+  editingStoryId = null;
+  clearStoryForm();
   go("crea-storia");
+  updateCreateStoryMode();
+  togglePriceField();
 }
 
 function toggleUserMenu(event) {

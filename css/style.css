@@ -2584,3 +2584,40 @@ input[type="file"] {
   font-weight: 900;
   text-decoration: none;
 }
+
+/* UPDATE 15 - owner story management */
+.owner-story-actions {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: #fff7ed;
+}
+
+.owner-story-actions[hidden] {
+  display: none !important;
+}
+
+.owner-story-actions button {
+  width: 100%;
+  justify-content: center;
+}
+
+.existing-material-note {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #4b5563;
+  font-size: 14px;
+}
+
+.existing-material-note a {
+  color: #92400e;
+  font-weight: 900;
+}
+
+#createStorySubmitButton + #cancelStoryEditButton {
+  margin-left: 10px;
+}

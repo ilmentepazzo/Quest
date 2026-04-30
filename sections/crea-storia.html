@@ -1,6 +1,6 @@
 <section id="crea-storia" class="page">
-  <h1>Crea nuova storia</h1>
-  <p>
+  <h1 id="createStoryPageTitle">Crea nuova storia</h1>
+  <p id="createStoryPageIntro">
     Pubblica una storia self-play o una storia con Master. I materiali possono essere visibili subito,
     dopo acquisto, durante la sessione o solo al Master.
   </p>
@@ -61,8 +61,12 @@
 
     <br><br>
 
-    <button class="primary" onclick="createStory()">
+    <button id="createStorySubmitButton" class="primary" onclick="createStory()">
       Pubblica storia
+    </button>
+
+    <button id="cancelStoryEditButton" class="light" type="button" onclick="cancelStoryEdit()" hidden>
+      Annulla modifica
     </button>
   </div>
 </section>

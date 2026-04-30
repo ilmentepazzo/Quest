@@ -116,16 +116,23 @@
 
     <aside class="card story-summary-card payment-summary-card">
       <div class="payment-summary-header">
-        <span>Pagamento</span>
+        <span id="paymentPanelLabel">Pagamento</span>
         <h2 id="paymentTotalPrice">0€</h2>
         <span id="detailPrice" hidden></span>
       </div>
 
       <p class="payment-story-title" id="paymentStoryTitle"></p>
+
+      <div id="ownerStoryActions" class="owner-story-actions" hidden>
+        <button class="primary" type="button" onclick="openEditCurrentStory()">Modifica storia</button>
+        <button class="light" type="button" onclick="openEditCurrentStory({ focus: 'materials' })">Gestisci documenti</button>
+        <button class="light" type="button" onclick="go('area-master')">Modifica disponibilità</button>
+        <button class="light danger-light" type="button" onclick="deleteCurrentStory()">Elimina storia</button>
+      </div>
       <p><strong>Master / Autore:</strong> <span id="detailMaster"></span></p>
       <p class="payment-hint" id="paymentHint"></p>
 
-      <div class="payment-methods" aria-label="Modalità di pagamento">
+      <div id="paymentMethods" class="payment-methods" aria-label="Modalità di pagamento">
         <label>
           <input type="radio" name="paymentMethod" value="card" checked />
           <span>Carta</span>
@@ -144,9 +151,9 @@
         Paga ora
       </button>
 
-      <button class="light" onclick="openMasterProfile()">Vedi profilo Master</button>
+      <button id="summaryMasterButton" class="light" onclick="openMasterProfile()">Vedi profilo Master</button>
 
-      <small class="payment-note">
+      <small id="paymentNote" class="payment-note">
         Pagamento simulato in fase prototipo. In produzione collegheremo Stripe o altro provider.
       </small>
     </aside>

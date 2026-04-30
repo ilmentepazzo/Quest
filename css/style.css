@@ -2553,3 +2553,34 @@ p {
   font-style: normal;
   font-weight: 900;
 }
+
+/* CREATE STORY UPLOADS */
+.form-help {
+  margin: -2px 0 12px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+input[type="file"] {
+  padding: 12px;
+  background: #fffaf0;
+  border: 1px dashed #f59e0b;
+}
+
+.material-field {
+  border-style: dashed;
+  background: #fffdf8;
+}
+
+.material-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #111827;
+  color: white;
+  font-weight: 900;
+  text-decoration: none;
+}

@@ -1,0 +1,68 @@
+<section id="crea-storia" class="page">
+  <h1>Crea nuova storia</h1>
+  <p>
+    Pubblica una storia self-play o una storia con Master. I materiali possono essere visibili subito,
+    dopo acquisto, durante la sessione o solo al Master.
+  </p>
+
+  <div class="card">
+    <h2>Informazioni pubbliche</h2>
+
+    <input id="newStoryTitle" data-required="true" placeholder="Titolo storia *" />
+
+    <select id="newStoryGenre" data-required="true">
+      <option value="">Genere *</option>
+      <option>Fantasy</option>
+      <option>Horror</option>
+      <option>Investigativo</option>
+      <option>Cena con delitto</option>
+      <option>Sci-fi</option>
+    </select>
+
+    <select id="newStoryType" data-required="true">
+      <option value="">Tipo *</option>
+      <option>Con Master</option>
+      <option>Self-play</option>
+    </select>
+
+    <select id="newStoryPriceMode" data-required="true" onchange="togglePriceField()">
+      <option value="">Costo *</option>
+      <option value="free">Gratuita</option>
+      <option value="paid">A pagamento</option>
+    </select>
+
+    <input id="newStoryPrice" type="number" placeholder="Prezzo in €" />
+
+    <input id="newStoryDuration" data-required="true" placeholder="Durata, es. 2 ore *" />
+    <input id="newStoryPlayers" data-required="true" placeholder="Numero giocatori, es. 3–5 *" />
+
+    <textarea id="newStoryDesc" data-required="true" placeholder="Descrizione breve pubblica *"></textarea>
+    <textarea id="newStoryLong" placeholder="Descrizione completa della storia"></textarea>
+
+    <h2>Media pubblici</h2>
+
+    <label for="newStoryCoverFile">Immagine copertina</label>
+    <input id="newStoryCoverFile" type="file" accept="image/jpeg,image/png,image/webp" />
+    <p class="form-help">Carica JPG, PNG o WebP. Verrà salvata nel bucket Supabase <strong>story-covers</strong>.</p>
+
+    <input id="newStoryCover" placeholder="Oppure URL immagine copertina pubblica" />
+    <input id="newStoryTrailer" placeholder="URL video trailer / presentazione" />
+
+    <h2>Materiali della storia</h2>
+    <p>
+      Usa il pulsante + per aggiungere più materiali. Ogni materiale può avere una visibilità diversa.
+    </p>
+
+    <div id="materialsBuilder"></div>
+
+    <button class="light" type="button" onclick="addMaterialField()">
+      + Aggiungi materiale
+    </button>
+
+    <br><br>
+
+    <button class="primary" onclick="createStory()">
+      Pubblica storia
+    </button>
+  </div>
+</section>

@@ -953,6 +953,7 @@ function renderStoryMaterials(story) {
         <p><strong>Tipo:</strong> ${material.type || "Materiale"}</p>
         <p><strong>Visibilità:</strong> ${material.visibility}</p>
         <p>${material.notes || "Materiale disponibile subito."}</p>
+        ${material.url ? `<a class="material-download" href="${material.url}" target="_blank" rel="noopener">Apri materiale</a>` : ""}
       </div>
     `).join("");
   }
@@ -974,6 +975,7 @@ function renderStoryMaterials(story) {
         <p><strong>Tipo:</strong> ${material.type || "Materiale"}</p>
         <p><strong>Visibilità:</strong> ${material.visibility || "Dopo acquisto"}</p>
         <p>${material.notes || "Materiale riservato per la sessione."}</p>
+        ${material.url ? `<a class="material-download" href="${material.url}" target="_blank" rel="noopener">Apri materiale</a>` : ""}
       </div>
     `).join("");
   }
@@ -1804,6 +1806,10 @@ function addMaterialField() {
 
     <textarea class="material-notes" placeholder="Note sul materiale"></textarea>
 
+    <label>File materiale</label>
+    <input class="material-file" type="file" accept=".pdf,image/jpeg,image/png,image/webp,audio/*,video/*,.txt,.doc,.docx" />
+    <p class="form-help">Facoltativo. Il file verrà caricato nel bucket Supabase <strong>story-materials</strong>.</p>
+
     <button class="light" type="button" onclick="this.parentElement.remove()">Rimuovi materiale</button>
   `;
 
@@ -1814,13 +1820,130 @@ function getCreatedMaterials() {
   const materialBlocks = document.querySelectorAll(".material-field");
 
   return Array.from(materialBlocks)
-    .map(block => ({
+    .map((block, index) => ({
       name: block.querySelector(".material-name")?.value.trim() || "",
       type: block.querySelector(".material-type")?.value || "Altro",
       visibility: block.querySelector(".material-visibility")?.value || "Dopo acquisto",
-      notes: block.querySelector(".material-notes")?.value.trim() || ""
+      notes: block.querySelector(".material-notes")?.value.trim() || "",
+      file: block.querySelector(".material-file")?.files?.[0] || null,
+      order: index + 1
     }))
-    .filter(material => material.name);
+    .filter(material => material.name || material.file);
+}
+
+function sanitizeStorageName(value) {
+  return String(value || "file")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase() || "file";
+}
+
+function getFileExtension(file) {
+  const name = file?.name || "";
+  const parts = name.split(".");
+  return parts.length > 1 ? parts.pop().toLowerCase() : "bin";
+}
+
+function ensureMaxFileSize(file, maxMb, label) {
+  if (!file) return true;
+
+  if (file.size > maxMb * 1024 * 1024) {
+    showToast(`${label} deve pesare massimo ${maxMb} MB.`, "warning");
+    return false;
+  }
+
+  return true;
+}
+
+async function uploadStoryCover(userId, storyDraftId) {
+  const fileInput = document.getElementById("newStoryCoverFile");
+  const file = fileInput?.files?.[0];
+
+  if (!file) return "";
+
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+  if (!allowedTypes.includes(file.type)) {
+    showToast("La copertina deve essere JPG, PNG o WebP.", "warning");
+    return null;
+  }
+
+  if (!ensureMaxFileSize(file, 5, "La copertina")) return null;
+
+  const extension = getFileExtension(file);
+  const filePath = `${userId}/${storyDraftId}/cover-${Date.now()}.${extension}`;
+
+  const { error } = await supabaseClient.storage
+    .from("story-covers")
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: file.type
+    });
+
+  if (error) {
+    showToast("Errore upload copertina: " + error.message, "error");
+    return null;
+  }
+
+  const { data } = supabaseClient.storage
+    .from("story-covers")
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
+}
+
+async function uploadStoryMaterials(userId, storyDraftId, materials) {
+  const uploadedMaterials = [];
+
+  for (const material of materials) {
+    const materialData = { ...material };
+    const file = material.file;
+    delete materialData.file;
+
+    if (!materialData.name && file) {
+      materialData.name = file.name.replace(/\.[^/.]+$/, "");
+    }
+
+    if (file) {
+      if (!ensureMaxFileSize(file, 25, `Il materiale ${materialData.name || file.name}`)) {
+        return null;
+      }
+
+      const safeName = sanitizeStorageName(file.name);
+      const filePath = `${userId}/${storyDraftId}/materials/${Date.now()}-${material.order}-${safeName}`;
+
+      const { error } = await supabaseClient.storage
+        .from("story-materials")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type || "application/octet-stream"
+        });
+
+      if (error) {
+        showToast("Errore upload materiale: " + error.message, "error");
+        return null;
+      }
+
+      const { data } = supabaseClient.storage
+        .from("story-materials")
+        .getPublicUrl(filePath);
+
+      materialData.file_name = file.name;
+      materialData.file_type = file.type || "File";
+      materialData.file_size = file.size;
+      materialData.file_path = filePath;
+      materialData.url = data.publicUrl;
+    }
+
+    uploadedMaterials.push(materialData);
+  }
+
+  return uploadedMaterials;
 }
 
 async function createStory() {
@@ -1843,9 +1966,9 @@ async function createStory() {
   const players = document.getElementById("newStoryPlayers")?.value.trim() || "";
   const desc = document.getElementById("newStoryDesc")?.value.trim() || "";
   const long = document.getElementById("newStoryLong")?.value.trim() || "";
-  const cover = document.getElementById("newStoryCover")?.value.trim() || "";
+  const coverUrlInput = document.getElementById("newStoryCover")?.value.trim() || "";
   const trailer = document.getElementById("newStoryTrailer")?.value.trim() || "";
-  const materials = getCreatedMaterials();
+  const rawMaterials = getCreatedMaterials();
 
   const errors = [];
 
@@ -1869,6 +1992,15 @@ async function createStory() {
   }
 
   const profile = getUserProfile();
+  const storyDraftId = `${Date.now()}-${sanitizeStorageName(title)}`;
+
+  showToast("Caricamento contenuti in corso...", "success");
+
+  const uploadedCoverUrl = await uploadStoryCover(authData.user.id, storyDraftId);
+  if (uploadedCoverUrl === null) return;
+
+  const materials = await uploadStoryMaterials(authData.user.id, storyDraftId, rawMaterials);
+  if (materials === null) return;
 
   const payload = {
     author_id: authData.user.id,
@@ -1885,7 +2017,7 @@ async function createStory() {
     master: profile.name || authData.user.user_metadata?.name || "Master Lorecast",
     description: desc,
     long_description: long || desc,
-    cover_url: cover,
+    cover_url: uploadedCoverUrl || coverUrlInput,
     trailer_url: trailer,
     materials,
     status: "published"
@@ -1912,7 +2044,9 @@ async function createStory() {
   addNotification(`Hai pubblicato una nuova storia: "${title}".`, "success", { storyId: newStory.id });
 
   document.querySelectorAll("#crea-storia input, #crea-storia textarea, #crea-storia select, #dashboard input, #dashboard textarea, #dashboard select")
-    .forEach(field => field.value = "");
+    .forEach(field => {
+      field.value = "";
+    });
 
   const materialsBuilder = document.getElementById("materialsBuilder");
   if (materialsBuilder) materialsBuilder.innerHTML = "";

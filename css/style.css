@@ -3048,3 +3048,83 @@ body::after {
 .booking-calendar-empty {
   padding: 28px 18px;
 }
+
+/* AREA MASTER - PUBLIC SESSIONS */
+.master-session-list {
+  display: grid;
+  gap: 14px;
+}
+
+.master-session-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 22px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.master-session-main,
+.master-session-meta,
+.master-session-actions,
+.session-participant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.master-session-main h3 {
+  margin: 0 0 4px;
+}
+
+.master-session-main p,
+.master-session-meta {
+  color: #5b6474;
+}
+
+.master-session-meta {
+  margin: 12px 0;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.session-participants-details {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid #e5e7eb;
+}
+
+.session-participants-details summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.session-participants-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.session-participant-row {
+  padding: 8px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.danger-light {
+  background: #fff1f2;
+  color: #b91c1c;
+  border: 1px solid #fecdd3;
+}
+
+.pill-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  font-weight: 800;
+}

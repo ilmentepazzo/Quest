@@ -388,9 +388,12 @@ function go(page) {
   }
 
   if (page === "area-master") {
-    renderDashboardBookings();
-    renderDashboardStats();
-    renderMasterAvailability();
+    loadSupabaseMarketplaceState().then(() => {
+      renderDashboardBookings();
+      renderDashboardStats();
+      renderMasterAvailability();
+      renderMasterPublicSessions();
+    });
   }
 
   if (page === "dashboard") {
@@ -2415,6 +2418,7 @@ async function createPublicSession() {
   updateSelectedSlotLabel();
   renderJoinSession(currentStory);
   renderOpenSessions();
+  renderMasterPublicSessions();
 }
 
 async function joinOpenSession(targetSessionId) {
@@ -3101,6 +3105,151 @@ function renderDashboardStats() {
   storiesCount.textContent = totalStories === 1
     ? "1 storia attiva"
     : totalStories + " storie attive";
+}
+
+function getMasterOwnedStoryIds() {
+  const userId = getCurrentUserId();
+  return getAllStories()
+    .filter(story => story.source === "supabase" && story.author_id && storyIdsMatch(story.author_id, userId))
+    .map(story => storyId(story.id));
+}
+
+function getParticipantsForSession(sessionIdValue) {
+  const id = storyId(sessionIdValue);
+  return supabaseSessionParticipantsCache.filter(participant =>
+    storyIdsMatch(participant.session_id, id) && participant.status === "joined"
+  );
+}
+
+function renderMasterPublicSessions() {
+  const container = document.getElementById("masterPublicSessions");
+  const count = document.getElementById("masterPublicSessionsCount");
+  if (!container) return;
+
+  const userId = getCurrentUserId();
+  const ownedStoryIds = new Set(getMasterOwnedStoryIds());
+
+  const sessions = supabasePublicSessionsCache.filter(session =>
+    (session.storyAuthorId && storyIdsMatch(session.storyAuthorId, userId)) ||
+    (session.createdBy && storyIdsMatch(session.createdBy, userId)) ||
+    ownedStoryIds.has(storyId(session.storyId))
+  );
+
+  if (count) {
+    count.textContent = sessions.length === 1
+      ? "1 sessione pubblica"
+      : `${sessions.length} sessioni pubbliche`;
+  }
+
+  container.innerHTML = sessions.length
+    ? sessions.map(session => {
+        const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+        const participants = getParticipantsForSession(session.id);
+        const ready = Number(session.joined) >= Number(session.minPlayers);
+        const statusLabel = session.status === "cancelled"
+          ? "Annullata"
+          : session.status === "closed"
+            ? "Chiusa"
+            : session.status === "complete"
+              ? "Completa"
+              : ready
+                ? "Pronta"
+                : "Aperta";
+        const statusClass = session.status === "cancelled" || session.status === "closed"
+          ? "rejected"
+          : ready
+            ? "accepted"
+            : "pending";
+        const sessionArg = JSON.stringify(storyId(session.id));
+
+        return `
+          <div class="master-session-card">
+            <div class="master-session-main">
+              <div>
+                <h3>${escapeHtml(story?.title || session.storyTitle || "Sessione Lorecast")}</h3>
+                <p>${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Data in definizione"}</p>
+              </div>
+              <span class="status ${statusClass}">${statusLabel}</span>
+            </div>
+
+            <div class="master-session-meta">
+              <span><strong>Iscritti:</strong> ${session.joined} / ${session.maxPlayers}</span>
+              <span><strong>Minimo:</strong> ${session.minPlayers}</span>
+              <span><strong>Partecipanti:</strong> ${participants.length}</span>
+            </div>
+
+            <details class="session-participants-details">
+              <summary>Vedi partecipanti</summary>
+              ${participants.length
+                ? `<div class="session-participants-list">
+                    ${participants.map((participant, index) => `
+                      <div class="session-participant-row">
+                        <span>Giocatore ${index + 1}</span>
+                        <small>${Number(participant.seats || 1)} posto${Number(participant.seats || 1) > 1 ? "i" : ""}</small>
+                      </div>
+                    `).join("")}
+                  </div>`
+                : `<p class="muted-small">Non ci sono ancora giocatori iscritti.</p>`}
+            </details>
+
+            ${["open", "complete"].includes(session.status) ? `
+              <div class="master-session-actions">
+                <button class="light" type="button" onclick='closePublicSession(${sessionArg})'>Chiudi sessione</button>
+                <button class="danger-light" type="button" onclick='cancelPublicSessionAsMaster(${sessionArg})'>Annulla sessione</button>
+              </div>
+            ` : ""}
+          </div>
+        `;
+      }).join("")
+    : `<p>Non hai ancora sessioni pubbliche create.</p>`;
+}
+
+async function updatePublicSessionStatus(sessionIdValue, status) {
+  const id = storyId(sessionIdValue);
+
+  if ((typeof supabaseClient !== "undefined")) {
+    const { data, error } = await supabaseClient
+      .from("public_sessions")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      showToast("Errore aggiornamento sessione: " + error.message, "error");
+      return null;
+    }
+
+    const updated = normalizePublicSession(data);
+    supabasePublicSessionsCache = supabasePublicSessionsCache.map(session =>
+      storyIdsMatch(session.id, updated.id) ? updated : session
+    );
+    return updated;
+  }
+
+  return null;
+}
+
+async function closePublicSession(sessionIdValue) {
+  const updated = await updatePublicSessionStatus(sessionIdValue, "closed");
+  if (!updated) return;
+
+  showToast("Sessione chiusa.", "success");
+  renderMasterPublicSessions();
+  renderOpenSessions();
+  if (currentStory) renderJoinSession(currentStory);
+}
+
+async function cancelPublicSessionAsMaster(sessionIdValue) {
+  if (!confirm("Vuoi annullare questa sessione pubblica?")) return;
+
+  const updated = await updatePublicSessionStatus(sessionIdValue, "cancelled");
+  if (!updated) return;
+
+  showToast("Sessione pubblica annullata.", "success");
+  renderMasterPublicSessions();
+  renderOpenSessions();
+  if (currentStory) renderJoinSession(currentStory);
 }
 
 

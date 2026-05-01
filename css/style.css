@@ -2925,3 +2925,90 @@ body::after {
       url("../assets/background.png");
   }
 }
+
+/* UPDATE 22 - header più compatto, menu esclusivi, autore visibile */
+:root {
+  --header-h: 92px;
+}
+
+body::after {
+  background:
+    radial-gradient(circle at 16% 14%, rgba(236, 72, 153, 0.22), transparent 32%),
+    radial-gradient(circle at 84% 16%, rgba(59, 130, 246, 0.20), transparent 30%),
+    radial-gradient(circle at 52% 86%, rgba(124, 58, 237, 0.16), transparent 38%),
+    rgba(248, 250, 252, 0.18);
+}
+
+.app-header {
+  min-height: var(--header-h) !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.brand-logo {
+  height: 132px !important;
+  max-width: 380px !important;
+}
+
+.main-nav {
+  gap: 18px !important;
+}
+
+.header-actions {
+  gap: 8px !important;
+}
+
+.language-switcher,
+.login-header-button,
+.notification-button,
+.user-chip {
+  min-height: 38px;
+}
+
+.user-chip {
+  padding: 5px 10px !important;
+}
+
+.story-card-author {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  margin: 2px 0 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #6d28d9;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.story-card-author:hover,
+.inline-author-link:hover {
+  text-decoration: underline;
+}
+
+.inline-author-link {
+  display: inline;
+  width: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #6d28d9;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+@media (max-width: 950px) {
+  :root {
+    --header-h: 86px;
+  }
+
+  .brand-logo {
+    height: 108px !important;
+    max-width: 280px !important;
+  }
+}

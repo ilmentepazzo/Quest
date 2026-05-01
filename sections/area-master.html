@@ -1,0 +1,61 @@
+<section id="area-master" class="page">
+  <h1>Area Master</h1>
+  <p>Gestisci disponibilità, richieste prenotazione e attività legate alle tue storie.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Storie pubblicate</h2>
+      <p id="dashboardStoriesCount">0 storie attive</p>
+    </div>
+
+    <div class="card">
+      <h2>Prenotazioni</h2>
+      <p id="dashboardBookingCount">0 richieste</p>
+    </div>
+
+    <div class="card">
+      <h2>Valutazione</h2>
+      <p>★ 4.9 media recensioni</p>
+    </div>
+  </div>
+
+  <div class="card master-availability-card">
+    <div class="section-heading-row">
+      <div>
+        <h2>Disponibilità calendario</h2>
+        <p>Imposta gli orari disponibili per ogni singola storia. Gli utenti vedranno solo gli slot compatibili con la durata della storia selezionata.</p>
+      </div>
+    </div>
+
+    <div class="availability-form-grid">
+      <select id="availabilityStoryId">
+        <option value="">Scegli una tua storia Con Master</option>
+      </select>
+
+      <select id="availabilityWeekday">
+        <option value="1">Lunedì</option>
+        <option value="2">Martedì</option>
+        <option value="3">Mercoledì</option>
+        <option value="4">Giovedì</option>
+        <option value="5">Venerdì</option>
+        <option value="6">Sabato</option>
+        <option value="0">Domenica</option>
+      </select>
+
+      <input id="availabilityStart" type="time" value="18:00" />
+      <input id="availabilityEnd" type="time" value="23:00" />
+
+      <button class="primary" type="button" onclick="addMasterAvailability()">
+        Aggiungi disponibilità
+      </button>
+    </div>
+
+    <div id="masterAvailabilityList" class="availability-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>Richieste prenotazione</h2>
+    <p>Qui arrivano le richieste dei giocatori per giocare una storia con te come Master.</p>
+    <div id="dashboardBookings"></div>
+  </div>
+</section>

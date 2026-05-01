@@ -203,6 +203,7 @@ function normalizeAvailability(row) {
 
   return {
     id: row.id,
+    storyId: storyId(row.story_id || ""),
     masterId: row.master_id,
     weekday: Number(row.weekday),
     startTime: normalizeTime(row.start_time),
@@ -330,6 +331,17 @@ function isCurrentUserStory(story) {
     story.author_id &&
     storyId(story.author_id) === storyId(userId)
   );
+}
+
+function getOwnedMasterStories() {
+  return getAllStories().filter(story =>
+    story.type === "Con Master" && isCurrentUserStory(story)
+  );
+}
+
+function getStoryTitleById(id) {
+  const story = getAllStories().find(item => storyIdsMatch(item.id, id));
+  return story?.title || "Disponibilità generale";
 }
 
 function go(page) {
@@ -1492,11 +1504,11 @@ function formatLongItalianDate(dateString) {
 
 function getDefaultMasterAvailability() {
   return [
-    { id: 1, masterId: 1, weekday: 6, startTime: "13:00", endTime: "17:30" },
-    { id: 2, masterId: 1, weekday: 2, startTime: "19:00", endTime: "22:30" },
-    { id: 3, masterId: 2, weekday: 0, startTime: "16:00", endTime: "21:00" },
-    { id: 4, masterId: 3, weekday: 5, startTime: "20:00", endTime: "23:30" },
-    { id: 5, masterId: 3, weekday: 6, startTime: "18:00", endTime: "23:30" }
+    { id: 1, storyId: "", masterId: 1, weekday: 6, startTime: "13:00", endTime: "17:30" },
+    { id: 2, storyId: "", masterId: 1, weekday: 2, startTime: "19:00", endTime: "22:30" },
+    { id: 3, storyId: "", masterId: 2, weekday: 0, startTime: "16:00", endTime: "21:00" },
+    { id: 4, storyId: "", masterId: 3, weekday: 5, startTime: "20:00", endTime: "23:30" },
+    { id: 5, storyId: "", masterId: 3, weekday: 6, startTime: "18:00", endTime: "23:30" }
   ];
 }
 
@@ -1515,6 +1527,24 @@ function getMasterAvailabilityRules() {
 
 function getAvailabilityForMaster(masterId) {
   return getMasterAvailabilityRules().filter(rule => storyIdsMatch(rule.masterId, masterId));
+}
+
+function getAvailabilityForStory(story) {
+  if (!story) return [];
+
+  const id = storyId(story.id);
+  const masterId = story.masterId;
+  const rules = getMasterAvailabilityRules();
+
+  const storySpecificRules = rules.filter(rule =>
+    rule.storyId && storyIdsMatch(rule.storyId, id)
+  );
+
+  if (storySpecificRules.length) return storySpecificRules;
+
+  return rules.filter(rule =>
+    !rule.storyId && storyIdsMatch(rule.masterId, masterId)
+  );
 }
 
 function getBookings() {
@@ -1541,7 +1571,7 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
 function getDaySlots(story, date) {
   const duration = getStoryDurationMinutes(story);
   const step = duration;
-  const rules = getAvailabilityForMaster(story.masterId).filter(rule => Number(rule.weekday) === date.getDay());
+  const rules = getAvailabilityForStory(story).filter(rule => Number(rule.weekday) === date.getDay());
   const dateIso = formatISODate(date);
   const slots = [];
   const seen = new Set();
@@ -2839,30 +2869,70 @@ function getWeekdayLabel(weekday) {
 
 function renderMasterAvailability() {
   const container = document.getElementById("masterAvailabilityList");
+  const storySelect = document.getElementById("availabilityStoryId");
   if (!container) return;
 
   const userId = getCurrentUserId();
+  const ownedStories = getOwnedMasterStories();
+
+  if (storySelect) {
+    storySelect.innerHTML = `
+      <option value="">Scegli una tua storia Con Master</option>
+      ${ownedStories.map(story => `
+        <option value="${escapeHtmlAttribute(storyId(story.id))}">${escapeHtml(story.title)}</option>
+      `).join("")}
+    `;
+  }
+
+  if (!ownedStories.length) {
+    container.innerHTML = `
+      <div class="empty-state compact-empty">
+        <p>Non hai ancora storie “Con Master”. Crea una storia per impostare disponibilità dedicate.</p>
+        <button class="primary" type="button" onclick="goCreateStory()">Crea storia</button>
+      </div>
+    `;
+    return;
+  }
+
+  const ownedStoryIds = new Set(ownedStories.map(story => storyId(story.id)));
+
   const rules = getMasterAvailabilityRules()
-    .filter(rule => !userId || storyIdsMatch(rule.masterId, userId) || Number(rule.masterId) === 1)
-    .sort((a, b) => Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime));
+    .filter(rule => {
+      if (!userId) return false;
+      if (rule.storyId) return ownedStoryIds.has(storyId(rule.storyId));
+      return storyIdsMatch(rule.masterId, userId);
+    })
+    .sort((a, b) => {
+      const titleA = getStoryTitleById(a.storyId || "");
+      const titleB = getStoryTitleById(b.storyId || "");
+      return titleA.localeCompare(titleB) || Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime);
+    });
 
   container.innerHTML = rules.length
     ? rules.map(rule => `
         <div class="availability-row">
           <div>
-            <strong>${getWeekdayLabel(rule.weekday)}</strong>
-            <span>${rule.startTime}–${rule.endTime}</span>
+            <strong>${escapeHtml(getStoryTitleById(rule.storyId || ""))}</strong>
+            <span>${getWeekdayLabel(rule.weekday)} · ${rule.startTime}–${rule.endTime}</span>
           </div>
           <button class="light" type="button" onclick='removeMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Rimuovi</button>
         </div>
       `).join("")
-    : "<p>Non hai ancora impostato disponibilità.</p>";
+    : "<p>Non hai ancora impostato disponibilità per le tue storie.</p>";
 }
 
 async function addMasterAvailability() {
+  const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
   const weekday = document.getElementById("availabilityWeekday")?.value;
   const startTime = document.getElementById("availabilityStart")?.value;
   const endTime = document.getElementById("availabilityEnd")?.value;
+
+  const selectedStory = getAllStories().find(story => storyIdsMatch(story.id, storyIdValue));
+
+  if (!storyIdValue || !selectedStory || !isCurrentUserStory(selectedStory)) {
+    showToast("Scegli una tua storia Con Master.", "warning");
+    return;
+  }
 
   if (!weekday || !startTime || !endTime) {
     showToast("Completa giorno, ora inizio e ora fine.", "warning");
@@ -2880,6 +2950,7 @@ async function addMasterAvailability() {
     const { data, error } = await supabaseClient
       .from("master_availability")
       .insert({
+        story_id: storyIdValue,
         master_id: userId,
         weekday: Number(weekday),
         start_time: startTime,
@@ -2900,7 +2971,8 @@ async function addMasterAvailability() {
     const rules = getMasterAvailabilityRules();
     rules.push({
       id: Date.now(),
-      masterId: 1,
+      storyId: storyIdValue,
+      masterId: userId || 1,
       weekday: Number(weekday),
       startTime,
       endTime

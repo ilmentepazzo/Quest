@@ -3244,3 +3244,48 @@ body::after {
     white-space: normal;
   }
 }
+
+/* UPDATE 36 - sessioni aperte: stato iscrizione visibile */
+.open-session-card-joined {
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  background: rgba(240, 253, 244, 0.72) !important;
+}
+
+.joined-inline-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 10px 0 2px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.joined-inline-banner span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #16a34a;
+  color: white;
+}
+
+.profile-compact-body h3,
+.profileDisplayName,
+#profileDisplayName,
+#profileMainName,
+#headerUserName {
+  overflow-wrap: anywhere;
+}
+
+#headerUserName {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

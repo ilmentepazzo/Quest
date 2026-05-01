@@ -708,9 +708,14 @@ async function renderUserProfile() {
   const profile = getUserProfile();
   const userId = data.user.id;
   const createdStories = supabaseStoriesCache.filter(story => story.author_id && storyId(story.author_id) === storyId(userId));
+  await loadSupabaseBookings();
+  await loadSupabasePublicSessions();
+
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
-  const bookedStories = userBookings.filter(booking => !["Annullata", "Rifiutata"].includes(booking.status));
-  const playedStories = userBookings.filter(booking => ["Accettata", "Completata"].includes(booking.status));
+  const privateBookedStories = userBookings.filter(booking => !["Annullata", "Rifiutata", "cancelled"].includes(booking.status));
+  const playedStories = userBookings.filter(booking => ["Accettata", "Completata", "accepted", "completed"].includes(booking.status));
+  const joinedPublicSessions = getJoinedPublicSessionProfileItems(userId);
+  const bookedStories = [...privateBookedStories, ...joinedPublicSessions];
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
@@ -808,6 +813,38 @@ function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount) {
   setProfileTabLabel("booked", "Prenotate", bookedCount);
 }
 
+function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
+  if (!userId || !supabaseSessionParticipantsLoaded || !supabasePublicSessionsLoaded) return [];
+
+  return supabaseSessionParticipantsCache
+    .filter(participant =>
+      storyIdsMatch(participant.user_id, userId) &&
+      participant.status === "joined"
+    )
+    .map(participant => {
+      const session = supabasePublicSessionsCache.find(item => storyIdsMatch(item.id, participant.session_id));
+      if (!session || ["cancelled", "closed"].includes(session.status)) return null;
+
+      const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+
+      return {
+        id: participant.id,
+        source: "public_session",
+        storyId: session.storyId,
+        story: story?.title || session.storyTitle || "Sessione pubblica",
+        message: "Sessione pubblica join-in",
+        date: session.sessionDate,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        status: session.status === "complete" ? "Completa" : "Iscritto",
+        user_id: participant.user_id,
+        session_id: session.id,
+        seats: participant.seats || 1
+      };
+    })
+    .filter(Boolean);
+}
+
 function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -827,11 +864,11 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
     const bookingSummary = getStoryBookingSummary(story.id || item.storyId);
 
     const meta = type === "booking"
-      ? `${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
+      ? `${item.source === "public_session" ? "Join-in" : "Prenotazione privata"} · ${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
       : `${story.genre || ""}${story.type ? ` · ${story.type}` : ""}`;
 
     const statusChip = type === "booking"
-      ? `<span class="profile-info-chip status-chip">${item.status || "In attesa"}</span>`
+      ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? "Sessione pubblica" : (item.status || "In attesa")}</span>`
       : "";
 
     const bookingChip = type === "story"
@@ -2320,21 +2357,17 @@ function getOpenSessionStories() {
 }
 
 function getVisibleOpenSessions() {
-  const joinedIds = getJoinedOpenSessions().map(String);
-
   if (supabasePublicSessionsLoaded) {
     return supabasePublicSessionsCache.filter(session =>
       session.status === "open" &&
-      Number(session.joined) < Number(session.maxPlayers) &&
-      !joinedIds.includes(storyId(session.id))
+      Number(session.joined) < Number(session.maxPlayers)
     );
   }
 
   return Object.values(JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}"))
     .filter(session =>
       session.status === "open" &&
-      Number(session.joined || 0) < Number(session.maxPlayers || 6) &&
-      !joinedIds.includes(storyId(session.id || session.storyId))
+      Number(session.joined || 0) < Number(session.maxPlayers || 6)
     );
 }
 
@@ -2359,13 +2392,15 @@ function renderOpenSessions() {
 
           const genreClass = getGenreClass(story.genre);
           const ready = Number(session.joined) >= Number(session.minPlayers);
-          const status = ready ? "Pronta a partire" : "In attesa di giocatori";
+          const isJoined = hasJoinedOpenSession(session.id);
+          const isOwner = isCurrentUserStory(story);
+          const status = isJoined ? "Ti sei unito" : (ready ? "Pronta a partire" : "In attesa di giocatori");
           const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
           const storyArg = storyJsArg(story.id);
           const sessionArg = storyJsArg(session.id);
 
           return `
-            <div class="card open-session-card" data-open-session-card="${escapeHtmlAttribute(session.id)}">
+            <div class="card open-session-card ${isJoined ? "open-session-card-joined" : ""}" data-open-session-card="${escapeHtmlAttribute(session.id)}">
               <div class="join-success-overlay">
                 <div class="join-success-icon">✓</div>
                 <strong>Ti sei unito</strong>
@@ -2382,11 +2417,14 @@ function renderOpenSessions() {
                   <span><strong>Posti:</strong> ${session.joined} / ${session.maxPlayers}</span>
                   <span><strong>Stato:</strong> ${status}</span>
                 </div>
+                ${isJoined ? `<div class="joined-inline-banner"><span>✓</span> Sei già iscritto a questa sessione.</div>` : ""}
                 <div class="open-session-actions">
                   <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
-                  ${isCurrentUserStory(story)
+                  ${isOwner
                     ? `<button class="primary" onclick="go('area-master')">Gestisci</button>`
-                    : `<button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>`}
+                    : isJoined
+                      ? `<button class="light" onclick='openStory(${storyArg})'>Apri sessione</button>`
+                      : `<button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>`}
                 </div>
               </div>
             </div>
@@ -3513,9 +3551,78 @@ async function addMasterAvailability() {
   showToast(repeatWeeks ? "Disponibilità aggiunta per 5 settimane." : "Disponibilità aggiunta.", "success");
 }
 
+async function notifyParticipantsForCancelledSession(session, storyTitle) {
+  if (!session?.id || typeof supabaseClient === "undefined") return;
+
+  const participants = supabaseSessionParticipantsCache.filter(participant =>
+    storyIdsMatch(participant.session_id, session.id) && participant.status === "joined"
+  );
+
+  await Promise.all(participants.map(participant =>
+    createNotificationForUser(
+      participant.user_id,
+      `La sessione pubblica di "${storyTitle}" è stata annullata dal Master.`,
+      "warning",
+      { storyId: session.storyId, page: "profilo" }
+    )
+  ));
+}
+
+async function cancelSessionsAndBookingsForAvailability(rule) {
+  if (!rule || typeof supabaseClient === "undefined") return;
+
+  const storyTitle = getStoryTitleById(rule.storyId || "") || "Storia Lorecast";
+
+  const sessionsToCancel = supabasePublicSessionsCache.filter(session =>
+    storyIdsMatch(session.storyId, rule.storyId) &&
+    session.sessionDate === rule.availabilityDate &&
+    session.startTime === rule.startTime &&
+    session.endTime === rule.endTime &&
+    !["cancelled", "closed"].includes(session.status)
+  );
+
+  for (const session of sessionsToCancel) {
+    await notifyParticipantsForCancelledSession(session, storyTitle);
+    await supabaseClient
+      .from("public_sessions")
+      .update({ status: "cancelled" })
+      .eq("id", session.id);
+  }
+
+  const bookingsToCancel = getBookings().filter(booking =>
+    storyIdsMatch(booking.storyId, rule.storyId) &&
+    booking.date === rule.availabilityDate &&
+    booking.startTime === rule.startTime &&
+    booking.endTime === rule.endTime &&
+    !["Annullata", "Rifiutata", "Completata", "cancelled"].includes(booking.status)
+  );
+
+  for (const booking of bookingsToCancel) {
+    await supabaseClient
+      .from("bookings")
+      .update({ status: "Annullata" })
+      .eq("id", booking.id);
+
+    await createNotificationForUser(
+      booking.user_id,
+      `La prenotazione privata per "${storyTitle}" è stata annullata perché il Master ha rimosso la disponibilità.`,
+      "warning",
+      { storyId: booking.storyId, page: "profilo" }
+    );
+  }
+}
+
 async function removeMasterAvailability(id) {
   const ruleId = storyId(id);
   const existingRule = getMasterAvailabilityRules().find(rule => storyIdsMatch(rule.id, ruleId));
+
+  if (!existingRule) return;
+
+  if (!confirm("Vuoi rimuovere questa disponibilità? Le sessioni e prenotazioni collegate saranno annullate e gli utenti riceveranno una notifica.")) {
+    return;
+  }
+
+  await cancelSessionsAndBookingsForAvailability(existingRule);
 
   if ((typeof supabaseClient !== "undefined") && existingRule?.source === "supabase") {
     const { error } = await supabaseClient
@@ -3534,9 +3641,20 @@ async function removeMasterAvailability(id) {
     localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
   }
 
+  await loadSupabaseAvailability();
+  await loadSupabasePublicSessions();
+  await loadSupabaseBookings();
+  await loadSupabaseNotifications();
+
   renderMasterAvailability();
+  renderMasterPublicSessions();
+  renderDashboardBookings();
+  renderOpenSessions();
   renderBookingCalendar(currentStory);
+  updateNotificationBadge();
+  showToast("Disponibilità rimossa. Eventuali sessioni e prenotazioni collegate sono state annullate.", "success");
 }
+
 
 /* MY STORIES */
 

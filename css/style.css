@@ -3128,3 +3128,53 @@ body::after {
   background: white;
   font-weight: 800;
 }
+
+/* PRIVATE BOOKING MANAGEMENT */
+.booking-master-card {
+  padding: 18px;
+}
+
+.booking-master-card-pending {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(255, 251, 235, 0.82);
+}
+
+.booking-master-card-head,
+.booking-master-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.booking-master-card-head h3 {
+  margin-bottom: 4px;
+}
+
+.booking-master-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+  color: #4b5563;
+  font-size: 14px;
+}
+
+.booking-master-message {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #e5e7eb;
+}
+
+.booking-master-actions {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .booking-master-details {
+    grid-template-columns: 1fr;
+  }
+}

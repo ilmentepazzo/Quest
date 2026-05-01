@@ -255,7 +255,8 @@ async function loadSupabaseMarketplaceState() {
   await Promise.all([
     loadSupabaseAvailability(),
     loadSupabaseBookings(),
-    loadSupabasePublicSessions()
+    loadSupabasePublicSessions(),
+    loadSupabaseNotifications()
   ]);
 }
 
@@ -1929,8 +1930,20 @@ async function createBooking() {
   updateSelectedSlotLabel();
 
   showToast("Richiesta di prenotazione inviata al Master.", "success");
-  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id });
+  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id, page: "profilo" });
+
+  const masterId = getCurrentStoryMasterId(currentStory);
+  if (masterId && !storyIdsMatch(masterId, getCurrentUserId())) {
+    await createNotificationForUser(
+      masterId,
+      `Nuova richiesta privata per "${currentStory.title}" (${selectedBookingSlot.date}, ${selectedBookingSlot.startTime}–${selectedBookingSlot.endTime}).`,
+      "booking",
+      { storyId: currentStory.id, page: "area-master" }
+    );
+  }
+
   await notifyMasterBookingEmail(booking);
+  await loadSupabaseNotifications();
   renderUserProfile();
 }
 
@@ -1945,9 +1958,14 @@ function renderDashboardBookings() {
     .filter(story => story.source === "supabase" && story.author_id && storyIdsMatch(story.author_id, userId))
     .map(story => storyId(story.id));
 
-  const bookings = getBookings().filter(booking =>
-    (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId))
-  );
+  const bookings = getBookings()
+    .filter(booking =>
+      (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId))
+    )
+    .sort((a, b) => {
+      const priority = { "In attesa": 0, "Accettata": 1, "Rifiutata": 2, "Annullata": 3 };
+      return (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
+    });
 
   count.textContent = bookings.length === 1
     ? "1 richiesta"
@@ -1961,20 +1979,34 @@ function renderDashboardBookings() {
         if (["Rifiutata", "Annullata"].includes(booking.status)) statusClass = "rejected";
 
         const bookingArg = JSON.stringify(storyId(booking.id));
+        const storyArg = JSON.stringify(storyId(booking.storyId));
+        const canManage = booking.status === "In attesa";
 
         return `
-          <div class="card booking-master-card">
-            <h3>${escapeHtml(booking.story)}</h3>
-            <p><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</p>
-            <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
-            <p><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</p>
-            <p><strong>Messaggio:</strong> ${escapeHtml(booking.message || "Nessun messaggio")}</p>
-            <p><strong>Stato:</strong> <span class="status ${statusClass}">${booking.status}</span></p>
+          <div class="card booking-master-card ${canManage ? "booking-master-card-pending" : ""}">
+            <div class="booking-master-card-head">
+              <div>
+                <h3>${escapeHtml(booking.story)}</h3>
+                <p>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</p>
+              </div>
+              <span class="status ${statusClass}">${booking.status}</span>
+            </div>
 
-            ${booking.status === "In attesa" ? `
-              <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
-              <button class="light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
-            ` : ""}
+            <div class="booking-master-details">
+              <span><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</span>
+              <span><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</span>
+              <span><strong>Richiesta:</strong> ${booking.created_at ? new Date(booking.created_at).toLocaleString("it-IT") : "-"}</span>
+            </div>
+
+            ${booking.message ? `<p class="booking-master-message">“${escapeHtml(booking.message)}”</p>` : `<p class="muted-small">Nessun messaggio dal giocatore.</p>`}
+
+            <div class="booking-master-actions">
+              <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
+              ${canManage ? `
+                <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
+                <button class="danger-light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
+              ` : ""}
+            </div>
           </div>
         `;
       }).join("")
@@ -2015,17 +2047,28 @@ async function updateBookingStatus(id, status) {
     unlockStoryById(changedBooking.storyId);
   }
 
+  const userMessage = status === "Accettata"
+    ? `La tua prenotazione per "${changedBooking.story}" è stata accettata.`
+    : `La tua prenotazione per "${changedBooking.story}" è stata rifiutata.`;
+
+  if (changedBooking.user_id) {
+    await createNotificationForUser(
+      changedBooking.user_id,
+      userMessage,
+      status === "Accettata" ? "success" : "error",
+      { storyId: changedBooking.storyId, page: "profilo" }
+    );
+  }
+
   renderDashboardBookings();
   renderBookingCalendar(currentStory);
 
   if (status === "Accettata") {
-    showToast("Prenotazione accettata. Materiali sbloccati per l’utente.", "success");
-    addNotification(`Prenotazione accettata per "${changedBooking.story}". Materiali sbloccati.`, "success", { storyId: changedBooking.storyId });
+    showToast("Prenotazione accettata. L’utente riceverà una notifica.", "success");
   }
 
   if (status === "Rifiutata") {
-    showToast("Prenotazione rifiutata.", "error");
-    addNotification(`Prenotazione rifiutata per "${changedBooking.story}".`, "error", { storyId: changedBooking.storyId });
+    showToast("Prenotazione rifiutata. L’utente riceverà una notifica.", "error");
   }
 }
 
@@ -2409,7 +2452,18 @@ async function createPublicSession() {
     }
   }
 
-  addNotification(`Hai creato una sessione pubblica per "${currentStory.title}".`, "success", { storyId: currentStory.id });
+  addNotification(`Hai creato una sessione pubblica per "${currentStory.title}".`, "success", { storyId: currentStory.id, page: "sessioni" });
+
+  const storyOwnerId = getCurrentStoryMasterId(currentStory);
+  if (storyOwnerId && !storyIdsMatch(storyOwnerId, getCurrentUserId())) {
+    await createNotificationForUser(
+      storyOwnerId,
+      `È stata creata una sessione pubblica per "${currentStory.title}".`,
+      "info",
+      { storyId: currentStory.id, page: "area-master" }
+    );
+  }
+
   showToast(isOwner ? "Sessione pubblica creata. I giocatori potranno unirsi da Sessioni aperte." : "Sessione pubblica creata. Ora altri giocatori potranno unirsi.", "success");
   selectedBookingSlot = null;
   await loadSupabasePublicSessions();
@@ -2504,7 +2558,17 @@ async function joinOpenSession(targetSessionId) {
     saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
   }
 
-  addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id });
+  addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id, page: "profilo" });
+
+  const storyOwnerId = getCurrentStoryMasterId(story);
+  if (storyOwnerId && !storyIdsMatch(storyOwnerId, getCurrentUserId())) {
+    await createNotificationForUser(
+      storyOwnerId,
+      `Un giocatore si è unito alla sessione pubblica di "${story.title}".`,
+      "info",
+      { storyId: story.id, page: "area-master" }
+    );
+  }
 
   const card = document.querySelector(`[data-open-session-card="${session.id}"]`);
 
@@ -3450,12 +3514,82 @@ function renderMyStories() {
 
 /* NOTIFICATIONS */
 
+function normalizeSupabaseNotification(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    message: row.message,
+    type: row.type || "info",
+    read: Boolean(row.read),
+    storyId: row.story_id || null,
+    page: row.page || null,
+    date: row.created_at ? new Date(row.created_at).toLocaleString("it-IT") : new Date().toLocaleString("it-IT"),
+    source: "supabase"
+  };
+}
+
+async function loadSupabaseNotifications() {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const { data: authData } = await supabaseClient.auth.getUser();
+  if (!authData.user) return [];
+
+  const { data, error } = await supabaseClient
+    .from("notifications")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.warn("Impossibile caricare notifiche:", error.message);
+    return [];
+  }
+
+  const remoteNotifications = (data || []).map(normalizeSupabaseNotification).filter(Boolean);
+  const localNotifications = getNotifications().filter(notification => notification.source !== "supabase");
+  saveNotifications([...remoteNotifications, ...localNotifications].slice(0, 80));
+  updateNotificationBadge();
+  return remoteNotifications;
+}
+
 function getNotifications() {
   return readJsonStorage(getUserScopedKey("questhubNotifications"), []);
 }
 
 function saveNotifications(notifications) {
   writeJsonStorage(getUserScopedKey("questhubNotifications"), notifications);
+}
+
+async function createNotificationForUser(userId, message, type = "info", options = {}) {
+  if (!userId || !message) return null;
+
+  if (storyIdsMatch(userId, getCurrentUserId())) {
+    addNotification(message, type, options);
+    return null;
+  }
+
+  if (typeof supabaseClient === "undefined") return null;
+
+  const { data, error } = await supabaseClient
+    .from("notifications")
+    .insert({
+      user_id: userId,
+      message,
+      type,
+      read: false,
+      story_id: options.storyId ? storyId(options.storyId) : null,
+      page: options.page || null
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.warn("Errore creazione notifica:", error.message);
+    return null;
+  }
+
+  return data;
 }
 
 function addNotification(message, type = "info", options = {}) {
@@ -3510,6 +3644,21 @@ function markNotificationsAsRead(showMessage = false) {
   }));
 
   saveNotifications(updated);
+
+  const remoteIds = updated
+    .filter(notification => notification.source === "supabase" && notification.id)
+    .map(notification => notification.id);
+
+  if (remoteIds.length && typeof supabaseClient !== "undefined") {
+    supabaseClient
+      .from("notifications")
+      .update({ read: true })
+      .in("id", remoteIds)
+      .then(({ error }) => {
+        if (error) console.warn("Errore aggiornamento notifiche lette:", error.message);
+      });
+  }
+
   updateNotificationBadge();
   renderNotifications();
   renderNotificationsPreview();

@@ -225,6 +225,11 @@ function normalizePublicSession(row) {
     joined: Number(row.current_players || 0),
     status: row.status || "open",
     createdBy: row.created_by || null,
+    sessionDate: row.session_date || "",
+    startTime: normalizeTime(row.start_time),
+    endTime: normalizeTime(row.end_time),
+    durationMinutes: Number(row.duration_minutes || 0),
+    createdGroupSize: Number(row.created_group_size || 1),
     source: "supabase"
   };
 }
@@ -1450,6 +1455,23 @@ function resetFilters() {
 
 /* BOOKINGS */
 
+function parseStoryPlayersRange(story) {
+  const raw = String(story?.players || "2–6");
+  const numbers = raw.match(/\d+/g)?.map(Number) || [1, 6];
+  const minPlayers = numbers[0] || 1;
+  const maxPlayers = numbers.length > 1 ? numbers[numbers.length - 1] : minPlayers;
+  return { minPlayers, maxPlayers };
+}
+
+function parsePlayersValue(value, fallback = 1) {
+  const parsed = Number(String(value || "").match(/\d+/)?.[0] || fallback);
+  return Math.max(1, parsed);
+}
+
+function getCurrentStoryMasterId(story) {
+  return story?.source === "supabase" ? story?.author_id : story?.masterId;
+}
+
 function getStoryDurationMinutes(story) {
   const raw = String(story?.duration || "2 ore").toLowerCase();
   const number = Number((raw.match(/\d+/) || [2])[0]);
@@ -1568,6 +1590,26 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
   });
 }
 
+function hasPublicSessionOverlap(story, date, startTime, endTime) {
+  if (!story || !supabasePublicSessionsLoaded) return false;
+
+  const start = timeToMinutes(startTime);
+  const end = timeToMinutes(endTime);
+  const masterId = getCurrentStoryMasterId(story);
+
+  return supabasePublicSessionsCache.some(session => {
+    if (!["open", "complete"].includes(session.status)) return false;
+    if (!session.sessionDate || session.sessionDate !== date) return false;
+
+    const sessionStory = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+    if (!sessionStory || !storyIdsMatch(getCurrentStoryMasterId(sessionStory), masterId)) return false;
+
+    const sessionStart = timeToMinutes(session.startTime);
+    const sessionEnd = timeToMinutes(session.endTime);
+    return start < sessionEnd && end > sessionStart;
+  });
+}
+
 function getDaySlots(story, date) {
   const duration = getStoryDurationMinutes(story);
   const step = duration;
@@ -1588,7 +1630,7 @@ function getDaySlots(story, date) {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const occupied = hasBookingOverlap(story.masterId, dateIso, startTime, endTime);
+      const occupied = hasBookingOverlap(getCurrentStoryMasterId(story), dateIso, startTime, endTime) || hasPublicSessionOverlap(story, dateIso, startTime, endTime);
 
       slots.push({
         date: dateIso,
@@ -1748,7 +1790,7 @@ async function createBooking() {
 
   await loadSupabaseBookings();
 
-  if (hasBookingOverlap(currentStory.masterId, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
+  if (hasBookingOverlap(getCurrentStoryMasterId(currentStory), selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime) || hasPublicSessionOverlap(currentStory, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
     showToast("Questo slot è appena stato occupato. Scegli un altro orario.", "warning");
     renderBookingCalendar(currentStory);
     return;
@@ -1757,7 +1799,7 @@ async function createBooking() {
   const bookingPayload = {
     story_id: storyId(currentStory.id),
     story_title: currentStory.title,
-    master_id: currentStory.source === "supabase" ? currentStory.author_id : null,
+    master_id: getCurrentStoryMasterId(currentStory) || null,
     user_id: getCurrentUserId(),
     group_name: group,
     booking_date: selectedBookingSlot.date,
@@ -1980,14 +2022,7 @@ function unlockStoryById(id) {
 function getJoinSessions() {
   if (supabasePublicSessionsLoaded) {
     return supabasePublicSessionsCache.reduce((acc, session) => {
-      acc[storyId(session.storyId)] = {
-        id: session.id,
-        joined: session.joined,
-        minPlayers: session.minPlayers,
-        maxPlayers: session.maxPlayers,
-        status: session.status,
-        source: "supabase"
-      };
+      acc[storyId(session.id)] = session;
       return acc;
     }, {});
   }
@@ -2001,7 +2036,7 @@ function getJoinedOpenSessions() {
   if (supabaseSessionParticipantsLoaded && userId) {
     return supabaseSessionParticipantsCache
       .filter(participant => storyIdsMatch(participant.user_id, userId) && participant.status === "joined")
-      .map(participant => storyId(participant.story_id));
+      .map(participant => storyId(participant.session_id || participant.story_id));
   }
 
   return readJsonStorage(getUserScopedKey("questhubJoinedOpenSessions"), []);
@@ -2015,55 +2050,86 @@ function hasJoinedOpenSession(id) {
   return getJoinedOpenSessions().map(String).includes(storyId(id));
 }
 
-function getSessionForStoryId(id) {
-  const sessions = getJoinSessions();
-  return sessions[storyId(id)] || { joined: 0, minPlayers: 2, maxPlayers: 6 };
+function getOpenSessionsForStory(storyIdValue) {
+  const id = storyId(storyIdValue);
+
+  if (supabasePublicSessionsLoaded) {
+    return supabasePublicSessionsCache.filter(session =>
+      storyIdsMatch(session.storyId, id) &&
+      session.status === "open" &&
+      Number(session.joined) < Number(session.maxPlayers)
+    );
+  }
+
+  const sessions = JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
+  return Object.values(sessions).filter(session =>
+    storyIdsMatch(session.storyId, id) &&
+    session.status !== "complete" &&
+    Number(session.joined || 0) < Number(session.maxPlayers || 6)
+  );
+}
+
+function getFirstOpenSessionForStory(storyIdValue) {
+  return getOpenSessionsForStory(storyIdValue)[0] || null;
 }
 
 function renderJoinSession(story) {
   const container = document.getElementById("joinSessionStatus");
   if (!container || !story) return;
 
-  const session = getSessionForStoryId(story.id);
-  const joined = hasJoinedOpenSession(story.id);
-  const isComplete = Number(session.joined) >= Number(session.maxPlayers);
+  const openSessions = getOpenSessionsForStory(story.id);
+  const joinedParticipant = supabaseSessionParticipantsCache.find(participant =>
+    storyIdsMatch(participant.story_id, story.id) &&
+    storyIdsMatch(participant.user_id, getCurrentUserId()) &&
+    participant.status === "joined"
+  );
+  const joinedSession = joinedParticipant
+    ? supabasePublicSessionsCache.find(session => storyIdsMatch(session.id, joinedParticipant.session_id))
+    : null;
+
+  const createButton = document.getElementById("createPublicSessionButton");
   const joinButton = document.getElementById("joinPublicSessionButton");
   const cancelButton = document.getElementById("cancelJoinSessionButton");
 
+  if (cancelButton) cancelButton.hidden = !joinedSession;
+  if (createButton) createButton.hidden = Boolean(joinedSession);
   if (joinButton) {
-    joinButton.hidden = joined || isComplete;
-    joinButton.disabled = joined || isComplete;
+    joinButton.hidden = Boolean(joinedSession) || !openSessions.length;
+    joinButton.disabled = Boolean(joinedSession) || !openSessions.length;
   }
 
-  if (cancelButton) {
-    cancelButton.hidden = !joined;
-  }
-
-  if (joined) {
+  if (joinedSession) {
     container.innerHTML = `
       <div class="join-session-confirmation">
         <div class="join-session-check">✓</div>
         <div>
-          <strong>Ti sei unito a questa sessione</strong>
-          <p>${session.joined} / ${session.maxPlayers} giocatori iscritti</p>
-          <p>${isComplete ? "Gruppo completo" : "In attesa di conferma"}</p>
+          <strong>Ti sei unito a questa sessione pubblica</strong>
+          <p>${joinedSession.joined} / ${joinedSession.maxPlayers} giocatori iscritti</p>
+          <p>${joinedSession.sessionDate ? `${formatLongItalianDate(joinedSession.sessionDate)}, ${joinedSession.startTime}–${joinedSession.endTime}` : "Data in definizione"}</p>
         </div>
       </div>
     `;
     return;
   }
 
-  let status = "In attesa di altri giocatori";
+  if (!openSessions.length) {
+    container.innerHTML = `
+      <div class="join-session-status-box">
+        <p><strong>Nessuna sessione pubblica aperta per questa storia.</strong></p>
+        <p>Puoi crearne una scegliendo uno slot libero dal calendario: altri giocatori potranno unirsi dalla pagina “Sessioni aperte”.</p>
+      </div>
+    `;
+    return;
+  }
 
-  if (isComplete) status = "Gruppo completo";
-  else if (session.joined >= session.minPlayers) status = "Sessione pronta a partire";
+  const session = openSessions[0];
+  const ready = Number(session.joined) >= Number(session.minPlayers);
 
   container.innerHTML = `
-    <div class="join-session-status-box ${isComplete ? "is-complete" : ""}">
+    <div class="join-session-status-box">
       <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
-      <p>Minimo per partire: ${session.minPlayers}</p>
-      <p><strong>${status}</strong></p>
-      ${isComplete ? `<p class="session-full-note">Questa sessione è completa e non accetta altri giocatori.</p>` : ""}
+      <p>${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Data in definizione"}</p>
+      <p><strong>${ready ? "Sessione pronta a partire" : "In attesa di altri giocatori"}</strong></p>
     </div>
   `;
 }
@@ -2072,49 +2138,53 @@ function getOpenSessionStories() {
   return getAllStories().filter(story => story.type === "Con Master");
 }
 
+function getVisibleOpenSessions() {
+  const joinedIds = getJoinedOpenSessions().map(String);
+
+  if (supabasePublicSessionsLoaded) {
+    return supabasePublicSessionsCache.filter(session =>
+      session.status === "open" &&
+      Number(session.joined) < Number(session.maxPlayers) &&
+      !joinedIds.includes(storyId(session.id))
+    );
+  }
+
+  return Object.values(JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}"))
+    .filter(session =>
+      session.status === "open" &&
+      Number(session.joined || 0) < Number(session.maxPlayers || 6) &&
+      !joinedIds.includes(storyId(session.id || session.storyId))
+    );
+}
+
 function renderOpenSessions() {
   const containers = document.querySelectorAll("[data-open-sessions-list]");
   const count = document.getElementById("openSessionsCount");
   if (!containers.length) return;
 
-  const joinedIds = getJoinedOpenSessions();
-  const allOpenStories = getOpenSessionStories();
-
-  const visibleOpenStories = allOpenStories.filter(story => {
-    const session = getSessionForStoryId(story.id);
-    const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
-    const isComplete = Number(session.joined) >= Number(session.maxPlayers);
-    return !alreadyJoined && !isComplete;
-  });
+  const visibleSessions = getVisibleOpenSessions();
 
   if (count) {
-    count.textContent = visibleOpenStories.length === 1
+    count.textContent = visibleSessions.length === 1
       ? "1 sessione aperta"
-      : `${visibleOpenStories.length} sessioni aperte`;
+      : `${visibleSessions.length} sessioni aperte`;
   }
 
-  function buildHtml(stories) {
-    return stories.length
-      ? stories.map(story => {
-          const session = getSessionForStoryId(story.id);
+  function buildHtml(sessions) {
+    return sessions.length
+      ? sessions.map(session => {
+          const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+          if (!story) return "";
+
           const genreClass = getGenreClass(story.genre);
-          const alreadyJoined = joinedIds.map(String).includes(storyId(story.id));
-          const isComplete = Number(session.joined) >= Number(session.maxPlayers);
-          const status = isComplete
-            ? "Completa"
-            : session.joined >= session.minPlayers
-              ? "Pronta a partire"
-              : "In attesa di giocatori";
+          const ready = Number(session.joined) >= Number(session.minPlayers);
+          const status = ready ? "Pronta a partire" : "In attesa di giocatori";
           const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
           const storyArg = storyJsArg(story.id);
-          const publicAction = alreadyJoined
-            ? `<button class="light" onclick='openStory(${storyArg})'>Già unito</button>`
-            : isComplete
-              ? `<button class="light" disabled>Completa</button>`
-              : `<button class="primary" onclick='joinOpenSession(${storyArg})'>Unisciti</button>`;
+          const sessionArg = storyJsArg(session.id);
 
           return `
-            <div class="card open-session-card ${alreadyJoined ? "joined" : ""} ${isComplete ? "complete" : ""}" data-open-session-card="${story.id}">
+            <div class="card open-session-card" data-open-session-card="${escapeHtmlAttribute(session.id)}">
               <div class="join-success-overlay">
                 <div class="join-success-icon">✓</div>
                 <strong>Ti sei unito</strong>
@@ -2122,18 +2192,18 @@ function renderOpenSessions() {
               </div>
               <div class="open-session-cover ${genreClass}" ${coverStyle}></div>
               <div class="open-session-content">
-                <span class="tag ${genreClass}">${story.genre}</span>
-                <h3>${story.title}</h3>
-                <p>${story.desc}</p>
+                <span class="tag ${genreClass}">${escapeHtml(story.genre)}</span>
+                <h3>${escapeHtml(story.title)}</h3>
+                <p>${escapeHtml(story.desc || "")}</p>
                 <div class="open-session-meta">
-                  <span><strong>Master:</strong> ${story.master}</span>
-                  <span><strong>Durata:</strong> ${story.duration}</span>
+                  <span><strong>Autore:</strong> ${escapeHtml(story.master || "Master Lorecast")}</span>
+                  <span><strong>Quando:</strong> ${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Da definire"}</span>
                   <span><strong>Posti:</strong> ${session.joined} / ${session.maxPlayers}</span>
-                  <span><strong>Stato:</strong> ${alreadyJoined ? "Già unito" : status}</span>
+                  <span><strong>Stato:</strong> ${status}</span>
                 </div>
                 <div class="open-session-actions">
                   <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
-                  ${publicAction}
+                  <button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>
                 </div>
               </div>
             </div>
@@ -2143,46 +2213,117 @@ function renderOpenSessions() {
   }
 
   containers.forEach(container => {
-    container.innerHTML = buildHtml(visibleOpenStories);
+    container.innerHTML = buildHtml(visibleSessions);
   });
 }
 
-async function ensurePublicSession(story) {
-  const existing = supabasePublicSessionsCache.find(session => storyIdsMatch(session.storyId, story.id));
-  if (existing) return existing;
+async function createPublicSession() {
+  if (!currentStory) return;
 
-  const { data: authData } = await supabaseClient.auth.getUser();
-
-  const { data, error } = await supabaseClient
-    .from("public_sessions")
-    .insert({
-      story_id: storyId(story.id),
-      story_title: story.title,
-      story_author_id: story.source === "supabase" ? story.author_id : null,
-      min_players: 2,
-      max_players: 6,
-      current_players: 0,
-      status: "open",
-      created_by: authData.user?.id || getCurrentUserId() || null
-    })
-    .select()
-    .single();
-
-  if (error) {
-    if (error.code === "23505") {
-      await loadSupabasePublicSessions();
-      return supabasePublicSessionsCache.find(session => storyIdsMatch(session.storyId, story.id));
-    }
-    throw error;
+  const profile = getUserProfile();
+  if (!profile.email) {
+    showToast("Devi accedere per creare una sessione pubblica.", "warning");
+    go("login");
+    return;
   }
 
-  const session = normalizePublicSession(data);
-  supabasePublicSessionsCache = [session, ...supabasePublicSessionsCache];
-  supabasePublicSessionsLoaded = true;
-  return session;
+  if (!selectedBookingSlot) {
+    showToast("Scegli prima uno slot libero dal calendario.", "warning");
+    return;
+  }
+
+  await loadSupabaseBookings();
+  await loadSupabasePublicSessions();
+
+  if (hasBookingOverlap(getCurrentStoryMasterId(currentStory), selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime) || hasPublicSessionOverlap(currentStory, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
+    showToast("Questo slot è già occupato. Scegli un altro orario.", "warning");
+    renderBookingCalendar(currentStory);
+    return;
+  }
+
+  const { minPlayers, maxPlayers } = parseStoryPlayersRange(currentStory);
+  const initialPlayers = Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
+  const newStatus = initialPlayers >= maxPlayers ? "complete" : "open";
+
+  if (window.supabaseClient && getCurrentUserId()) {
+    const { data: sessionRow, error: sessionError } = await supabaseClient
+      .from("public_sessions")
+      .insert({
+        story_id: storyId(currentStory.id),
+        story_title: currentStory.title,
+        story_author_id: currentStory.source === "supabase" ? currentStory.author_id : null,
+        min_players: minPlayers,
+        max_players: maxPlayers,
+        current_players: initialPlayers,
+        status: newStatus,
+        session_date: selectedBookingSlot.date,
+        start_time: selectedBookingSlot.startTime,
+        end_time: selectedBookingSlot.endTime,
+        duration_minutes: getStoryDurationMinutes(currentStory),
+        created_group_size: initialPlayers,
+        created_by: getCurrentUserId()
+      })
+      .select()
+      .single();
+
+    if (sessionError) {
+      showToast("Errore creazione sessione pubblica: " + sessionError.message, "error");
+      return;
+    }
+
+    const session = normalizePublicSession(sessionRow);
+
+    const { data: participant, error: participantError } = await supabaseClient
+      .from("session_participants")
+      .insert({
+        session_id: session.id,
+        story_id: storyId(currentStory.id),
+        user_id: getCurrentUserId(),
+        status: "joined",
+        seats: initialPlayers
+      })
+      .select()
+      .single();
+
+    if (participantError) {
+      showToast("Sessione creata, ma errore iscrizione: " + participantError.message, "warning");
+    } else {
+      supabaseSessionParticipantsCache = [participant, ...supabaseSessionParticipantsCache];
+      supabaseSessionParticipantsLoaded = true;
+    }
+
+    supabasePublicSessionsCache = [session, ...supabasePublicSessionsCache];
+    supabasePublicSessionsLoaded = true;
+  } else {
+    const sessions = JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
+    const localId = String(Date.now());
+    sessions[localId] = {
+      id: localId,
+      storyId: storyId(currentStory.id),
+      joined: initialPlayers,
+      minPlayers,
+      maxPlayers,
+      status: newStatus,
+      sessionDate: selectedBookingSlot.date,
+      startTime: selectedBookingSlot.startTime,
+      endTime: selectedBookingSlot.endTime
+    };
+    localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
+    const joined = getJoinedOpenSessions();
+    joined.push(localId);
+    saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
+  }
+
+  addNotification(`Hai creato una sessione pubblica per "${currentStory.title}".`, "success", { storyId: currentStory.id });
+  showToast("Sessione pubblica creata. Ora altri giocatori potranno unirsi.", "success");
+  selectedBookingSlot = null;
+  renderBookingCalendar(currentStory);
+  updateSelectedSlotLabel();
+  renderJoinSession(currentStory);
+  renderOpenSessions();
 }
 
-async function joinOpenSession(targetStoryId) {
+async function joinOpenSession(targetSessionId) {
   const profile = getUserProfile();
 
   if (!profile.email) {
@@ -2191,39 +2332,41 @@ async function joinOpenSession(targetStoryId) {
     return;
   }
 
-  const story = getAllStories().find(item => storyIdsMatch(item.id, targetStoryId));
-  if (!story) return;
-
   await loadSupabasePublicSessions();
 
-  if (hasJoinedOpenSession(story.id)) {
-    showToast("Ti sei già unito a questa storia.", "success");
+  const session = supabasePublicSessionsCache.find(item => storyIdsMatch(item.id, targetSessionId))
+    || Object.values(JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}")).find(item => storyIdsMatch(item.id, targetSessionId));
+
+  if (!session) {
+    showToast("Sessione non disponibile.", "warning");
+    renderOpenSessions();
+    return;
+  }
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+  if (!story) return;
+
+  if (hasJoinedOpenSession(session.id)) {
+    showToast("Ti sei già unito a questa sessione.", "success");
     openStory(story.id);
     return;
   }
 
-  if (window.supabaseClient && getCurrentUserId()) {
-    let session;
-    try {
-      session = await ensurePublicSession(story);
-    } catch (error) {
-      showToast("Errore apertura sessione: " + error.message, "error");
-      return;
-    }
+  if (Number(session.joined) >= Number(session.maxPlayers) || session.status !== "open") {
+    showToast("Gruppo già completo.", "warning");
+    renderOpenSessions();
+    return;
+  }
 
-    if (Number(session.joined) >= Number(session.maxPlayers)) {
-      showToast("Gruppo già completo.", "warning");
-      renderOpenSessions();
-      return;
-    }
-
+  if (window.supabaseClient && getCurrentUserId() && session.source === "supabase") {
     const { data: participant, error: participantError } = await supabaseClient
       .from("session_participants")
       .upsert({
         session_id: session.id,
         story_id: storyId(story.id),
         user_id: getCurrentUserId(),
-        status: "joined"
+        status: "joined",
+        seats: 1
       }, { onConflict: "session_id,user_id" })
       .select()
       .single();
@@ -2255,31 +2398,17 @@ async function joinOpenSession(targetStoryId) {
     const normalizedSession = normalizePublicSession(updatedSession);
     supabasePublicSessionsCache = supabasePublicSessionsCache.map(item => storyIdsMatch(item.id, normalizedSession.id) ? normalizedSession : item);
   } else {
-    const sessions = getJoinSessions();
-
-    if (!sessions[story.id]) {
-      sessions[story.id] = { joined: 0, minPlayers: 2, maxPlayers: 6 };
-    }
-
-    const session = sessions[story.id];
-
-    if (Number(session.joined) >= Number(session.maxPlayers)) {
-      showToast("Gruppo già completo.", "warning");
-      renderOpenSessions();
-      return;
-    }
-
-    session.joined += 1;
+    const sessions = JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
+    sessions[session.id].joined = Number(sessions[session.id].joined || 0) + 1;
     localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
-
     const joined = getJoinedOpenSessions();
-    joined.push(storyId(story.id));
+    joined.push(storyId(session.id));
     saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
   }
 
   addNotification(`Ti sei unito alla sessione pubblica: ${story.title}`, "success", { storyId: story.id });
 
-  const card = document.querySelector(`[data-open-session-card="${story.id}"]`);
+  const card = document.querySelector(`[data-open-session-card="${session.id}"]`);
 
   if (card) {
     card.classList.add("join-success");
@@ -2288,7 +2417,7 @@ async function joinOpenSession(targetStoryId) {
     });
   }
 
-  showToast("Ti sei unito a questa storia.", "success");
+  showToast("Ti sei unito a questa sessione.", "success");
 
   setTimeout(() => {
     renderOpenSessions();
@@ -2298,36 +2427,45 @@ async function joinOpenSession(targetStoryId) {
 
 function joinPublicSession() {
   if (!currentStory) return;
-  joinOpenSession(currentStory.id);
+  const session = getFirstOpenSessionForStory(currentStory.id);
+  if (!session) {
+    showToast("Non ci sono sessioni pubbliche aperte per questa storia. Puoi crearne una scegliendo uno slot.", "warning");
+    return;
+  }
+  joinOpenSession(session.id);
 }
 
 async function cancelOpenSession(storyIdValue) {
   const id = storyId(storyIdValue);
+  const userId = getCurrentUserId();
 
-  if (!id || !hasJoinedOpenSession(id)) {
-    showToast("Non risulti iscritto a questa sessione.", "warning");
-    return;
-  }
+  if (window.supabaseClient && userId) {
+    const participant = supabaseSessionParticipantsCache.find(item =>
+      storyIdsMatch(item.story_id, id) &&
+      storyIdsMatch(item.user_id, userId) &&
+      item.status === "joined"
+    );
 
-  if (window.supabaseClient && getCurrentUserId()) {
-    const session = supabasePublicSessionsCache.find(item => storyIdsMatch(item.storyId, id));
+    if (!participant) {
+      showToast("Non risulti iscritto a questa sessione.", "warning");
+      return;
+    }
+
+    const session = supabasePublicSessionsCache.find(item => storyIdsMatch(item.id, participant.session_id));
+    const seats = Number(participant.seats || 1);
+
+    const { error: participantError } = await supabaseClient
+      .from("session_participants")
+      .update({ status: "cancelled" })
+      .eq("id", participant.id);
+
+    if (participantError) {
+      showToast("Errore annullamento partecipazione: " + participantError.message, "error");
+      return;
+    }
 
     if (session) {
-      const participant = supabaseSessionParticipantsCache.find(item => storyIdsMatch(item.story_id, id) && storyIdsMatch(item.user_id, getCurrentUserId()));
-
-      if (participant) {
-        const { error } = await supabaseClient
-          .from("session_participants")
-          .update({ status: "cancelled" })
-          .eq("id", participant.id);
-
-        if (error) {
-          showToast("Errore annullamento partecipazione: " + error.message, "error");
-          return;
-        }
-      }
-
-      const newCount = Math.max(0, Number(session.joined || 0) - 1);
+      const newCount = Math.max(0, Number(session.joined || 0) - seats);
       const { data, error } = await supabaseClient
         .from("public_sessions")
         .update({ current_players: newCount, status: "open" })
@@ -2341,17 +2479,27 @@ async function cancelOpenSession(storyIdValue) {
       }
 
       supabasePublicSessionsCache = supabasePublicSessionsCache.map(item => storyIdsMatch(item.id, session.id) ? normalizePublicSession(data) : item);
-      supabaseSessionParticipantsCache = supabaseSessionParticipantsCache.filter(item => !(storyIdsMatch(item.story_id, id) && storyIdsMatch(item.user_id, getCurrentUserId())));
     }
-  } else {
-    const sessions = getJoinSessions();
 
-    if (sessions[id]) {
-      sessions[id].joined = Math.max(0, Number(sessions[id].joined || 0) - 1);
+    supabaseSessionParticipantsCache = supabaseSessionParticipantsCache.filter(item => !storyIdsMatch(item.id, participant.id));
+  } else {
+    const sessions = JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
+    const joinedId = getJoinedOpenSessions().find(sessionId => {
+      const session = sessions[sessionId];
+      return session && storyIdsMatch(session.storyId, id);
+    });
+
+    if (!joinedId) {
+      showToast("Non risulti iscritto a questa sessione.", "warning");
+      return;
+    }
+
+    if (sessions[joinedId]) {
+      sessions[joinedId].joined = Math.max(0, Number(sessions[joinedId].joined || 0) - 1);
       localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
     }
 
-    const updatedJoinedIds = getJoinedOpenSessions().filter(joinedId => storyId(joinedId) !== id);
+    const updatedJoinedIds = getJoinedOpenSessions().filter(sessionId => storyId(sessionId) !== storyId(joinedId));
     saveJoinedOpenSessions(updatedJoinedIds);
   }
 
@@ -2362,6 +2510,7 @@ async function cancelOpenSession(storyIdValue) {
 
   if (story && currentStory && storyIdsMatch(currentStory.id, id)) {
     renderJoinSession(story);
+    renderBookingCalendar(story);
   }
 
   renderOpenSessions();

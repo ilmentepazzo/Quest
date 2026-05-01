@@ -81,14 +81,18 @@
             <div class="booking-choice-box public-choice-box">
               <h3>Sessione pubblica join-in</h3>
               <p>
-                Non hai un gruppo? Entra nella sessione pubblica e gioca con altri utenti.
+                Non hai un gruppo completo? Crea una sessione pubblica scegliendo uno slot, oppure unisciti a una già aperta.
               </p>
 
               <div id="joinSessionStatus"></div>
 
               <div class="join-session-actions">
-                <button id="joinPublicSessionButton" class="dark" onclick="joinPublicSession()">
-                  Partecipa alla sessione
+                <button id="createPublicSessionButton" class="dark" onclick="createPublicSession()">
+                  Crea sessione pubblica
+                </button>
+
+                <button id="joinPublicSessionButton" class="primary" onclick="joinPublicSession()">
+                  Unisciti alla sessione aperta
                 </button>
 
                 <button id="cancelJoinSessionButton" class="light danger-light" onclick="cancelOpenSession(currentStory?.id)" hidden>

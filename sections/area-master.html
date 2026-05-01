@@ -23,7 +23,7 @@
     <div class="section-heading-row">
       <div>
         <h2>Disponibilità calendario</h2>
-        <p>Imposta gli orari disponibili per ogni singola storia. Gli utenti vedranno solo gli slot compatibili con la durata della storia selezionata.</p>
+        <p>Imposta slot specifici per data e storia. Se vuoi, puoi ripeterli automaticamente nelle settimane successive.</p>
       </div>
     </div>
 
@@ -32,18 +32,15 @@
         <option value="">Scegli una tua storia Con Master</option>
       </select>
 
-      <select id="availabilityWeekday">
-        <option value="1">Lunedì</option>
-        <option value="2">Martedì</option>
-        <option value="3">Mercoledì</option>
-        <option value="4">Giovedì</option>
-        <option value="5">Venerdì</option>
-        <option value="6">Sabato</option>
-        <option value="0">Domenica</option>
-      </select>
+      <input id="availabilityDate" type="date" />
 
       <input id="availabilityStart" type="time" value="18:00" />
       <input id="availabilityEnd" type="time" value="23:00" />
+
+      <label class="availability-repeat-option">
+        <input id="availabilityRepeatWeeks" type="checkbox" />
+        <span>Ripeti lo stesso giorno per le prossime 4 settimane</span>
+      </label>
 
       <button class="primary" type="button" onclick="addMasterAvailability()">
         Aggiungi disponibilità

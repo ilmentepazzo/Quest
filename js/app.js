@@ -164,6 +164,28 @@ function getUserProfile() {
   return JSON.parse(localStorage.getItem("questhubUserProfile") || "{}");
 }
 
+function getPublicDisplayName(profileOrName, fallback = "Utente Lorecast") {
+  const raw = typeof profileOrName === "string"
+    ? profileOrName
+    : (profileOrName?.name || profileOrName?.email || fallback);
+
+  if (!raw) return fallback;
+
+  const clean = String(raw).trim();
+  if (!clean) return fallback;
+
+  if (clean.includes("@")) {
+    const localPart = clean.split("@")[0] || fallback;
+    return localPart.length > 18 ? `${localPart.slice(0, 18)}…` : localPart;
+  }
+
+  return clean.length > 28 ? `${clean.slice(0, 28)}…` : clean;
+}
+
+function isEmailLikeName(value) {
+  return /@/.test(String(value || ""));
+}
+
 function getCurrentUserId() {
   const profile = getUserProfile();
   return profile.id || profile.user_id || "";
@@ -222,6 +244,7 @@ function normalizeAvailability(row) {
     id: row.id,
     storyId: storyId(row.story_id || ""),
     masterId: row.master_id,
+    availabilityDate: row.availability_date || null,
     weekday: Number(row.weekday),
     startTime: normalizeTime(row.start_time),
     endTime: normalizeTime(row.end_time),
@@ -266,6 +289,7 @@ async function loadSupabaseAvailability() {
   const { data, error } = await supabaseClient
     .from("master_availability")
     .select("*")
+    .order("availability_date", { ascending: true, nullsFirst: false })
     .order("weekday", { ascending: true })
     .order("start_time", { ascending: true });
 
@@ -417,7 +441,7 @@ async function upsertSupabaseProfile(user) {
 
   const fallbackProfile = {
     id: user.id,
-    name: user.user_metadata?.name || user.user_metadata?.full_name || user.email,
+    name: user.user_metadata?.name || user.user_metadata?.full_name || (user.email ? user.email.split("@")[0] : "Utente Lorecast"),
     email: user.email,
     avatar_url: user.user_metadata?.avatar_url || "",
     language: getCurrentLanguage()
@@ -635,9 +659,12 @@ function updateHeaderUser() {
     return;
   }
 
-  const name = profile.name || profile.email || "Utente";
+  const name = getPublicDisplayName(profile, "Utente");
 
-  if (nameEl) nameEl.textContent = name;
+  if (nameEl) {
+    nameEl.textContent = name;
+    nameEl.title = profile.name || profile.email || name;
+  }
 
   if (avatarEl) {
     if (profile.avatar_url) {
@@ -687,7 +714,7 @@ async function renderUserProfile() {
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
-  const displayName = profile.name || "Utente Lorecast";
+  const displayName = getPublicDisplayName(profile, "Utente Lorecast");
 
   const nameInput = document.getElementById("profileName");
   const languageInput = document.getElementById("profileLanguage");
@@ -904,6 +931,26 @@ async function saveUserProfile() {
 
   if (!name) {
     showToast("Inserisci il nome pubblico.", "warning");
+    return;
+  }
+
+  if (isEmailLikeName(name)) {
+    showToast("Il nome pubblico non può essere un indirizzo email.", "warning");
+    return;
+  }
+
+  if (name.length > 28) {
+    showToast("Il nome pubblico deve avere massimo 28 caratteri.", "warning");
+    return;
+  }
+
+  if (isEmailLikeName(name)) {
+    showToast("Il nome pubblico non può essere un indirizzo email.", "warning");
+    return;
+  }
+
+  if (name.length > 28) {
+    showToast("Il nome pubblico deve avere massimo 28 caratteri.", "warning");
     return;
   }
 
@@ -1654,8 +1701,12 @@ function hasPublicSessionOverlap(story, date, startTime, endTime) {
 }
 
 function getDaySlots(story, date) {
-  const rules = getAvailabilityForStory(story).filter(rule => Number(rule.weekday) === date.getDay());
   const dateIso = formatISODate(date);
+  const rules = getAvailabilityForStory(story).filter(rule => {
+    if (rule.availabilityDate) return rule.availabilityDate === dateIso;
+    return Number(rule.weekday) === date.getDay();
+  });
+
   const slots = [];
   const seen = new Set();
 
@@ -3365,7 +3416,9 @@ function renderMasterAvailability() {
     .sort((a, b) => {
       const titleA = getStoryTitleById(a.storyId || "");
       const titleB = getStoryTitleById(b.storyId || "");
-      return titleA.localeCompare(titleB) || Number(a.weekday) - Number(b.weekday) || a.startTime.localeCompare(b.startTime);
+      const dateA = a.availabilityDate || String(a.weekday || "");
+      const dateB = b.availabilityDate || String(b.weekday || "");
+      return titleA.localeCompare(titleB) || dateA.localeCompare(dateB) || a.startTime.localeCompare(b.startTime);
     });
 
   container.innerHTML = rules.length
@@ -3373,7 +3426,7 @@ function renderMasterAvailability() {
         <div class="availability-row">
           <div>
             <strong>${escapeHtml(getStoryTitleById(rule.storyId || ""))}</strong>
-            <span>${getWeekdayLabel(rule.weekday)} · ${rule.startTime}–${rule.endTime}</span>
+            <span>${rule.availabilityDate ? formatLongItalianDate(rule.availabilityDate) : getWeekdayLabel(rule.weekday)} · ${rule.startTime}–${rule.endTime}</span>
           </div>
           <button class="light" type="button" onclick='removeMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Rimuovi</button>
         </div>
@@ -3383,9 +3436,10 @@ function renderMasterAvailability() {
 
 async function addMasterAvailability() {
   const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
-  const weekday = document.getElementById("availabilityWeekday")?.value;
+  const dateValue = document.getElementById("availabilityDate")?.value || "";
   const startTime = document.getElementById("availabilityStart")?.value;
   const endTime = document.getElementById("availabilityEnd")?.value;
+  const repeatWeeks = document.getElementById("availabilityRepeatWeeks")?.checked || false;
 
   const selectedStory = getAllStories().find(story => storyIdsMatch(story.id, storyIdValue));
 
@@ -3394,8 +3448,8 @@ async function addMasterAvailability() {
     return;
   }
 
-  if (!weekday || !startTime || !endTime) {
-    showToast("Completa giorno, ora inizio e ora fine.", "warning");
+  if (!dateValue || !startTime || !endTime) {
+    showToast("Completa data, ora inizio e ora fine.", "warning");
     return;
   }
 
@@ -3405,45 +3459,58 @@ async function addMasterAvailability() {
   }
 
   const userId = getCurrentUserId();
+  const dates = [dateValue];
+
+  if (repeatWeeks) {
+    const base = new Date(`${dateValue}T12:00:00`);
+    for (let i = 1; i <= 4; i += 1) {
+      dates.push(formatISODate(addDays(base, i * 7)));
+    }
+  }
 
   if ((typeof supabaseClient !== "undefined") && userId) {
+    const rows = dates.map(date => ({
+      story_id: storyIdValue,
+      master_id: userId,
+      availability_date: date,
+      weekday: new Date(`${date}T12:00:00`).getDay(),
+      start_time: startTime,
+      end_time: endTime
+    }));
+
     const { data, error } = await supabaseClient
       .from("master_availability")
-      .insert({
-        story_id: storyIdValue,
-        master_id: userId,
-        weekday: Number(weekday),
-        start_time: startTime,
-        end_time: endTime
-      })
-      .select()
-      .single();
+      .insert(rows)
+      .select();
 
     if (error) {
       showToast("Errore disponibilità: " + error.message, "error");
       return;
     }
 
-    const rule = normalizeAvailability(data);
-    supabaseAvailabilityCache = [...supabaseAvailabilityCache, rule];
+    const rules = (data || []).map(normalizeAvailability).filter(Boolean);
+    supabaseAvailabilityCache = [...supabaseAvailabilityCache, ...rules];
     supabaseAvailabilityLoaded = true;
     await loadSupabaseAvailability();
   } else {
     const rules = getMasterAvailabilityRules();
-    rules.push({
-      id: Date.now(),
-      storyId: storyIdValue,
-      masterId: userId || 1,
-      weekday: Number(weekday),
-      startTime,
-      endTime
+    dates.forEach(date => {
+      rules.push({
+        id: `${Date.now()}-${date}`,
+        storyId: storyIdValue,
+        masterId: userId || 1,
+        availabilityDate: date,
+        weekday: new Date(`${date}T12:00:00`).getDay(),
+        startTime,
+        endTime
+      });
     });
     localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
   }
 
   renderMasterAvailability();
   renderBookingCalendar(currentStory);
-  showToast("Disponibilità aggiunta.", "success");
+  showToast(repeatWeeks ? "Disponibilità aggiunta per 5 settimane." : "Disponibilità aggiunta.", "success");
 }
 
 async function removeMasterAvailability(id) {

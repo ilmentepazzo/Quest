@@ -3178,3 +3178,69 @@ body::after {
     grid-template-columns: 1fr;
   }
 }
+
+/* UPDATE 35 - compact long labels and availability date controls */
+#headerUserName,
+#profileDisplayName,
+#profileMainName,
+.profile-library-title,
+.library-story-card h3,
+.user-chip strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#profileMainName {
+  max-width: min(720px, 70vw);
+}
+
+#profileDisplayName {
+  max-width: 220px;
+}
+
+.profile-library-cover,
+.library-story-thumb,
+.story-mini-cover {
+  overflow: hidden;
+}
+
+.profile-library-cover .tag,
+.library-story-thumb .tag,
+.story-mini-cover .tag,
+.profile-library-cover,
+.library-story-thumb,
+.story-mini-cover {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.availability-repeat-option {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.78);
+  font-weight: 800;
+  color: #374151;
+}
+
+.availability-repeat-option input {
+  width: auto;
+  margin: 0;
+}
+
+.availability-form-grid {
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  #profileMainName {
+    max-width: 100%;
+    white-space: normal;
+  }
+}

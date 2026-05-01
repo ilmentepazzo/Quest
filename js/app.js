@@ -75,8 +75,9 @@ function normalizeSupabaseStory(row) {
   return {
     id: row.id,
     source: "supabase",
-    author_id: row.author_id || null,
-    masterId: row.master_id || row.author_id || row.id,
+    author_id: row.author_id || row.owner_id || null,
+    owner_id: row.owner_id || row.author_id || null,
+    masterId: row.master_id || row.author_id || row.owner_id || row.id,
     title: row.title,
     genre: row.genre,
     type: row.type,
@@ -99,12 +100,15 @@ function normalizeSupabaseStory(row) {
 }
 
 async function loadSupabaseStories() {
-  if (!window.supabaseClient) return [];
+  if (typeof supabaseClient === "undefined") {
+    supabaseStoriesCache = [];
+    supabaseStoriesLoaded = false;
+    return [];
+  }
 
   const { data, error } = await supabaseClient
     .from("stories")
     .select("*")
-    .eq("status", "published")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -115,16 +119,18 @@ async function loadSupabaseStories() {
   }
 
   supabaseStoriesCache = (data || [])
+    .filter(row => !row.status || row.status === "published")
     .map(normalizeSupabaseStory)
     .filter(Boolean);
 
   supabaseStoriesLoaded = true;
+  console.log("Storie Supabase caricate:", supabaseStoriesCache.length);
   return supabaseStoriesCache;
 }
 
 function getAllStories() {
   const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
-  const merged = [...storiesData, ...savedStories, ...supabaseStoriesCache];
+  const merged = [...storiesData, ...supabaseStoriesCache, ...savedStories];
   const seen = new Set();
 
   return merged.filter(story => {
@@ -243,7 +249,7 @@ async function loadSupabaseMarketplaceState() {
 }
 
 async function loadSupabaseAvailability() {
-  if (!window.supabaseClient) return [];
+  if (typeof supabaseClient === "undefined") return [];
 
   const { data, error } = await supabaseClient
     .from("master_availability")
@@ -263,7 +269,7 @@ async function loadSupabaseAvailability() {
 }
 
 async function loadSupabaseBookings() {
-  if (!window.supabaseClient) return [];
+  if (typeof supabaseClient === "undefined") return [];
 
   const { data: authData } = await supabaseClient.auth.getUser();
   if (!authData.user) {
@@ -289,7 +295,7 @@ async function loadSupabaseBookings() {
 }
 
 async function loadSupabasePublicSessions() {
-  if (!window.supabaseClient) return [];
+  if (typeof supabaseClient === "undefined") return [];
 
   const [{ data: sessions, error: sessionsError }, { data: participants, error: participantsError }] = await Promise.all([
     supabaseClient.from("public_sessions").select("*").order("created_at", { ascending: false }),
@@ -1813,7 +1819,7 @@ async function createBooking() {
 
   let booking = null;
 
-  if (window.supabaseClient && getCurrentUserId()) {
+  if ((typeof supabaseClient !== "undefined") && getCurrentUserId()) {
     const { data, error } = await supabaseClient
       .from("bookings")
       .insert(bookingPayload)
@@ -1924,7 +1930,7 @@ async function updateBookingStatus(id, status) {
     return;
   }
 
-  if (window.supabaseClient && changedBooking.source === "supabase") {
+  if ((typeof supabaseClient !== "undefined") && changedBooking.source === "supabase") {
     const { data, error } = await supabaseClient
       .from("bookings")
       .update({ status })
@@ -1977,7 +1983,7 @@ async function cancelBooking(id) {
     return;
   }
 
-  if (window.supabaseClient && booking.source === "supabase") {
+  if ((typeof supabaseClient !== "undefined") && booking.source === "supabase") {
     const { data, error } = await supabaseClient
       .from("bookings")
       .update({ status: "Annullata" })
@@ -2245,7 +2251,7 @@ async function createPublicSession() {
   const initialPlayers = Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
   const newStatus = initialPlayers >= maxPlayers ? "complete" : "open";
 
-  if (window.supabaseClient && getCurrentUserId()) {
+  if ((typeof supabaseClient !== "undefined") && getCurrentUserId()) {
     const { data: sessionRow, error: sessionError } = await supabaseClient
       .from("public_sessions")
       .insert({
@@ -2358,7 +2364,7 @@ async function joinOpenSession(targetSessionId) {
     return;
   }
 
-  if (window.supabaseClient && getCurrentUserId() && session.source === "supabase") {
+  if ((typeof supabaseClient !== "undefined") && getCurrentUserId() && session.source === "supabase") {
     const { data: participant, error: participantError } = await supabaseClient
       .from("session_participants")
       .upsert({
@@ -2439,7 +2445,7 @@ async function cancelOpenSession(storyIdValue) {
   const id = storyId(storyIdValue);
   const userId = getCurrentUserId();
 
-  if (window.supabaseClient && userId) {
+  if ((typeof supabaseClient !== "undefined") && userId) {
     const participant = supabaseSessionParticipantsCache.find(item =>
       storyIdsMatch(item.story_id, id) &&
       storyIdsMatch(item.user_id, userId) &&
@@ -3095,7 +3101,7 @@ async function addMasterAvailability() {
 
   const userId = getCurrentUserId();
 
-  if (window.supabaseClient && userId) {
+  if ((typeof supabaseClient !== "undefined") && userId) {
     const { data, error } = await supabaseClient
       .from("master_availability")
       .insert({
@@ -3138,7 +3144,7 @@ async function removeMasterAvailability(id) {
   const ruleId = storyId(id);
   const existingRule = getMasterAvailabilityRules().find(rule => storyIdsMatch(rule.id, ruleId));
 
-  if (window.supabaseClient && existingRule?.source === "supabase") {
+  if ((typeof supabaseClient !== "undefined") && existingRule?.source === "supabase") {
     const { error } = await supabaseClient
       .from("master_availability")
       .delete()

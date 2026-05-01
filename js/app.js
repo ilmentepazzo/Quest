@@ -129,16 +129,27 @@ async function loadSupabaseStories() {
 }
 
 function getAllStories() {
-  const savedStories = JSON.parse(localStorage.getItem("questhubStories") || "[]");
-  const merged = [...storiesData, ...supabaseStoriesCache, ...savedStories];
+  const primaryStories = supabaseStoriesLoaded && supabaseStoriesCache.length
+    ? supabaseStoriesCache
+    : storiesData;
+
   const seen = new Set();
 
-  return merged.filter(story => {
-    const id = storyId(story.id);
+  return primaryStories.filter(story => {
+    const id = storyId(story?.id);
     if (!id || seen.has(id)) return false;
     seen.add(id);
     return true;
   });
+}
+
+function getStoriesByAuthorId(authorId) {
+  const normalizedAuthorId = storyId(authorId);
+  if (!normalizedAuthorId) return [];
+
+  return getAllStories().filter(story =>
+    storyId(story.author_id || story.owner_id || story.masterId) === normalizedAuthorId
+  );
 }
 
 function getUnlockedStories() {
@@ -1038,10 +1049,12 @@ function renderFeatured() {
   container.innerHTML = getAllStories().slice(0, 3).map(card).join("");
 }
 
-function renderCatalog() {
+async function renderCatalog() {
   const container = document.getElementById("stories");
   const count = document.getElementById("count");
   if (!container || !count) return;
+
+  await loadSupabaseStories();
 
   const q = document.getElementById("q")?.value.toLowerCase() || "";
   const genre = document.getElementById("genre")?.value || "";
@@ -1365,6 +1378,8 @@ function openStoryAuthorProfile(storyIdValue) {
 
 function renderBasicAuthorProfile(story) {
   const authorName = story.master || "Autore Lorecast";
+  const authorId = story.author_id || story.owner_id || story.masterId || null;
+  const authorStories = getStoriesByAuthorId(authorId);
 
   const setText = (elementId, value) => {
     const element = document.getElementById(elementId);
@@ -1376,16 +1391,34 @@ function renderBasicAuthorProfile(story) {
     if (element) element.innerHTML = value ?? "";
   };
 
+  const authorStoryCards = authorStories.length
+    ? authorStories.map(authorStory => `
+        <div class="profile-compact-row">
+          ${compactStoryCover(authorStory)}
+          <div class="profile-compact-content">
+            <strong>${escapeHtml(authorStory.title)}</strong>
+            <small>${escapeHtml(authorStory.genre)} · ${escapeHtml(authorStory.type)}</small>
+          </div>
+          <button class="light" type="button" onclick='openStory(${storyJsArg(authorStory.id)})'>Apri</button>
+        </div>
+      `).join("")
+    : "<p>Nessun'altra storia pubblicata.</p>";
+
   setText("masterProfileName", authorName);
-  setText("masterProfileStats", "Autore Lorecast");
-  setText("masterProfileBio", `Creatore della storia \"${story.title}\".`);
-  setText("masterProfileLongBio", "Profilo pubblico in costruzione. Qui mostreremo bio, recensioni, disponibilità e altre storie pubblicate dall’autore.");
+  setText("masterProfileStats", authorStories.length === 1 ? "1 storia pubblicata" : `${authorStories.length} storie pubblicate`);
+  setText("masterProfileBio", `Creatore della storia "${story.title}".`);
+  setText("masterProfileLongBio", "Profilo pubblico autore. Qui potrai trovare le storie pubblicate, le recensioni e le disponibilità quando saranno collegate a Supabase.");
   setText("masterProfilePrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
   setText("masterProfileMode", story.mode || "Online");
   setText("masterProfileLanguage", "Italiano");
   setText("masterProfileAvailability", "Disponibilità gestita dal calendario");
   setHtml("masterProfileSpecialties", `<span class="tag ${getGenreClass(story.genre)}">${escapeHtml(story.genre)}</span>`);
-  setHtml("masterReviews", "<p>Nessuna recensione pubblica disponibile.</p>");
+  setHtml("masterReviews", `
+    <div class="author-public-stories">
+      <h3>Storie pubblicate</h3>
+      ${authorStoryCards}
+    </div>
+  `);
 
   go("profilo-master");
 }

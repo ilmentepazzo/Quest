@@ -3129,11 +3129,15 @@ function renderMasterPublicSessions() {
   const userId = getCurrentUserId();
   const ownedStoryIds = new Set(getMasterOwnedStoryIds());
 
-  const sessions = supabasePublicSessionsCache.filter(session =>
-    (session.storyAuthorId && storyIdsMatch(session.storyAuthorId, userId)) ||
-    (session.createdBy && storyIdsMatch(session.createdBy, userId)) ||
-    ownedStoryIds.has(storyId(session.storyId))
-  );
+  const sessions = supabasePublicSessionsCache.filter(session => {
+    if (session.status === "cancelled") return false;
+
+    return (
+      (session.storyAuthorId && storyIdsMatch(session.storyAuthorId, userId)) ||
+      (session.createdBy && storyIdsMatch(session.createdBy, userId)) ||
+      ownedStoryIds.has(storyId(session.storyId))
+    );
+  });
 
   if (count) {
     count.textContent = sessions.length === 1

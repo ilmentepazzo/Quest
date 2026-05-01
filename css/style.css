@@ -3012,3 +3012,39 @@ body::after {
     max-width: 280px !important;
   }
 }
+
+/* UPDATE 31 - piccoli fix calendario/sessioni */
+.profile-compact-item {
+  grid-template-columns: 104px minmax(0, 1fr) minmax(220px, auto) auto;
+}
+
+.profile-mini-cover {
+  min-height: 82px;
+  font-size: 12px;
+  line-height: 1.15;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+.join-session-owner-confirmation {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.muted-small {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.booking-calendar-empty {
+  padding: 28px 18px;
+}

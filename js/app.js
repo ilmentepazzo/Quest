@@ -1650,8 +1650,6 @@ function hasPublicSessionOverlap(story, date, startTime, endTime) {
 }
 
 function getDaySlots(story, date) {
-  const duration = getStoryDurationMinutes(story);
-  const step = duration;
   const rules = getAvailabilityForStory(story).filter(rule => Number(rule.weekday) === date.getDay());
   const dateIso = formatISODate(date);
   const slots = [];
@@ -1661,32 +1659,52 @@ function getDaySlots(story, date) {
     const start = timeToMinutes(rule.startTime);
     const end = timeToMinutes(rule.endTime);
 
-    for (let current = start; current + duration <= end; current += step) {
-      const startTime = minutesToTime(current);
-      const endTime = minutesToTime(current + duration);
-      const key = `${dateIso}-${startTime}-${endTime}`;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
 
-      if (seen.has(key)) continue;
-      seen.add(key);
+    const startTime = minutesToTime(start);
+    const endTime = minutesToTime(end);
+    const key = `${dateIso}-${startTime}-${endTime}`;
 
-      const occupied = hasBookingOverlap(getCurrentStoryMasterId(story), dateIso, startTime, endTime) || hasPublicSessionOverlap(story, dateIso, startTime, endTime);
+    if (seen.has(key)) return;
+    seen.add(key);
 
-      slots.push({
-        date: dateIso,
-        startTime,
-        endTime,
-        durationMinutes: duration,
-        occupied
-      });
-    }
+    const occupied = hasBookingOverlap(getCurrentStoryMasterId(story), dateIso, startTime, endTime) || hasPublicSessionOverlap(story, dateIso, startTime, endTime);
+
+    slots.push({
+      date: dateIso,
+      startTime,
+      endTime,
+      durationMinutes: end - start,
+      occupied
+    });
   });
 
   return slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 }
 
+function hasSlotsInCalendarWindow(story, offsetDays) {
+  if (!story) return false;
+  const baseDate = addDays(new Date(), Math.max(0, offsetDays));
+  return Array.from({ length: 4 }, (_, index) => addDays(baseDate, index))
+    .some(day => getDaySlots(story, day).length > 0);
+}
+
+function findNextCalendarWindowWithSlots(story, fromOffsetDays = 0) {
+  for (let offset = Math.max(0, fromOffsetDays); offset <= 60; offset += 4) {
+    if (hasSlotsInCalendarWindow(story, offset)) return offset;
+  }
+
+  return null;
+}
+
 function renderBookingCalendar(story = currentStory) {
   const container = document.getElementById("bookingCalendar");
   if (!container || !story) return;
+
+  if (!hasSlotsInCalendarWindow(story, bookingCalendarOffsetDays)) {
+    const nextOffset = findNextCalendarWindowWithSlots(story, bookingCalendarOffsetDays + 1);
+    if (nextOffset !== null) bookingCalendarOffsetDays = nextOffset;
+  }
 
   const baseDate = addDays(new Date(), bookingCalendarOffsetDays);
   const days = Array.from({ length: 4 }, (_, index) => addDays(baseDate, index));
@@ -1697,8 +1715,8 @@ function renderBookingCalendar(story = currentStory) {
   if (!allTimes.length) {
     container.innerHTML = `
       <div class="booking-calendar-empty">
-        <p>Nessuna disponibilità nei prossimi giorni mostrati.</p>
-        <button class="light" onclick="shiftBookingCalendar(4)">Mostra giorni successivi</button>
+        <p>Nessuna disponibilità impostata per questa storia nei prossimi giorni.</p>
+        <button class="light" onclick="go('area-master')">Imposta disponibilità</button>
       </div>
     `;
     return;
@@ -1759,6 +1777,12 @@ function renderBookingCalendar(story = currentStory) {
 
 function shiftBookingCalendar(days) {
   bookingCalendarOffsetDays = Math.max(0, bookingCalendarOffsetDays + days);
+
+  if (days > 0) {
+    const nextOffset = findNextCalendarWindowWithSlots(currentStory, bookingCalendarOffsetDays);
+    if (nextOffset !== null) bookingCalendarOffsetDays = nextOffset;
+  }
+
   selectedBookingSlot = null;
   renderBookingCalendar(currentStory);
   updateSelectedSlotLabel();
@@ -2116,12 +2140,18 @@ function renderJoinSession(story) {
   const container = document.getElementById("joinSessionStatus");
   if (!container || !story) return;
 
+  const userId = getCurrentUserId();
+  const isOwner = isCurrentUserStory(story);
   const openSessions = getOpenSessionsForStory(story.id);
-  const joinedParticipant = supabaseSessionParticipantsCache.find(participant =>
-    storyIdsMatch(participant.story_id, story.id) &&
-    storyIdsMatch(participant.user_id, getCurrentUserId()) &&
-    participant.status === "joined"
+  const ownerSession = openSessions.find(session =>
+    (session.createdBy && storyIdsMatch(session.createdBy, userId)) ||
+    (session.storyAuthorId && storyIdsMatch(session.storyAuthorId, userId))
   );
+  const joinedParticipant = !isOwner ? supabaseSessionParticipantsCache.find(participant =>
+    storyIdsMatch(participant.story_id, story.id) &&
+    storyIdsMatch(participant.user_id, userId) &&
+    participant.status === "joined"
+  ) : null;
   const joinedSession = joinedParticipant
     ? supabasePublicSessionsCache.find(session => storyIdsMatch(session.id, joinedParticipant.session_id))
     : null;
@@ -2131,10 +2161,25 @@ function renderJoinSession(story) {
   const cancelButton = document.getElementById("cancelJoinSessionButton");
 
   if (cancelButton) cancelButton.hidden = !joinedSession;
-  if (createButton) createButton.hidden = Boolean(joinedSession);
+  if (createButton) createButton.hidden = Boolean(joinedSession || ownerSession);
   if (joinButton) {
-    joinButton.hidden = Boolean(joinedSession) || !openSessions.length;
-    joinButton.disabled = Boolean(joinedSession) || !openSessions.length;
+    joinButton.hidden = Boolean(isOwner || joinedSession) || !openSessions.length;
+    joinButton.disabled = Boolean(isOwner || joinedSession) || !openSessions.length;
+  }
+
+  if (ownerSession) {
+    container.innerHTML = `
+      <div class="join-session-owner-confirmation">
+        <div class="join-session-check">✓</div>
+        <div>
+          <strong>Hai creato questa sessione pubblica</strong>
+          <p>${ownerSession.joined} / ${ownerSession.maxPlayers} giocatori iscritti</p>
+          <p>${ownerSession.sessionDate ? `${formatLongItalianDate(ownerSession.sessionDate)}, ${ownerSession.startTime}–${ownerSession.endTime}` : "Data in definizione"}</p>
+          <p class="muted-small">Tu sei il Master: non vieni contato tra i giocatori.</p>
+        </div>
+      </div>
+    `;
+    return;
   }
 
   if (joinedSession) {
@@ -2155,7 +2200,7 @@ function renderJoinSession(story) {
     container.innerHTML = `
       <div class="join-session-status-box">
         <p><strong>Nessuna sessione pubblica aperta per questa storia.</strong></p>
-        <p>Puoi crearne una scegliendo uno slot libero dal calendario: altri giocatori potranno unirsi dalla pagina “Sessioni aperte”.</p>
+        <p>${isOwner ? "Scegli uno slot libero e crea una sessione pubblica: i giocatori potranno unirsi dalla pagina “Sessioni aperte”." : "Puoi crearne una scegliendo uno slot libero dal calendario: altri giocatori potranno unirsi dalla pagina “Sessioni aperte”."}</p>
       </div>
     `;
     return;
@@ -2242,7 +2287,9 @@ function renderOpenSessions() {
                 </div>
                 <div class="open-session-actions">
                   <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
-                  <button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>
+                  ${isCurrentUserStory(story)
+                    ? `<button class="primary" onclick="go('area-master')">Gestisci</button>`
+                    : `<button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>`}
                 </div>
               </div>
             </div>
@@ -2281,7 +2328,8 @@ async function createPublicSession() {
   }
 
   const { minPlayers, maxPlayers } = parseStoryPlayersRange(currentStory);
-  const initialPlayers = Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
+  const isOwner = isCurrentUserStory(currentStory);
+  const initialPlayers = isOwner ? 0 : Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
   const newStatus = initialPlayers >= maxPlayers ? "complete" : "open";
 
   if ((typeof supabaseClient !== "undefined") && getCurrentUserId()) {
@@ -2298,7 +2346,7 @@ async function createPublicSession() {
         session_date: selectedBookingSlot.date,
         start_time: selectedBookingSlot.startTime,
         end_time: selectedBookingSlot.endTime,
-        duration_minutes: getStoryDurationMinutes(currentStory),
+        duration_minutes: selectedBookingSlot.durationMinutes || (timeToMinutes(selectedBookingSlot.endTime) - timeToMinutes(selectedBookingSlot.startTime)),
         created_group_size: initialPlayers,
         created_by: getCurrentUserId()
       })
@@ -2311,28 +2359,29 @@ async function createPublicSession() {
     }
 
     const session = normalizePublicSession(sessionRow);
-
-    const { data: participant, error: participantError } = await supabaseClient
-      .from("session_participants")
-      .insert({
-        session_id: session.id,
-        story_id: storyId(currentStory.id),
-        user_id: getCurrentUserId(),
-        status: "joined",
-        seats: initialPlayers
-      })
-      .select()
-      .single();
-
-    if (participantError) {
-      showToast("Sessione creata, ma errore iscrizione: " + participantError.message, "warning");
-    } else {
-      supabaseSessionParticipantsCache = [participant, ...supabaseSessionParticipantsCache];
-      supabaseSessionParticipantsLoaded = true;
-    }
-
-    supabasePublicSessionsCache = [session, ...supabasePublicSessionsCache];
+    supabasePublicSessionsCache = [session, ...supabasePublicSessionsCache.filter(item => !storyIdsMatch(item.id, session.id))];
     supabasePublicSessionsLoaded = true;
+
+    if (!isOwner && initialPlayers > 0) {
+      const { data: participant, error: participantError } = await supabaseClient
+        .from("session_participants")
+        .insert({
+          session_id: session.id,
+          story_id: storyId(currentStory.id),
+          user_id: getCurrentUserId(),
+          status: "joined",
+          seats: initialPlayers
+        })
+        .select()
+        .single();
+
+      if (participantError) {
+        showToast("Sessione creata, ma errore iscrizione: " + participantError.message, "warning");
+      } else {
+        supabaseSessionParticipantsCache = [normalizeSessionParticipant(participant), ...supabaseSessionParticipantsCache];
+        supabaseSessionParticipantsLoaded = true;
+      }
+    }
   } else {
     const sessions = JSON.parse(localStorage.getItem("questhubJoinSessions") || "{}");
     const localId = String(Date.now());
@@ -2345,17 +2394,23 @@ async function createPublicSession() {
       status: newStatus,
       sessionDate: selectedBookingSlot.date,
       startTime: selectedBookingSlot.startTime,
-      endTime: selectedBookingSlot.endTime
+      endTime: selectedBookingSlot.endTime,
+      createdBy: getCurrentUserId()
     };
     localStorage.setItem("questhubJoinSessions", JSON.stringify(sessions));
-    const joined = getJoinedOpenSessions();
-    joined.push(localId);
-    saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
+
+    if (!isOwner) {
+      const joined = getJoinedOpenSessions();
+      joined.push(localId);
+      saveJoinedOpenSessions(Array.from(new Set(joined.map(String))));
+    }
   }
 
   addNotification(`Hai creato una sessione pubblica per "${currentStory.title}".`, "success", { storyId: currentStory.id });
-  showToast("Sessione pubblica creata. Ora altri giocatori potranno unirsi.", "success");
+  showToast(isOwner ? "Sessione pubblica creata. I giocatori potranno unirsi da Sessioni aperte." : "Sessione pubblica creata. Ora altri giocatori potranno unirsi.", "success");
   selectedBookingSlot = null;
+  await loadSupabasePublicSessions();
+  await loadSupabaseSessionParticipants();
   renderBookingCalendar(currentStory);
   updateSelectedSlotLabel();
   renderJoinSession(currentStory);
@@ -3155,6 +3210,7 @@ async function addMasterAvailability() {
     const rule = normalizeAvailability(data);
     supabaseAvailabilityCache = [...supabaseAvailabilityCache, rule];
     supabaseAvailabilityLoaded = true;
+    await loadSupabaseAvailability();
   } else {
     const rules = getMasterAvailabilityRules();
     rules.push({

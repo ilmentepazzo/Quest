@@ -34,6 +34,7 @@ const sections = [
   "notifiche",
   "contatti",
   "privacy",
+  "cookie",
   "condizioni",
   "login"
 ];

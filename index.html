@@ -15,8 +15,10 @@
 
     <nav class="main-nav" aria-label="Navigazione principale">
       <a onclick="go('catalogo')" data-i18n="navStories">Storie</a>
-      <a onclick="goCreateStory()" data-i18n="navCreateStory">Crea storia</a>
+      <a onclick="go('sessioni')" data-i18n="navOpenSessions">Sessioni aperte</a>
       <a onclick="go('contatti')" data-i18n="navContact">Contattaci</a>
+      <a onclick="goCreateStory()" data-i18n="navCreateStory">Crea storia</a>
+      <a id="headerAreaMasterLink" class="login-only-link" onclick="go('area-master')" data-i18n="navMasterArea">Area Master</a>
     </nav>
 
     <div class="header-actions">
@@ -31,16 +33,27 @@
         Accedi
       </button>
 
-      <button id="notificationButton" class="notification-button" onclick="toggleNotificationsDropdown()" aria-label="Apri notifiche">
+      <button id="notificationButton" class="notification-button" onclick="handleNotificationButtonClick(event)" aria-label="Apri notifiche">
         🔔
         <span id="notificationBadge" class="notification-badge">0</span>
       </button>
 
-      <div id="headerUserChip" class="user-chip" onclick="go('profilo')">
-        <div class="user-avatar" id="headerUserAvatar">U</div>
-        <div>
-          <strong id="headerUserName">Utente</strong>
-          <span id="headerUserRole">Player</span>
+      <div id="userMenuWrapper" class="user-menu-wrapper">
+        <div id="headerUserChip" class="user-chip" onclick="toggleUserMenu(event)" aria-haspopup="menu" aria-expanded="false">
+          <div class="user-avatar" id="headerUserAvatar">U</div>
+          <div>
+            <strong id="headerUserName">Utente</strong>
+            <span id="headerUserRole">Player</span>
+          </div>
+          <span class="user-chip-arrow">▾</span>
+        </div>
+
+        <div id="userDropdown" class="user-dropdown" role="menu">
+          <button type="button" onclick="go('profilo'); closeUserMenu();" data-i18n="userMenuProfile">Profilo</button>
+          <button type="button" onclick="go('sessioni'); closeUserMenu();" data-i18n="userMenuOpenSessions">Sessioni aperte</button>
+          <button type="button" onclick="goCreateStory(); closeUserMenu();" data-i18n="userMenuCreateStory">Crea una storia</button>
+          <button type="button" onclick="go('contatti'); closeUserMenu();" data-i18n="userMenuContact">Contattaci</button>
+          <button type="button" class="danger-menu-item" onclick="closeUserMenu(); logoutUser();" data-i18n="userMenuLogout">Esci</button>
         </div>
       </div>
     </div>
@@ -49,7 +62,7 @@
   <div id="notificationsDropdown" class="notifications-popover">
     <div class="notifications-popover-header">
       <strong data-i18n="notificationsTitle">Notifiche</strong>
-      <small data-i18n="notificationsHint">Click sulla campanella per aprire o chiudere</small>
+      <small data-i18n="notificationsHint">Le nuove notifiche vengono segnate come lette quando chiudi questo menu.</small>
     </div>
 
     <div id="notificationsPreview"></div>
@@ -70,6 +83,7 @@
     <nav class="footer-links" aria-label="Link footer">
       <a onclick="go('contatti')" data-i18n="footerContact">Contattaci</a>
       <a onclick="go('privacy')" data-i18n="footerPrivacy">Privacy Policy</a>
+      <a onclick="go('cookie')" data-i18n="footerCookies">Cookie Policy</a>
       <a onclick="go('condizioni')" data-i18n="footerTerms">Condizioni di servizio</a>
     </nav>
   </footer>

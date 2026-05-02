@@ -27,26 +27,20 @@
       </div>
     </div>
 
-    <div class="availability-form-grid">
-      <select id="availabilityStoryId">
+    <div class="availability-calendar-controls">
+      <select id="availabilityStoryId" onchange="renderMasterAvailability()">
         <option value="">Scegli una tua storia Con Master</option>
       </select>
-
-      <input id="availabilityDate" type="date" />
-
-      <input id="availabilityStart" type="time" value="18:00" />
-      <input id="availabilityEnd" type="time" value="23:00" />
 
       <label class="availability-repeat-option">
         <input id="availabilityRepeatWeeks" type="checkbox" />
         <span>Ripeti lo stesso giorno per le prossime 4 settimane</span>
       </label>
-
-      <button class="primary" type="button" onclick="addMasterAvailability()">
-        Aggiungi disponibilità
-      </button>
     </div>
 
+    <div id="masterAvailabilityPicker" class="master-availability-picker"></div>
+
+    <h3>Slot già impostati</h3>
     <div id="masterAvailabilityList" class="availability-list"></div>
   </div>
 

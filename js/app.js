@@ -1868,10 +1868,13 @@ function renderBookingCalendar(story = currentStory) {
   const visibleTimes = bookingCalendarExpanded ? allTimes : allTimes.slice(0, 5);
 
   if (!allTimes.length) {
+    const owner = isCurrentUserStory(story);
     container.innerHTML = `
       <div class="booking-calendar-empty">
-        <p>Nessuna disponibilità impostata per questa storia nei prossimi giorni.</p>
-        <button class="light" onclick="go('area-master')">Imposta disponibilità</button>
+        <p>${owner
+          ? "Non hai ancora impostato disponibilità per questa storia."
+          : "Il creatore imposterà la disponibilità a breve."}</p>
+        ${owner ? `<button class="light" onclick="go('area-master')">Imposta disponibilità</button>` : ""}
       </div>
     `;
     return;
@@ -1952,6 +1955,7 @@ function selectBookingSlot(date, startTime, endTime) {
   selectedBookingSlot = { date, startTime, endTime };
   renderBookingCalendar(currentStory);
   updateSelectedSlotLabel();
+  if (currentStory) renderJoinSession(currentStory);
 }
 
 function updateSelectedSlotLabel() {
@@ -2362,7 +2366,11 @@ function renderJoinSession(story) {
   const cancelButton = document.getElementById("cancelJoinSessionButton");
 
   if (cancelButton) cancelButton.hidden = !joinedSession;
-  if (createButton) createButton.hidden = Boolean(joinedSession || ownerSession);
+  if (createButton) {
+    createButton.hidden = Boolean(joinedSession || ownerSession);
+    createButton.disabled = Boolean(!selectedBookingSlot);
+    createButton.textContent = selectedBookingSlot ? "Crea sessione pubblica" : "Seleziona uno slot";
+  }
   if (joinButton) {
     joinButton.hidden = Boolean(isOwner || joinedSession) || !openSessions.length;
     joinButton.disabled = Boolean(isOwner || joinedSession) || !openSessions.length;
@@ -3483,6 +3491,14 @@ function getWeekdayLabel(weekday) {
   return ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"][Number(weekday)] || "Giorno";
 }
 
+let masterAvailabilityCalendarOffsetDays = 0;
+let selectedMasterAvailabilitySlot = null;
+
+function getMasterAvailabilitySelectedStory() {
+  const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
+  return getAllStories().find(story => storyIdsMatch(story.id, storyIdValue)) || null;
+}
+
 function renderMasterAvailability() {
   const container = document.getElementById("masterAvailabilityList");
   const storySelect = document.getElementById("availabilityStoryId");
@@ -3490,12 +3506,13 @@ function renderMasterAvailability() {
 
   const userId = getCurrentUserId();
   const ownedStories = getOwnedMasterStories();
+  const currentValue = storySelect?.value || "";
 
   if (storySelect) {
     storySelect.innerHTML = `
       <option value="">Scegli una tua storia Con Master</option>
       ${ownedStories.map(story => `
-        <option value="${escapeHtmlAttribute(storyId(story.id))}">${escapeHtml(story.title)}</option>
+        <option value="${escapeHtmlAttribute(storyId(story.id))}" ${storyIdsMatch(story.id, currentValue) ? "selected" : ""}>${escapeHtml(story.title)}</option>
       `).join("")}
     `;
   }
@@ -3507,8 +3524,16 @@ function renderMasterAvailability() {
         <button class="primary" type="button" onclick="goCreateStory()">Crea storia</button>
       </div>
     `;
+    const picker = document.getElementById("masterAvailabilityPicker");
+    if (picker) picker.innerHTML = "";
     return;
   }
+
+  if (storySelect && !storySelect.value && ownedStories[0]) {
+    storySelect.value = storyId(ownedStories[0].id);
+  }
+
+  renderMasterAvailabilityPicker();
 
   const ownedStoryIds = new Set(ownedStories.map(story => storyId(story.id)));
 
@@ -3539,13 +3564,88 @@ function renderMasterAvailability() {
     : "<p>Non hai ancora impostato disponibilità per le tue storie.</p>";
 }
 
-async function addMasterAvailability() {
-  const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
-  const dateValue = document.getElementById("availabilityDate")?.value || "";
-  const startTime = document.getElementById("availabilityStart")?.value;
-  const endTime = document.getElementById("availabilityEnd")?.value;
-  const repeatWeeks = document.getElementById("availabilityRepeatWeeks")?.checked || false;
+function getMasterAvailabilityCandidateSlots(story, day) {
+  const duration = getStoryDurationMinutes(story);
+  const dateIso = formatISODate(day);
+  const starts = [];
+  for (let minutes = 10 * 60; minutes + duration <= 24 * 60; minutes += duration) {
+    starts.push(minutes);
+  }
 
+  const existing = getAvailabilityForStory(story).filter(rule => rule.availabilityDate === dateIso);
+
+  return starts.map(start => {
+    const end = start + duration;
+    const startTime = minutesToTime(start);
+    const endTime = minutesToTime(end);
+    const active = existing.some(rule => rule.startTime === startTime && rule.endTime === endTime);
+    return { date: dateIso, startTime, endTime, active };
+  });
+}
+
+function renderMasterAvailabilityPicker() {
+  const picker = document.getElementById("masterAvailabilityPicker");
+  const selectedStory = getMasterAvailabilitySelectedStory();
+  if (!picker) return;
+
+  selectedMasterAvailabilitySlot = null;
+
+  if (!selectedStory) {
+    picker.innerHTML = `<div class="booking-calendar-empty"><p>Scegli una storia per impostare gli slot.</p></div>`;
+    return;
+  }
+
+  const baseDate = addDays(new Date(), masterAvailabilityCalendarOffsetDays);
+  const days = Array.from({ length: 4 }, (_, index) => addDays(baseDate, index));
+  const slotsByDay = days.map(day => ({ day, slots: getMasterAvailabilityCandidateSlots(selectedStory, day) }));
+  const allTimes = Array.from(new Set(slotsByDay.flatMap(item => item.slots.map(slot => slot.startTime)))).sort();
+
+  const head = days.map(day => `
+    <div class="booking-calendar-day">
+      <strong>${formatItalianDate(day).split(" ")[0]}</strong>
+      <span>${formatItalianDate(day).replace(formatItalianDate(day).split(" ")[0], "").trim()}</span>
+    </div>
+  `).join("");
+
+  const rows = allTimes.map(time => {
+    const cells = slotsByDay.map(({ slots }) => {
+      const slot = slots.find(item => item.startTime === time);
+      if (!slot) return `<div class="booking-slot-cell empty">-</div>`;
+      if (slot.active) {
+        return `<div class="booking-slot-cell occupied availability-already-set"><span>${slot.startTime}</span><small>${slot.endTime}</small></div>`;
+      }
+      return `
+        <button type="button" class="booking-slot-cell available" onclick="addMasterAvailability('${slot.date}', '${slot.startTime}', '${slot.endTime}')">
+          <span>${slot.startTime}</span>
+          <small>${slot.endTime}</small>
+        </button>
+      `;
+    }).join("");
+    return `<div class="booking-calendar-row">${cells}</div>`;
+  }).join("");
+
+  picker.innerHTML = `
+    <div class="master-availability-picker-note">
+      <strong>${escapeHtml(selectedStory.title)}</strong>
+      <span>Ogni click crea uno slot di ${getStoryDurationMinutes(selectedStory)} minuti, in base alla durata della storia.</span>
+    </div>
+    <div class="booking-calendar-toolbar">
+      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(-4)">‹</button>
+      <div class="booking-calendar-head">${head}</div>
+      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(4)">›</button>
+    </div>
+    <div class="booking-calendar-body">${rows}</div>
+  `;
+}
+
+function shiftMasterAvailabilityCalendar(days) {
+  masterAvailabilityCalendarOffsetDays = Math.max(0, masterAvailabilityCalendarOffsetDays + days);
+  renderMasterAvailabilityPicker();
+}
+
+async function addMasterAvailability(dateValue, startTime, endTime) {
+  const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
+  const repeatWeeks = document.getElementById("availabilityRepeatWeeks")?.checked || false;
   const selectedStory = getAllStories().find(story => storyIdsMatch(story.id, storyIdValue));
 
   if (!storyIdValue || !selectedStory || !isCurrentUserStory(selectedStory)) {
@@ -3554,12 +3654,7 @@ async function addMasterAvailability() {
   }
 
   if (!dateValue || !startTime || !endTime) {
-    showToast("Completa data, ora inizio e ora fine.", "warning");
-    return;
-  }
-
-  if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
-    showToast("L'orario di fine deve essere dopo l'inizio.", "warning");
+    showToast("Seleziona uno slot dal calendario.", "warning");
     return;
   }
 
@@ -3597,24 +3692,10 @@ async function addMasterAvailability() {
     supabaseAvailabilityCache = [...supabaseAvailabilityCache, ...rules];
     supabaseAvailabilityLoaded = true;
     await loadSupabaseAvailability();
-  } else {
-    const rules = getMasterAvailabilityRules();
-    dates.forEach(date => {
-      rules.push({
-        id: `${Date.now()}-${date}`,
-        storyId: storyIdValue,
-        masterId: userId || 1,
-        availabilityDate: date,
-        weekday: new Date(`${date}T12:00:00`).getDay(),
-        startTime,
-        endTime
-      });
-    });
-    localStorage.setItem("questhubMasterAvailability", JSON.stringify(rules));
   }
 
   renderMasterAvailability();
-  renderBookingCalendar(currentStory);
+  if (currentStory) renderBookingCalendar(currentStory);
   showToast(repeatWeeks ? "Disponibilità aggiunta per 5 settimane." : "Disponibilità aggiunta.", "success");
 }
 

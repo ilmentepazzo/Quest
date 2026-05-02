@@ -3289,3 +3289,54 @@ body::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* UPDATE 38 - disponibilità master a calendario e testi più chiari */
+.availability-calendar-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin: 18px 0;
+}
+
+.master-availability-picker {
+  margin: 18px 0 22px;
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.master-availability-picker-note {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.master-availability-picker-note span {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.availability-already-set {
+  background: rgba(17, 24, 39, 0.08) !important;
+  color: #6b7280 !important;
+  border-color: rgba(17, 24, 39, 0.10) !important;
+  text-decoration: none !important;
+}
+
+.availability-row span {
+  display: block;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .availability-calendar-controls {
+    grid-template-columns: 1fr;
+  }
+}

@@ -2123,11 +2123,55 @@ async function createBooking() {
   renderUserProfile();
 }
 
+function getBookingStatusKey(status) {
+  return String(status || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isBookingPending(status) {
+  return ["in attesa", "pending"].includes(getBookingStatusKey(status));
+}
+
+function isBookingAccepted(status) {
+  return ["accettata", "accepted"].includes(getBookingStatusKey(status));
+}
+
+function isBookingRejectedOrCancelled(status) {
+  return [
+    "annullata",
+    "cancelled",
+    "canceled",
+    "rifiutata",
+    "rejected"
+  ].includes(getBookingStatusKey(status));
+}
+
+function getBookingStatusPriority(status) {
+  if (isBookingPending(status)) return 0;
+  if (isBookingAccepted(status)) return 1;
+  if (isBookingRejectedOrCancelled(status)) return 3;
+  return 9;
+}
+
+function updateMasterRequestsTabBadge(pendingCount) {
+  const badge = document.getElementById("masterRequestsTabBadge");
+  if (!badge) return;
+
+  const count = Number(pendingCount || 0);
+  badge.textContent = count > 99 ? "99+" : String(count);
+  badge.style.display = "";
+  badge.classList.toggle("is-visible", count > 0);
+}
+
 function renderDashboardBookings() {
   const container = document.getElementById("dashboardBookings");
   const count = document.getElementById("dashboardBookingCount");
 
-  if (!container || !count) return;
+  if (!container || !count) {
+    updateMasterRequestsTabBadge(0);
+    return;
+  }
 
   const userId = getCurrentUserId();
   const myStoryIds = getAllStories()
@@ -2137,34 +2181,26 @@ function renderDashboardBookings() {
   const bookings = getBookings()
     .filter(booking => {
       const isMine = (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId));
-      const isVisible = !["Annullata", "Rifiutata", "cancelled", "rejected"].includes(booking.status);
-      return isMine && isVisible;
+      return isMine && !isBookingRejectedOrCancelled(booking.status);
     })
-    .sort((a, b) => {
-      const priority = { "In attesa": 0, "Accettata": 1, "Rifiutata": 2, "Annullata": 3 };
-      return (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
-    });
+    .sort((a, b) => getBookingStatusPriority(a.status) - getBookingStatusPriority(b.status));
 
   count.textContent = bookings.length === 1
     ? "1 richiesta"
     : bookings.length + " richieste";
 
-  const requestsBadge = document.getElementById("masterRequestsTabBadge");
-  if (requestsBadge) {
-    const pendingCount = bookings.filter(booking => booking.status === "In attesa").length;
-    requestsBadge.textContent = String(pendingCount);
-    requestsBadge.style.display = pendingCount ? "inline-flex" : "none";
-  }
+  const pendingCount = bookings.filter(booking => isBookingPending(booking.status)).length;
+  updateMasterRequestsTabBadge(pendingCount);
 
   container.innerHTML = bookings.length
     ? bookings.map((booking, index) => {
         let statusClass = "pending";
-        if (booking.status === "Accettata") statusClass = "accepted";
-        if (["Rifiutata", "Annullata"].includes(booking.status)) statusClass = "rejected";
+        if (isBookingAccepted(booking.status)) statusClass = "accepted";
+        if (isBookingRejectedOrCancelled(booking.status)) statusClass = "rejected";
 
         const bookingArg = JSON.stringify(storyId(booking.id));
         const storyArg = JSON.stringify(storyId(booking.storyId));
-        const canManage = booking.status === "In attesa";
+        const canManage = isBookingPending(booking.status);
         const isOpen = index === 0 && canManage ? 'open' : '';
 
         return `

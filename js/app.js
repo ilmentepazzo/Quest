@@ -2365,9 +2365,12 @@ function renderJoinSession(story) {
   const joinButton = document.getElementById("joinPublicSessionButton");
   const cancelButton = document.getElementById("cancelJoinSessionButton");
 
+  const isMasterStory = String(story.type || "").toLowerCase().includes("master");
+  const canCreatePublicSession = isOwner || !isMasterStory;
+
   if (cancelButton) cancelButton.hidden = !joinedSession;
   if (createButton) {
-    createButton.hidden = Boolean(joinedSession || ownerSession);
+    createButton.hidden = Boolean(joinedSession || ownerSession || !canCreatePublicSession);
     createButton.disabled = Boolean(!selectedBookingSlot);
     createButton.textContent = selectedBookingSlot ? "Crea sessione pubblica" : "Seleziona uno slot";
   }
@@ -2523,6 +2526,14 @@ async function createPublicSession() {
     return;
   }
 
+  const isOwner = isCurrentUserStory(currentStory);
+  const isMasterStory = String(currentStory.type || "").toLowerCase().includes("master");
+
+  if (isMasterStory && !isOwner) {
+    showToast("Solo il Master può aprire una sessione pubblica per questa storia. Puoi unirti a una sessione già aperta oppure richiedere una prenotazione privata.", "warning");
+    return;
+  }
+
   if (!selectedBookingSlot) {
     showToast("Scegli prima uno slot libero dal calendario.", "warning");
     return;
@@ -2538,7 +2549,6 @@ async function createPublicSession() {
   }
 
   const { minPlayers, maxPlayers } = parseStoryPlayersRange(currentStory);
-  const isOwner = isCurrentUserStory(currentStory);
   const initialPlayers = isOwner ? 0 : Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
   const newStatus = initialPlayers >= maxPlayers ? "complete" : "open";
 
@@ -3283,6 +3293,31 @@ function populateStoryFormForEdit(story) {
   materials.forEach(material => addMaterialField(material));
 }
 
+async function cleanupStoryRelatedData(storyIdValue) {
+  if (!storyIdValue || typeof supabaseClient === "undefined") return;
+
+  const id = storyId(storyIdValue);
+
+  const { data: sessions } = await supabaseClient
+    .from("public_sessions")
+    .select("id")
+    .eq("story_id", id);
+
+  const sessionIds = (sessions || []).map(session => session.id);
+
+  if (sessionIds.length) {
+    await supabaseClient
+      .from("session_participants")
+      .delete()
+      .in("session_id", sessionIds);
+  }
+
+  await supabaseClient.from("public_sessions").delete().eq("story_id", id);
+  await supabaseClient.from("master_availability").delete().eq("story_id", id);
+  await supabaseClient.from("bookings").delete().eq("story_id", id);
+  await supabaseClient.from("notifications").delete().eq("story_id", id);
+}
+
 async function deleteCurrentStory() {
   if (!currentStory || !isCurrentUserStory(currentStory)) {
     showToast("Puoi eliminare solo le storie create da te.", "warning");
@@ -3299,6 +3334,8 @@ async function deleteCurrentStory() {
     showToast("Sessione non valida. Accedi di nuovo.", "warning");
     return;
   }
+
+  await cleanupStoryRelatedData(storyToDelete.id);
 
   const { error } = await supabaseClient
     .from("stories")
@@ -3568,7 +3605,9 @@ function getMasterAvailabilityCandidateSlots(story, day) {
   const duration = getStoryDurationMinutes(story);
   const dateIso = formatISODate(day);
   const starts = [];
-  for (let minutes = 10 * 60; minutes + duration <= 24 * 60; minutes += duration) {
+
+  // Granularità oraria: se la storia dura 2 ore, cliccare 21:00 crea 21:00–23:00.
+  for (let minutes = 9 * 60; minutes + duration <= 24 * 60; minutes += 60) {
     starts.push(minutes);
   }
 
@@ -3627,7 +3666,7 @@ function renderMasterAvailabilityPicker() {
   picker.innerHTML = `
     <div class="master-availability-picker-note">
       <strong>${escapeHtml(selectedStory.title)}</strong>
-      <span>Ogni click crea uno slot di ${getStoryDurationMinutes(selectedStory)} minuti, in base alla durata della storia.</span>
+      <span>Clicca l’orario di inizio: la fine viene calcolata automaticamente dalla durata della storia.</span>
     </div>
     <div class="booking-calendar-toolbar">
       <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(-4)">‹</button>

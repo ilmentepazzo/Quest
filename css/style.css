@@ -3340,3 +3340,41 @@ body::after {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* UPDATE 39 - calendario disponibilità più compatto */
+#masterAvailabilityPicker .booking-calendar-body {
+  gap: 8px;
+}
+
+#masterAvailabilityPicker .booking-calendar-row {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell {
+  min-height: 46px;
+  padding: 8px 10px;
+  border-radius: 18px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell span {
+  font-size: 15px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell small {
+  font-size: 11px;
+}
+
+.master-availability-picker-note {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.join-session-empty p {
+  margin-bottom: 0;
+}

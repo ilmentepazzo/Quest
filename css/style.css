@@ -3410,3 +3410,278 @@ body::after {
 #masterAvailabilityPicker .booking-slot-cell small {
   font-size: 11px;
 }
+
+
+/* UPDATE 42 - Area Master più compatta e leggibile */
+.master-sections-nav {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  margin-top: 18px;
+  margin-bottom: 18px;
+  border-radius: 22px;
+}
+
+.master-section-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 999px;
+}
+
+.master-section-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.master-view {
+  display: none;
+}
+
+.master-view.is-active {
+  display: block;
+}
+
+.master-availability-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.master-availability-main,
+.master-slots-sidebar {
+  min-width: 0;
+}
+
+.master-subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.compact-scroll {
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+#masterAvailabilityPicker {
+  margin-top: 8px;
+}
+
+#masterAvailabilityPicker .booking-calendar-body {
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+#masterAvailabilityPicker .booking-calendar-day strong {
+  font-size: 14px;
+}
+
+#masterAvailabilityPicker .booking-calendar-day span {
+  font-size: 12px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell {
+  min-height: 40px;
+  padding: 6px 8px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell span {
+  font-size: 13px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell small {
+  font-size: 10px;
+}
+
+.availability-row {
+  padding: 10px 12px;
+  border-radius: 18px;
+  align-items: center;
+}
+
+.availability-row strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.availability-row span {
+  font-size: 13px;
+}
+
+.availability-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.availability-row-actions .light {
+  padding: 9px 12px;
+  border-radius: 14px;
+}
+
+.master-request-accordion {
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 22px;
+  background: rgba(255, 251, 235, 0.72);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.master-request-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.master-request-summary::-webkit-details-marker {
+  display: none;
+}
+
+.master-request-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.master-request-summary-main strong {
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.master-request-summary-main span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.master-request-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.master-request-user {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.master-request-body {
+  border-top: 1px solid rgba(17, 24, 39, 0.08);
+  padding: 0 16px 16px;
+}
+
+.compact-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0;
+}
+
+.compact-actions {
+  margin-top: 10px;
+}
+
+@media (max-width: 1100px) {
+  .master-availability-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-scroll {
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .master-sections-nav {
+    flex-wrap: wrap;
+  }
+
+  .master-section-tab {
+    width: 100%;
+  }
+
+  .master-request-summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .master-request-summary-meta {
+    justify-content: flex-start;
+  }
+
+  .compact-details {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* UPDATE 43 - calendario Area Master senza colonna vuota + badge richieste */
+#masterAvailabilityPicker .booking-calendar-head,
+#masterAvailabilityPicker .booking-calendar-row {
+  grid-template-columns: repeat(3, minmax(96px, 1fr));
+}
+
+#masterAvailabilityPicker .booking-calendar-toolbar {
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  padding: 10px 12px;
+}
+
+#masterAvailabilityPicker .booking-calendar-body {
+  padding: 10px 12px;
+}
+
+#masterAvailabilityPicker .calendar-nav-button {
+  width: 32px;
+  height: 32px;
+  background: rgba(245, 158, 11, 0.10);
+  color: var(--primary-dark);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.master-tab-badge {
+  display: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 8px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.master-section-tab.active .master-tab-badge {
+  background: rgba(17, 24, 39, 0.18);
+  color: #111827;
+}
+
+.master-requests-list.compact-scroll {
+  max-height: 520px;
+}
+
+@media (max-width: 760px) {
+  #masterAvailabilityPicker .booking-calendar-head,
+  #masterAvailabilityPicker .booking-calendar-row {
+    grid-template-columns: repeat(3, minmax(74px, 1fr));
+  }
+}

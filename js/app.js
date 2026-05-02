@@ -17,6 +17,7 @@ let supabaseSessionParticipantsCache = [];
 let supabaseSessionParticipantsLoaded = false;
 let supabaseProfilesCache = {};
 let editingStoryId = null;
+let currentMasterAreaView = "availability";
 
 const sections = [
   "home",
@@ -456,6 +457,28 @@ function getStoryTitleById(id) {
   return story?.title || "Disponibilità generale";
 }
 
+function setMasterAreaView(view) {
+  currentMasterAreaView = view || "availability";
+
+  document.querySelectorAll(".master-view").forEach(panel => {
+    panel.classList.remove("is-active");
+  });
+
+  document.querySelectorAll(".master-section-tab").forEach(button => {
+    button.classList.toggle("active", button.dataset.masterView === currentMasterAreaView);
+  });
+
+  const target = document.getElementById(
+    currentMasterAreaView === "requests"
+      ? "masterViewRequests"
+      : currentMasterAreaView === "sessions"
+        ? "masterViewSessions"
+        : "masterViewAvailability"
+  );
+
+  if (target) target.classList.add("is-active");
+}
+
 function go(page) {
   closeNotificationsDropdown();
   closeUserMenu();
@@ -483,6 +506,7 @@ function go(page) {
       renderDashboardStats();
       renderMasterAvailability();
       renderMasterPublicSessions();
+      setMasterAreaView(currentMasterAreaView || "availability");
     });
   }
 
@@ -1864,7 +1888,7 @@ function renderBookingCalendar(story = currentStory) {
   }
 
   const baseDate = addDays(new Date(), bookingCalendarOffsetDays);
-  const days = Array.from({ length: 4 }, (_, index) => addDays(baseDate, index));
+  const days = Array.from({ length: 3 }, (_, index) => addDays(baseDate, index));
   const slotsByDay = days.map(day => ({ day, slots: getDaySlots(story, day) }));
   const allTimes = Array.from(new Set(slotsByDay.flatMap(item => item.slots.map(slot => slot.startTime)))).sort();
   const visibleTimes = bookingCalendarExpanded ? allTimes : allTimes.slice(0, 5);
@@ -2125,44 +2149,56 @@ function renderDashboardBookings() {
     ? "1 richiesta"
     : bookings.length + " richieste";
 
-  container.innerHTML = bookings.length
-    ? bookings.map(booking => {
-        let statusClass = "pending";
+  const requestsBadge = document.getElementById("masterRequestsTabBadge");
+  if (requestsBadge) {
+    const pendingCount = bookings.filter(booking => booking.status === "In attesa").length;
+    requestsBadge.textContent = String(pendingCount);
+    requestsBadge.style.display = pendingCount ? "inline-flex" : "none";
+  }
 
+  container.innerHTML = bookings.length
+    ? bookings.map((booking, index) => {
+        let statusClass = "pending";
         if (booking.status === "Accettata") statusClass = "accepted";
         if (["Rifiutata", "Annullata"].includes(booking.status)) statusClass = "rejected";
 
         const bookingArg = JSON.stringify(storyId(booking.id));
         const storyArg = JSON.stringify(storyId(booking.storyId));
         const canManage = booking.status === "In attesa";
+        const isOpen = index === 0 && canManage ? 'open' : '';
 
         return `
-          <div class="card booking-master-card ${canManage ? "booking-master-card-pending" : ""}">
-            <div class="booking-master-card-head">
-              <div>
-                <h3>${escapeHtml(booking.story)}</h3>
-                <p>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</p>
+          <details class="master-request-accordion ${canManage ? "booking-master-card-pending" : ""}" ${isOpen}>
+            <summary class="master-request-summary">
+              <div class="master-request-summary-main">
+                <strong>${escapeHtml(booking.story)}</strong>
+                <span>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</span>
               </div>
-              <span class="status ${statusClass}">${booking.status}</span>
-            </div>
+              <div class="master-request-summary-meta">
+                <span class="master-request-user">${escapeHtml(getUserDisplayName(booking.user_id))}</span>
+                <span class="status ${statusClass}">${booking.status}</span>
+              </div>
+            </summary>
 
-            <div class="booking-master-details">
-              <span><strong>Utente:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
-              <span><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</span>
-              <span><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</span>
-              <span><strong>Richiesta:</strong> ${booking.created_at ? new Date(booking.created_at).toLocaleString("it-IT") : "-"}</span>
-            </div>
+            <div class="master-request-body">
+              <div class="booking-master-details compact-details">
+                <span><strong>Utente:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
+                <span><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</span>
+                <span><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</span>
+                <span><strong>Richiesta:</strong> ${booking.created_at ? new Date(booking.created_at).toLocaleString("it-IT") : "-"}</span>
+              </div>
 
-            ${booking.message ? `<p class="booking-master-message">“${escapeHtml(booking.message)}”</p>` : `<p class="muted-small">Nessun messaggio dal giocatore.</p>`}
+              ${booking.message ? `<p class="booking-master-message">“${escapeHtml(booking.message)}”</p>` : `<p class="muted-small">Nessun messaggio dal giocatore.</p>`}
 
-            <div class="booking-master-actions">
-              <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
-              ${canManage ? `
-                <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
-                <button class="danger-light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
-              ` : ""}
+              <div class="booking-master-actions compact-actions">
+                <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
+                ${canManage ? `
+                  <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
+                  <button class="danger-light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
+                ` : ""}
+              </div>
             </div>
-          </div>
+          </details>
         `;
       }).join("")
     : "<p>Nessuna richiesta di prenotazione al momento.</p>";
@@ -3553,6 +3589,7 @@ function getMasterAvailabilitySelectedStory() {
 function renderMasterAvailability() {
   const container = document.getElementById("masterAvailabilityList");
   const storySelect = document.getElementById("availabilityStoryId");
+  const countBadge = document.getElementById("masterAvailabilityCount");
   if (!container) return;
 
   const userId = getCurrentUserId();
@@ -3577,6 +3614,7 @@ function renderMasterAvailability() {
     `;
     const picker = document.getElementById("masterAvailabilityPicker");
     if (picker) picker.innerHTML = "";
+    if (countBadge) countBadge.textContent = "0 slot";
     return;
   }
 
@@ -3601,6 +3639,8 @@ function renderMasterAvailability() {
       const dateB = b.availabilityDate || String(b.weekday || "");
       return titleA.localeCompare(titleB) || dateA.localeCompare(dateB) || a.startTime.localeCompare(b.startTime);
     });
+
+  if (countBadge) countBadge.textContent = rules.length === 1 ? "1 slot" : `${rules.length} slot`;
 
   container.innerHTML = rules.length
     ? rules.map(rule => `
@@ -3652,7 +3692,7 @@ function renderMasterAvailabilityPicker() {
   }
 
   const baseDate = addDays(new Date(), masterAvailabilityCalendarOffsetDays);
-  const days = Array.from({ length: 4 }, (_, index) => addDays(baseDate, index));
+  const days = Array.from({ length: 3 }, (_, index) => addDays(baseDate, index));
   const slotsByDay = days.map(day => ({ day, slots: getMasterAvailabilityCandidateSlots(selectedStory, day) }));
   const allTimes = Array.from(new Set(slotsByDay.flatMap(item => item.slots.map(slot => slot.startTime)))).sort();
 
@@ -3686,9 +3726,9 @@ function renderMasterAvailabilityPicker() {
       <span>Clicca l’orario di inizio: la fine viene calcolata automaticamente dalla durata della storia.</span>
     </div>
     <div class="booking-calendar-toolbar">
-      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(-4)">‹</button>
+      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(-3)">‹</button>
       <div class="booking-calendar-head">${head}</div>
-      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(4)">›</button>
+      <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(3)">›</button>
     </div>
     <div class="booking-calendar-body">${rows}</div>
   `;

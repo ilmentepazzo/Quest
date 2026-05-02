@@ -801,8 +801,8 @@ async function renderUserProfile() {
   await loadSupabasePublicSessions();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
-  const privateBookedStories = userBookings.filter(booking => !["Annullata", "Rifiutata", "cancelled"].includes(booking.status));
-  const playedStories = userBookings.filter(booking => ["Accettata", "Completata", "accepted", "completed"].includes(booking.status));
+  const privateBookedStories = userBookings.filter(booking => !isBookingRejectedOrCancelled(booking.status));
+  const playedStories = userBookings.filter(booking => isBookingAccepted(booking.status) || isBookingCompleted(booking.status));
   const joinedPublicSessions = getJoinedPublicSessionProfileItems(userId);
   const bookedStories = [...privateBookedStories, ...joinedPublicSessions];
   const unlockedIds = getUnlockedStories();
@@ -877,7 +877,7 @@ function getStoryReviewSummary(storyIdValue) {
 function getStoryBookingSummary(storyIdValue) {
   const bookings = getBookings().filter(booking =>
     storyIdsMatch(booking.storyId, storyIdValue) &&
-    !["Annullata", "Rifiutata"].includes(booking.status)
+    !isBookingRejectedOrCancelled(booking.status)
   );
 
   return {
@@ -1797,7 +1797,7 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
   return getBookings().some(booking => {
     if (!storyIdsMatch(booking.masterId, masterId)) return false;
     if (booking.date !== date) return false;
-    if (["Rifiutata", "Annullata"].includes(booking.status)) return false;
+    if (isBookingRejectedOrCancelled(booking.status)) return false;
 
     const bookingStart = timeToMinutes(booking.startTime || booking.time);
     const bookingEnd = timeToMinutes(booking.endTime || minutesToTime(bookingStart + (booking.durationMinutes || 120)));
@@ -2137,6 +2137,10 @@ function isBookingAccepted(status) {
   return ["accettata", "accepted"].includes(getBookingStatusKey(status));
 }
 
+function isBookingCompleted(status) {
+  return ["completata", "completed"].includes(getBookingStatusKey(status));
+}
+
 function isBookingRejectedOrCancelled(status) {
   return [
     "annullata",
@@ -2147,11 +2151,24 @@ function isBookingRejectedOrCancelled(status) {
   ].includes(getBookingStatusKey(status));
 }
 
+function isBookingInactive(status) {
+  return isBookingRejectedOrCancelled(status) || isBookingCompleted(status);
+}
+
 function getBookingStatusPriority(status) {
   if (isBookingPending(status)) return 0;
   if (isBookingAccepted(status)) return 1;
+  if (isBookingCompleted(status)) return 2;
   if (isBookingRejectedOrCancelled(status)) return 3;
   return 9;
+}
+
+function getBookingMasterNotificationUserId(booking) {
+  if (!booking) return "";
+  if (booking.masterId) return storyId(booking.masterId);
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, booking.storyId));
+  return storyId(story?.author_id || story?.owner_id || story?.masterId || "");
 }
 
 function updateMasterRequestsTabBadge(pendingCount) {
@@ -2249,16 +2266,35 @@ async function updateBookingStatus(id, status) {
     return;
   }
 
+  if (!isBookingPending(changedBooking.status)) {
+    showToast("Questa richiesta è già stata aggiornata e non può più essere gestita da qui.", "warning");
+    await loadSupabaseBookings();
+    renderDashboardBookings();
+    renderDashboardStats();
+    renderBookingCalendar(currentStory);
+    return;
+  }
+
   if ((typeof supabaseClient !== "undefined") && changedBooking.source === "supabase") {
     const { data, error } = await supabaseClient
       .from("bookings")
       .update({ status })
       .eq("id", bookingId)
+      .in("status", ["In attesa", "in attesa", "pending", "Pending"])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       showToast("Errore aggiornamento prenotazione: " + error.message, "error");
+      return;
+    }
+
+    if (!data) {
+      showToast("La richiesta non è più in attesa. Aggiorno la lista.", "warning");
+      await loadSupabaseBookings();
+      renderDashboardBookings();
+      renderDashboardStats();
+      renderBookingCalendar(currentStory);
       return;
     }
 
@@ -2268,6 +2304,7 @@ async function updateBookingStatus(id, status) {
     const bookings = getBookings();
     const updatedBookings = bookings.map(booking => storyIdsMatch(booking.id, bookingId) ? { ...booking, status } : booking);
     localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+    changedBooking = updatedBookings.find(booking => storyIdsMatch(booking.id, bookingId)) || changedBooking;
   }
 
   if (status === "Accettata" && changedBooking.storyId) {
@@ -2287,7 +2324,12 @@ async function updateBookingStatus(id, status) {
     );
   }
 
+  await loadSupabaseBookings();
+  await loadSupabaseNotifications();
+
   renderDashboardBookings();
+  renderDashboardStats();
+  renderUserProfile();
   renderBookingCalendar(currentStory);
 
   if (status === "Accettata") {
@@ -2301,15 +2343,15 @@ async function updateBookingStatus(id, status) {
 
 async function cancelBooking(id) {
   const bookingId = storyId(id);
-  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+  let booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
 
   if (!booking) {
     showToast("Prenotazione non trovata.", "warning");
     return;
   }
 
-  if (["Accettata", "Annullata", "Rifiutata"].includes(booking.status)) {
-    showToast("Questa prenotazione non può essere annullata da qui.", "warning");
+  if (!isBookingPending(booking.status)) {
+    showToast("Puoi annullare solo richieste ancora in attesa.", "warning");
     return;
   }
 
@@ -2318,27 +2360,43 @@ async function cancelBooking(id) {
       .from("bookings")
       .update({ status: "Annullata" })
       .eq("id", bookingId)
+      .in("status", ["In attesa", "in attesa", "pending", "Pending"])
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       showToast("Errore annullamento prenotazione: " + error.message, "error");
       return;
     }
 
+    if (!data) {
+      showToast("La richiesta non è più annullabile. Aggiorno la lista.", "warning");
+      await loadSupabaseBookings();
+      renderMyStories();
+      renderUserProfile();
+      renderDashboardBookings();
+      renderDashboardStats();
+      renderBookingCalendar(currentStory);
+      return;
+    }
+
     const updated = normalizeBooking(data);
     supabaseBookingsCache = supabaseBookingsCache.map(item => storyIdsMatch(item.id, bookingId) ? updated : item);
+    booking = updated;
   } else {
     const updatedBookings = getBookings().map(item => storyIdsMatch(item.id, bookingId) ? { ...item, status: "Annullata" } : item);
     localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+    booking = updatedBookings.find(item => storyIdsMatch(item.id, bookingId)) || booking;
   }
 
   showToast("Prenotazione annullata.", "success");
-  addNotification(`Hai annullato la prenotazione per "${booking.story}".`, "info", { storyId: booking.storyId });
+  addNotification(`Hai annullato la prenotazione per "${booking.story}".`, "info", { storyId: booking.storyId, page: "profilo" });
 
-  if (booking.masterId) {
+  const masterNotificationUserId = getBookingMasterNotificationUserId(booking);
+
+  if (masterNotificationUserId) {
     await createNotificationForUser(
-      booking.masterId,
+      masterNotificationUserId,
       `La richiesta di prenotazione per "${booking.story}" è stata annullata dal giocatore.`,
       "warning",
       { storyId: booking.storyId, page: "area-master" }
@@ -2351,6 +2409,7 @@ async function cancelBooking(id) {
   renderMyStories();
   renderUserProfile();
   renderDashboardBookings();
+  renderDashboardStats();
   renderBookingCalendar(currentStory);
 }
 
@@ -3929,7 +3988,7 @@ async function cancelSessionsAndBookingsForAvailability(rule) {
     booking.date === rule.availabilityDate &&
     booking.startTime === rule.startTime &&
     booking.endTime === rule.endTime &&
-    !["Annullata", "Rifiutata", "Completata", "cancelled"].includes(booking.status)
+    !isBookingInactive(booking.status)
   );
 
   for (const booking of bookingsToCancel) {
@@ -4017,7 +4076,7 @@ function renderMyStories() {
 
   bookingsContainer.innerHTML = bookings.length
     ? bookings.map(booking => {
-        const canCancel = !["Accettata", "Annullata", "Rifiutata"].includes(booking.status);
+        const canCancel = isBookingPending(booking.status);
 
         return `
           <div class="card booking-user-card">
@@ -4058,6 +4117,7 @@ async function loadSupabaseNotifications() {
   const { data, error } = await supabaseClient
     .from("notifications")
     .select("*")
+    .eq("user_id", authData.user.id)
     .order("created_at", { ascending: false })
     .limit(50);
 

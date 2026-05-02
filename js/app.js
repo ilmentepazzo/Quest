@@ -15,6 +15,7 @@ let supabasePublicSessionsCache = [];
 let supabasePublicSessionsLoaded = false;
 let supabaseSessionParticipantsCache = [];
 let supabaseSessionParticipantsLoaded = false;
+let supabaseProfilesCache = {};
 let editingStoryId = null;
 
 const sections = [
@@ -281,6 +282,68 @@ async function loadSupabaseMarketplaceState() {
     loadSupabasePublicSessions(),
     loadSupabaseNotifications()
   ]);
+
+  const userIds = new Set();
+
+  supabaseBookingsCache.forEach(booking => {
+    if (booking.user_id) userIds.add(storyId(booking.user_id));
+    if (booking.masterId) userIds.add(storyId(booking.masterId));
+  });
+
+  supabaseSessionParticipantsCache.forEach(participant => {
+    if (participant.user_id) userIds.add(storyId(participant.user_id));
+  });
+
+  supabasePublicSessionsCache.forEach(session => {
+    if (session.createdBy) userIds.add(storyId(session.createdBy));
+    if (session.storyAuthorId) userIds.add(storyId(session.storyAuthorId));
+  });
+
+  await loadSupabaseProfilesForUserIds([...userIds]);
+}
+
+async function loadSupabaseProfilesForUserIds(userIds = []) {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const ids = [...new Set(userIds.map(storyId).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const missingIds = ids.filter(id => !supabaseProfilesCache[id]);
+  if (!missingIds.length) return Object.values(supabaseProfilesCache);
+
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("id,name,avatar_url")
+    .in("id", missingIds);
+
+  if (error) {
+    console.warn("Impossibile caricare i profili utente:", error.message);
+    return [];
+  }
+
+  (data || []).forEach(profile => {
+    if (profile.id) {
+      supabaseProfilesCache[storyId(profile.id)] = {
+        id: storyId(profile.id),
+        name: profile.name || "Giocatore Lorecast",
+        avatar_url: profile.avatar_url || ""
+      };
+    }
+  });
+
+  return data || [];
+}
+
+function getUserDisplayName(userId, fallback = "Giocatore Lorecast") {
+  const id = storyId(userId);
+  if (!id) return fallback;
+
+  if (storyIdsMatch(id, getCurrentUserId())) {
+    const profile = getUserProfile();
+    return profile.name || fallback;
+  }
+
+  return supabaseProfilesCache[id]?.name || fallback;
 }
 
 async function loadSupabaseAvailability() {
@@ -1943,9 +2006,11 @@ async function createBooking() {
     return;
   }
 
+  const bookedSlot = { ...selectedBookingSlot };
+
   await loadSupabaseBookings();
 
-  if (hasBookingOverlap(getCurrentStoryMasterId(currentStory), selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime) || hasPublicSessionOverlap(currentStory, selectedBookingSlot.date, selectedBookingSlot.startTime, selectedBookingSlot.endTime)) {
+  if (hasBookingOverlap(getCurrentStoryMasterId(currentStory), bookedSlot.date, bookedSlot.startTime, bookedSlot.endTime) || hasPublicSessionOverlap(currentStory, bookedSlot.date, bookedSlot.startTime, bookedSlot.endTime)) {
     showToast("Questo slot è appena stato occupato. Scegli un altro orario.", "warning");
     renderBookingCalendar(currentStory);
     return;
@@ -1957,9 +2022,9 @@ async function createBooking() {
     master_id: getCurrentStoryMasterId(currentStory) || null,
     user_id: getCurrentUserId(),
     group_name: group,
-    booking_date: selectedBookingSlot.date,
-    start_time: selectedBookingSlot.startTime,
-    end_time: selectedBookingSlot.endTime,
+    booking_date: bookedSlot.date,
+    start_time: bookedSlot.startTime,
+    end_time: bookedSlot.endTime,
     duration_minutes: getStoryDurationMinutes(currentStory),
     players,
     message,
@@ -1983,6 +2048,7 @@ async function createBooking() {
     booking = normalizeBooking(data);
     supabaseBookingsCache = [booking, ...supabaseBookingsCache.filter(item => !storyIdsMatch(item.id, booking.id))];
     supabaseBookingsLoaded = true;
+    await loadSupabaseProfilesForUserIds([booking.user_id, booking.masterId]);
   } else {
     const bookings = getBookings();
     booking = {
@@ -1992,10 +2058,10 @@ async function createBooking() {
       story: currentStory.title,
       master: currentStory.master || currentMaster?.name || "Master Lorecast",
       group,
-      date: selectedBookingSlot.date,
-      time: selectedBookingSlot.startTime,
-      startTime: selectedBookingSlot.startTime,
-      endTime: selectedBookingSlot.endTime,
+      date: bookedSlot.date,
+      time: bookedSlot.startTime,
+      startTime: bookedSlot.startTime,
+      endTime: bookedSlot.endTime,
       durationMinutes: getStoryDurationMinutes(currentStory),
       players,
       message,
@@ -2024,7 +2090,7 @@ async function createBooking() {
   if (masterId && !storyIdsMatch(masterId, getCurrentUserId())) {
     await createNotificationForUser(
       masterId,
-      `Nuova richiesta privata per "${currentStory.title}" (${selectedBookingSlot.date}, ${selectedBookingSlot.startTime}–${selectedBookingSlot.endTime}).`,
+      `Nuova richiesta privata per "${currentStory.title}" (${bookedSlot.date}, ${bookedSlot.startTime}–${bookedSlot.endTime}).`,
       "booking",
       { storyId: currentStory.id, page: "area-master" }
     );
@@ -2081,6 +2147,7 @@ function renderDashboardBookings() {
             </div>
 
             <div class="booking-master-details">
+              <span><strong>Utente:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
               <span><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</span>
               <span><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</span>
               <span><strong>Richiesta:</strong> ${booking.created_at ? new Date(booking.created_at).toLocaleString("it-IT") : "-"}</span>
@@ -3341,7 +3408,7 @@ function renderMasterPublicSessions() {
                 ? `<div class="session-participants-list">
                     ${participants.map((participant, index) => `
                       <div class="session-participant-row">
-                        <span>Giocatore ${index + 1}</span>
+                        <span>${escapeHtml(getUserDisplayName(participant.user_id, `Giocatore ${index + 1}`))}</span>
                         <small>${Number(participant.seats || 1)} posto${Number(participant.seats || 1) > 1 ? "i" : ""}</small>
                       </div>
                     `).join("")}

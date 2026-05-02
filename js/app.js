@@ -2111,9 +2111,11 @@ function renderDashboardBookings() {
     .map(story => storyId(story.id));
 
   const bookings = getBookings()
-    .filter(booking =>
-      (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId))
-    )
+    .filter(booking => {
+      const isMine = (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId));
+      const isVisible = !["Annullata", "Rifiutata", "cancelled", "rejected"].includes(booking.status);
+      return isMine && isVisible;
+    })
     .sort((a, b) => {
       const priority = { "In attesa": 0, "Accettata": 1, "Rifiutata": 2, "Annullata": 3 };
       return (priority[a.status] ?? 9) - (priority[b.status] ?? 9);
@@ -2261,6 +2263,18 @@ async function cancelBooking(id) {
 
   showToast("Prenotazione annullata.", "success");
   addNotification(`Hai annullato la prenotazione per "${booking.story}".`, "info", { storyId: booking.storyId });
+
+  if (booking.masterId) {
+    await createNotificationForUser(
+      booking.masterId,
+      `La richiesta di prenotazione per "${booking.story}" è stata annullata dal giocatore.`,
+      "warning",
+      { storyId: booking.storyId, page: "area-master" }
+    );
+  }
+
+  await loadSupabaseBookings();
+  await loadSupabaseNotifications();
 
   renderMyStories();
   renderUserProfile();
@@ -3595,7 +3609,10 @@ function renderMasterAvailability() {
             <strong>${escapeHtml(getStoryTitleById(rule.storyId || ""))}</strong>
             <span>${rule.availabilityDate ? formatLongItalianDate(rule.availabilityDate) : getWeekdayLabel(rule.weekday)} · ${rule.startTime}–${rule.endTime}</span>
           </div>
-          <button class="light" type="button" onclick='removeMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Rimuovi</button>
+          <div class="availability-row-actions">
+            ${rule.availabilityDate ? `<button class="light" type="button" onclick='repeatMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Ripeti 4 settimane</button>` : ""}
+            <button class="light" type="button" onclick='removeMasterAvailability(${JSON.stringify(storyId(rule.id))})'>Rimuovi</button>
+          </div>
         </div>
       `).join("")
     : "<p>Non hai ancora impostato disponibilità per le tue storie.</p>";
@@ -3684,7 +3701,6 @@ function shiftMasterAvailabilityCalendar(days) {
 
 async function addMasterAvailability(dateValue, startTime, endTime) {
   const storyIdValue = document.getElementById("availabilityStoryId")?.value || "";
-  const repeatWeeks = document.getElementById("availabilityRepeatWeeks")?.checked || false;
   const selectedStory = getAllStories().find(story => storyIdsMatch(story.id, storyIdValue));
 
   if (!storyIdValue || !selectedStory || !isCurrentUserStory(selectedStory)) {
@@ -3699,13 +3715,6 @@ async function addMasterAvailability(dateValue, startTime, endTime) {
 
   const userId = getCurrentUserId();
   const dates = [dateValue];
-
-  if (repeatWeeks) {
-    const base = new Date(`${dateValue}T12:00:00`);
-    for (let i = 1; i <= 4; i += 1) {
-      dates.push(formatISODate(addDays(base, i * 7)));
-    }
-  }
 
   if ((typeof supabaseClient !== "undefined") && userId) {
     const rows = dates.map(date => ({
@@ -3735,7 +3744,70 @@ async function addMasterAvailability(dateValue, startTime, endTime) {
 
   renderMasterAvailability();
   if (currentStory) renderBookingCalendar(currentStory);
-  showToast(repeatWeeks ? "Disponibilità aggiunta per 5 settimane." : "Disponibilità aggiunta.", "success");
+  showToast("Disponibilità aggiunta.", "success");
+}
+
+async function repeatMasterAvailability(id) {
+  const ruleId = storyId(id);
+  const existingRule = getMasterAvailabilityRules().find(rule => storyIdsMatch(rule.id, ruleId));
+
+  if (!existingRule || !existingRule.availabilityDate) {
+    showToast("Disponibilità non trovata.", "warning");
+    return;
+  }
+
+  const userId = getCurrentUserId();
+  if (!userId) {
+    showToast("Devi effettuare l’accesso.", "warning");
+    return;
+  }
+
+  const base = new Date(`${existingRule.availabilityDate}T12:00:00`);
+  const candidateDates = [];
+
+  for (let i = 1; i <= 4; i += 1) {
+    candidateDates.push(formatISODate(addDays(base, i * 7)));
+  }
+
+  const existingKeys = new Set(getMasterAvailabilityRules().map(rule =>
+    `${storyId(rule.storyId)}|${rule.availabilityDate}|${rule.startTime}|${rule.endTime}`
+  ));
+
+  const rows = candidateDates
+    .filter(date => !existingKeys.has(`${storyId(existingRule.storyId)}|${date}|${existingRule.startTime}|${existingRule.endTime}`))
+    .map(date => ({
+      story_id: storyId(existingRule.storyId),
+      master_id: userId,
+      availability_date: date,
+      weekday: new Date(`${date}T12:00:00`).getDay(),
+      start_time: existingRule.startTime,
+      end_time: existingRule.endTime
+    }));
+
+  if (!rows.length) {
+    showToast("Gli slot delle prossime settimane erano già presenti.", "info");
+    return;
+  }
+
+  if (typeof supabaseClient !== "undefined") {
+    const { data, error } = await supabaseClient
+      .from("master_availability")
+      .insert(rows)
+      .select();
+
+    if (error) {
+      showToast("Errore ripetizione disponibilità: " + error.message, "error");
+      return;
+    }
+
+    const rules = (data || []).map(normalizeAvailability).filter(Boolean);
+    supabaseAvailabilityCache = [...supabaseAvailabilityCache, ...rules];
+    await loadSupabaseAvailability();
+  }
+
+  renderMasterAvailability();
+  if (currentStory) renderBookingCalendar(currentStory);
+  showToast(`Disponibilità ripetuta per ${rows.length} settimane.`, "success");
 }
 
 async function notifyParticipantsForCancelledSession(session, storyTitle) {

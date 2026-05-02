@@ -3378,3 +3378,35 @@ body::after {
 .join-session-empty p {
   margin-bottom: 0;
 }
+
+/* Update 40: calendario disponibilità Master più compatto */
+.master-availability-picker-note {
+  padding: 10px 12px;
+  gap: 4px;
+}
+
+.master-availability-picker-note span {
+  font-size: 13px;
+}
+
+#masterAvailabilityPicker .booking-calendar-body {
+  gap: 6px;
+}
+
+#masterAvailabilityPicker .booking-calendar-row {
+  gap: 6px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell {
+  min-height: 46px;
+  padding: 7px 10px;
+  border-radius: 18px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell span {
+  font-size: 14px;
+}
+
+#masterAvailabilityPicker .booking-slot-cell small {
+  font-size: 11px;
+}

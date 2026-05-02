@@ -432,14 +432,16 @@ function getCurrentUserBookings() {
 
 function isCurrentUserStory(story) {
   if (!story) return false;
-  const profile = getUserProfile();
-  const userId = profile.id || "";
+  const userId = getCurrentUserId();
   if (!userId) return false;
 
   return Boolean(
     story.source === "supabase" &&
-    story.author_id &&
-    storyId(story.author_id) === storyId(userId)
+    (
+      (story.author_id && storyIdsMatch(story.author_id, userId)) ||
+      (story.owner_id && storyIdsMatch(story.owner_id, userId)) ||
+      (story.masterId && storyIdsMatch(story.masterId, userId))
+    )
   );
 }
 
@@ -2090,16 +2092,8 @@ async function createBooking() {
   showToast("Richiesta di prenotazione inviata al Master.", "success");
   addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id, page: "profilo" });
 
-  const masterId = getCurrentStoryMasterId(currentStory);
-  if (masterId && !storyIdsMatch(masterId, getCurrentUserId())) {
-    await createNotificationForUser(
-      masterId,
-      `Nuova richiesta privata per "${currentStory.title}" (${bookedSlot.date}, ${bookedSlot.startTime}–${bookedSlot.endTime}).`,
-      "booking",
-      { storyId: currentStory.id, page: "area-master" }
-    );
-  }
-
+  // La notifica al Master viene creata anche lato database con trigger,
+  // così arriva anche se il frontend viene chiuso subito dopo la prenotazione.
   await notifyMasterBookingEmail(booking);
   await loadSupabaseNotifications();
   renderUserProfile();
@@ -2409,10 +2403,16 @@ function renderJoinSession(story) {
   }
 
   if (!openSessions.length) {
+    const emptyText = isOwner
+      ? "Scegli uno slot libero e crea una sessione pubblica: i giocatori potranno unirsi dalla pagina “Sessioni aperte”."
+      : isMasterStory
+        ? "Al momento non ci sono sessioni pubbliche aperte. Solo il Master può crearne una per questa storia."
+        : "Per le storie self-play puoi organizzarti liberamente con il tuo gruppo.";
+
     container.innerHTML = `
       <div class="join-session-status-box">
         <p><strong>Nessuna sessione pubblica aperta per questa storia.</strong></p>
-        <p>${isOwner ? "Scegli uno slot libero e crea una sessione pubblica: i giocatori potranno unirsi dalla pagina “Sessioni aperte”." : "Puoi crearne una scegliendo uno slot libero dal calendario: altri giocatori potranno unirsi dalla pagina “Sessioni aperte”."}</p>
+        <p>${emptyText}</p>
       </div>
     `;
     return;

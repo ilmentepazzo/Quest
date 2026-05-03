@@ -18,6 +18,7 @@ let supabaseSessionParticipantsLoaded = false;
 let supabaseProfilesCache = {};
 let editingStoryId = null;
 let currentMasterAreaView = "availability";
+let currentBookingMessagesBookingId = null;
 
 const sections = [
   "home",
@@ -43,11 +44,29 @@ async function loadSections() {
   const app = document.getElementById("app");
 
   for (const section of sections) {
-   const response = await fetch(`sections/${section}.html?v=${Date.now()}`, {
-  cache: "no-store"
-});
-    const html = await response.text();
-    app.insertAdjacentHTML("beforeend", html);
+    try {
+      const response = await fetch(`sections/${section}.html?v=${Date.now()}`, {
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        console.warn(`Sezione non caricata: ${section}.html (${response.status})`);
+        app.insertAdjacentHTML("beforeend", `
+          <section id="${section}" class="page">
+            <div class="content-narrow card">
+              <h1>Sezione non trovata</h1>
+              <p>Il file <strong>sections/${section}.html</strong> non è stato trovato. Controlla che lo ZIP sia stato estratto mantenendo le cartelle.</p>
+            </div>
+          </section>
+        `);
+        continue;
+      }
+
+      const html = await response.text();
+      app.insertAdjacentHTML("beforeend", html);
+    } catch (error) {
+      console.warn(`Errore caricamento sezione ${section}:`, error);
+    }
   }
 
   await loadSupabaseStories();
@@ -906,20 +925,26 @@ function getStoryBookingSummary(storyIdValue) {
   };
 }
 
-function setProfileTabLabel(tabName, label, count) {
+function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
   const button = document.querySelector(`.profile-tab-button[data-profile-tab="${tabName}"]`);
   if (!button) return;
+
+  const unread = Number(unreadCount || 0);
+  const unreadBadge = unread > 0
+    ? `<span class="profile-tab-unread" title="${unread} nuovi messaggi">${unread > 9 ? "9+" : unread}</span>`
+    : "";
 
   button.innerHTML = `
     <span>${label}</span>
     <strong>${count}</strong>
+    ${unreadBadge}
   `;
 }
 
-function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount) {
+function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0) {
   setProfileTabLabel("created", "Create", createdCount);
   setProfileTabLabel("played", "Giocate", playedCount);
-  setProfileTabLabel("booked", "Prenotate", bookedCount);
+  setProfileTabLabel("booked", "Prenotate", bookedCount, bookedUnreadCount);
 }
 
 function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
@@ -984,10 +1009,16 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `<span class="profile-info-chip">${bookingSummary.label}</span>`
       : "";
 
+    const unreadMessages = type === "booking" ? getUnreadBookingMessageCount(item.id) : 0;
+    const unreadChip = unreadMessages > 0
+      ? `<span class="profile-info-chip unread-chip">${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi</span>`
+      : "";
+
     const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
+    const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
 
     return `
-      <article class="profile-compact-item">
+      <article class="profile-compact-item ${unreadMessages > 0 ? "has-unread-messages" : ""}">
         ${compactStoryCover(story)}
         <div class="profile-compact-body">
           <h3>${story.title || item.story || "Storia"}</h3>
@@ -996,8 +1027,10 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
         <div class="profile-compact-meta">
           ${statusChip}
           ${bookingChip}
+          ${unreadChip}
           ${reviewChip}
         </div>
+        ${messageAction}
         <button class="light compact-action" onclick='openStory(${storyArg})'>Apri</button>
       </article>
     `;
@@ -1005,7 +1038,8 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 }
 
 function renderProfileLibrary(createdStories, playedStories, bookedStories) {
-  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length);
+  const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
+  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount);
   renderCompactStoryList("profileCreatedStories", createdStories, "Non hai ancora creato storie.");
   renderCompactStoryList("profilePlayedStories", playedStories, "Non hai ancora storie giocate.", "booking");
   renderCompactStoryList("profileBookedStories", bookedStories, "Non hai ancora storie prenotate.", "booking");
@@ -2191,6 +2225,468 @@ function getBookingMasterNotificationUserId(booking) {
   return storyId(story?.author_id || story?.owner_id || story?.masterId || "");
 }
 
+function getBookingParticipantIds(booking) {
+  if (!booking) return { playerId: "", masterId: "" };
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, booking.storyId));
+
+  return {
+    playerId: storyId(booking.user_id || ""),
+    masterId: storyId(
+      booking.masterId ||
+      story?.author_id ||
+      story?.owner_id ||
+      story?.masterId ||
+      ""
+    )
+  };
+}
+
+function isBookingMessagingParticipant(booking, userId = getCurrentUserId()) {
+  const ids = getBookingParticipantIds(booking);
+  return Boolean(userId && (storyIdsMatch(ids.playerId, userId) || storyIdsMatch(ids.masterId, userId)));
+}
+
+function getBookingMessageRecipientId(booking, userId = getCurrentUserId()) {
+  const ids = getBookingParticipantIds(booking);
+
+  if (storyIdsMatch(ids.playerId, userId)) return ids.masterId;
+  if (storyIdsMatch(ids.masterId, userId)) return ids.playerId;
+  return "";
+}
+
+function getBookingDateObject(dateValue, timeValue) {
+  if (!dateValue || !timeValue) return null;
+
+  const cleanTime = normalizeTime(timeValue);
+  const date = new Date(`${dateValue}T${cleanTime}:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBookingMessageDateTime(date) {
+  if (!date || Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function getBookingMessagingWindow(booking) {
+  const start = getBookingDateObject(booking?.date, booking?.startTime || booking?.time);
+  const end = getBookingDateObject(booking?.date, booking?.endTime || booking?.startTime || booking?.time);
+
+  if (!start || !end) {
+    return {
+      isOpen: false,
+      state: "missing-date",
+      label: "Messaggi disponibili quando la data della sessione è definita.",
+      shortLabel: "Data da definire"
+    };
+  }
+
+  const openAt = new Date(start.getTime() - 48 * 60 * 60 * 1000);
+  const closeAt = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  if (now < openAt) {
+    const dateLabel = formatBookingMessageDateTime(openAt);
+    return {
+      isOpen: false,
+      state: "future",
+      openAt,
+      closeAt,
+      label: `Messaggi disponibili da ${dateLabel}.`,
+      shortLabel: `Dal ${dateLabel}`
+    };
+  }
+
+  if (now > closeAt) {
+    return {
+      isOpen: false,
+      state: "closed",
+      openAt,
+      closeAt,
+      label: "Messaggi chiusi: finestra sessione terminata.",
+      shortLabel: "Chat chiusa"
+    };
+  }
+
+  const closeLabel = formatBookingMessageDateTime(closeAt);
+  return {
+    isOpen: true,
+    state: "open",
+    openAt,
+    closeAt,
+    label: `Messaggi aperti fino a ${closeLabel}.`,
+    shortLabel: `Aperta fino al ${closeLabel}`
+  };
+}
+
+function canUseBookingMessages(booking) {
+  if (!booking || booking.source === "public_session") return false;
+  if (!isBookingAccepted(booking.status)) return false;
+  if (!isBookingMessagingParticipant(booking)) return false;
+  return getBookingMessagingWindow(booking).isOpen;
+}
+
+function getUnreadBookingMessageNotifications(bookingId) {
+  const normalizedBookingId = storyId(bookingId);
+  if (!normalizedBookingId) return [];
+
+  return getNotifications().filter(notification =>
+    !notification.read &&
+    notification.type === "booking_message" &&
+    notification.bookingId &&
+    storyIdsMatch(notification.bookingId, normalizedBookingId)
+  );
+}
+
+function getUnreadBookingMessageCount(bookingId) {
+  return getUnreadBookingMessageNotifications(bookingId).length;
+}
+
+function getTotalUnreadBookingMessagesForBookings(bookings = []) {
+  const bookingIds = new Set(
+    bookings
+      .filter(booking => booking && booking.source !== "public_session")
+      .map(booking => storyId(booking.id))
+      .filter(Boolean)
+  );
+
+  if (!bookingIds.size) return 0;
+
+  return getNotifications().filter(notification =>
+    !notification.read &&
+    notification.type === "booking_message" &&
+    notification.bookingId &&
+    bookingIds.has(storyId(notification.bookingId))
+  ).length;
+}
+
+function renderBookingMessageUnreadBadge(bookingId) {
+  const unread = getUnreadBookingMessageCount(bookingId);
+  if (!unread) return "";
+
+  return `<span class="booking-message-count" aria-label="${unread} nuovi messaggi">${unread > 9 ? "9+" : unread}</span>`;
+}
+
+function markBookingMessageNotificationsRead(bookingId) {
+  const normalizedBookingId = storyId(bookingId);
+  if (!normalizedBookingId) return;
+
+  const notifications = getNotifications();
+  const matchingIds = [];
+  let changed = false;
+
+  const updated = notifications.map(notification => {
+    const matches =
+      !notification.read &&
+      notification.type === "booking_message" &&
+      notification.bookingId &&
+      storyIdsMatch(notification.bookingId, normalizedBookingId);
+
+    if (!matches) return notification;
+
+    changed = true;
+    if (notification.source === "supabase" && notification.id) matchingIds.push(notification.id);
+    return { ...notification, read: true };
+  });
+
+  if (!changed) return;
+
+  saveNotifications(updated);
+  updateNotificationBadge();
+  renderNotifications();
+  renderNotificationsPreview();
+
+  if (matchingIds.length && typeof supabaseClient !== "undefined") {
+    supabaseClient
+      .from("notifications")
+      .update({ read: true })
+      .in("id", matchingIds)
+      .then(({ error }) => {
+        if (error) console.warn("Errore aggiornamento notifiche messaggi lette:", error.message);
+      });
+  }
+}
+
+function renderBookingMessageAction(booking, className = "light compact-action") {
+  if (!booking || booking.source === "public_session" || !isBookingAccepted(booking.status)) return "";
+
+  const bookingId = storyId(booking.id);
+  const bookingArg = JSON.stringify(bookingId);
+  const windowInfo = getBookingMessagingWindow(booking);
+  const unreadBadge = renderBookingMessageUnreadBadge(bookingId);
+  const unreadClass = unreadBadge ? " has-unread" : "";
+
+  if (!isBookingMessagingParticipant(booking)) return "";
+
+  if (!windowInfo.isOpen) {
+    const disabledLabel = windowInfo.state === "future"
+      ? "Messaggi non ancora aperti"
+      : windowInfo.state === "closed"
+        ? "Messaggi chiusi"
+        : "Messaggi";
+
+    return `
+      <button class="${className} booking-message-button is-disabled${unreadClass}" type="button" disabled title="${escapeHtmlAttribute(windowInfo.label)}">
+        <span>${disabledLabel}</span>
+        ${unreadBadge}
+      </button>
+    `;
+  }
+
+  return `
+    <button class="${className} booking-message-button${unreadClass}" type="button" onclick='openBookingMessages(${bookingArg})' title="${escapeHtmlAttribute(windowInfo.label)}">
+      <span>Messaggi</span>
+      ${unreadBadge}
+    </button>
+  `;
+}
+
+function normalizeBookingMessage(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    bookingId: storyId(row.booking_id || row.bookingId || ""),
+    senderId: storyId(row.sender_id || row.senderId || ""),
+    recipientId: storyId(row.recipient_id || row.recipientId || ""),
+    message: row.message || row.body || "",
+    createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    source: row.source || "supabase"
+  };
+}
+
+function getLocalBookingMessages(bookingId) {
+  return readJsonStorage(getUserScopedKey("questhubBookingMessages"), [])
+    .map(normalizeBookingMessage)
+    .filter(message => message && storyIdsMatch(message.bookingId, bookingId));
+}
+
+function saveLocalBookingMessage(message) {
+  const messages = readJsonStorage(getUserScopedKey("questhubBookingMessages"), []);
+  messages.push(message);
+  writeJsonStorage(getUserScopedKey("questhubBookingMessages"), messages.slice(-100));
+}
+
+async function loadBookingMessages(bookingId) {
+  const normalizedBookingId = storyId(bookingId);
+  if (!normalizedBookingId) return [];
+
+  if (typeof supabaseClient === "undefined") {
+    return getLocalBookingMessages(normalizedBookingId);
+  }
+
+  const { data, error } = await supabaseClient
+    .from("booking_messages")
+    .select("*")
+    .eq("booking_id", normalizedBookingId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("Impossibile caricare i messaggi prenotazione:", error.message);
+    showToast("Messaggi non disponibili. Verifica di aver eseguito lo SQL Update 49.", "warning");
+    return [];
+  }
+
+  return (data || []).map(normalizeBookingMessage).filter(Boolean);
+}
+
+function ensureBookingMessagesModal() {
+  let modal = document.getElementById("bookingMessagesModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "bookingMessagesModal";
+  modal.className = "booking-messages-modal";
+  modal.innerHTML = `
+    <div class="booking-messages-box" role="dialog" aria-modal="true" aria-labelledby="bookingMessagesTitle">
+      <div class="booking-messages-header">
+        <div>
+          <h2 id="bookingMessagesTitle">Messaggi sessione</h2>
+          <p id="bookingMessagesSubtitle"></p>
+        </div>
+        <button class="light icon-button" type="button" onclick="closeBookingMessages()" aria-label="Chiudi messaggi">×</button>
+      </div>
+
+      <div id="bookingMessagesList" class="booking-messages-list"></div>
+
+      <form id="bookingMessagesForm" class="booking-messages-form" onsubmit="sendBookingMessage(event)">
+        <textarea id="bookingMessageText" maxlength="1000" placeholder="Scrivi un messaggio al Master o al giocatore..."></textarea>
+        <div class="booking-messages-form-footer">
+          <small>Disponibile da 48 ore prima fino a 24 ore dopo la sessione.</small>
+          <button class="primary" type="submit">Invia</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function renderBookingMessagesModal(booking, messages = []) {
+  const modal = ensureBookingMessagesModal();
+  const title = document.getElementById("bookingMessagesTitle");
+  const subtitle = document.getElementById("bookingMessagesSubtitle");
+  const list = document.getElementById("bookingMessagesList");
+  const textarea = document.getElementById("bookingMessageText");
+  const form = document.getElementById("bookingMessagesForm");
+  const windowInfo = getBookingMessagingWindow(booking);
+  const currentUserId = getCurrentUserId();
+
+  if (title) title.textContent = booking?.story || "Messaggi sessione";
+  if (subtitle) {
+    const counterpartId = getBookingMessageRecipientId(booking, currentUserId);
+    const counterpartName = getUserDisplayName(counterpartId, "partecipante");
+    subtitle.textContent = `${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data da definire"} · con ${counterpartName}. ${windowInfo.label}`;
+  }
+
+  if (list) {
+    list.innerHTML = messages.length
+      ? messages.map(message => {
+          const isMine = storyIdsMatch(message.senderId, currentUserId);
+          const senderName = isMine ? "Tu" : getUserDisplayName(message.senderId, "Utente Lorecast");
+          const sentAt = message.createdAt ? new Date(message.createdAt).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
+          return `
+            <article class="booking-message-item ${isMine ? "is-mine" : ""}">
+              <div>
+                <strong>${escapeHtml(senderName)}</strong>
+                <span>${escapeHtml(sentAt)}</span>
+              </div>
+              <p>${escapeHtml(message.message)}</p>
+            </article>
+          `;
+        }).join("")
+      : `<div class="booking-messages-empty">Nessun messaggio ancora. Usa questo spazio solo per dettagli pratici della sessione.</div>`;
+
+    list.scrollTop = list.scrollHeight;
+  }
+
+  if (form) form.hidden = !windowInfo.isOpen;
+  if (textarea) textarea.value = "";
+
+  modal.classList.add("open");
+}
+
+async function openBookingMessages(bookingId) {
+  const normalizedBookingId = storyId(bookingId);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, normalizedBookingId));
+
+  if (!booking) {
+    showToast("Prenotazione non trovata.", "warning");
+    return;
+  }
+
+  if (!isBookingAccepted(booking.status)) {
+    showToast("I messaggi si aprono solo per prenotazioni accettate.", "warning");
+    return;
+  }
+
+  if (!isBookingMessagingParticipant(booking)) {
+    showToast("Non puoi aprire i messaggi di questa prenotazione.", "warning");
+    return;
+  }
+
+  const windowInfo = getBookingMessagingWindow(booking);
+  if (!windowInfo.isOpen) {
+    showToast(windowInfo.label, "warning");
+  }
+
+  currentBookingMessagesBookingId = normalizedBookingId;
+  const messages = await loadBookingMessages(normalizedBookingId);
+  markBookingMessageNotificationsRead(normalizedBookingId);
+  renderBookingMessagesModal(booking, messages);
+}
+
+function closeBookingMessages() {
+  const modal = document.getElementById("bookingMessagesModal");
+  if (modal) modal.classList.remove("open");
+  currentBookingMessagesBookingId = null;
+}
+
+async function sendBookingMessage(event) {
+  if (event) event.preventDefault();
+
+  const bookingId = storyId(currentBookingMessagesBookingId);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+  const textarea = document.getElementById("bookingMessageText");
+  const body = textarea?.value.trim() || "";
+
+  if (!booking) {
+    showToast("Prenotazione non trovata.", "warning");
+    return;
+  }
+
+  if (!canUseBookingMessages(booking)) {
+    showToast(getBookingMessagingWindow(booking).label, "warning");
+    return;
+  }
+
+  if (!body) {
+    showToast("Scrivi un messaggio prima di inviare.", "warning");
+    return;
+  }
+
+  if (body.length > 1000) {
+    showToast("Il messaggio può avere massimo 1000 caratteri.", "warning");
+    return;
+  }
+
+  const senderId = getCurrentUserId();
+  const recipientId = getBookingMessageRecipientId(booking, senderId);
+
+  if (!recipientId) {
+    showToast("Destinatario non trovato.", "warning");
+    return;
+  }
+
+  let savedMessage = null;
+
+  if (typeof supabaseClient !== "undefined" && booking.source === "supabase") {
+    const { data, error } = await supabaseClient
+      .from("booking_messages")
+      .insert({
+        booking_id: bookingId,
+        sender_id: senderId,
+        recipient_id: recipientId,
+        message: body
+      })
+      .select()
+      .single();
+
+    if (error) {
+      showToast("Errore invio messaggio: " + error.message, "error");
+      return;
+    }
+
+    savedMessage = normalizeBookingMessage(data);
+  } else {
+    savedMessage = {
+      id: Date.now(),
+      bookingId,
+      senderId,
+      recipientId,
+      message: body,
+      createdAt: new Date().toISOString(),
+      source: "local"
+    };
+    saveLocalBookingMessage(savedMessage);
+  }
+
+  if (textarea) textarea.value = "";
+
+  const messages = await loadBookingMessages(bookingId);
+  renderBookingMessagesModal(booking, savedMessage && !messages.some(item => storyIdsMatch(item.id, savedMessage.id)) ? [...messages, savedMessage] : messages);
+  showToast("Messaggio inviato.", "success");
+  await loadSupabaseNotifications();
+}
+
 function updateMasterRequestsTabBadge(pendingCount) {
   const badge = document.getElementById("masterRequestsTabBadge");
   if (!badge) return;
@@ -2215,22 +2711,30 @@ function renderDashboardBookings() {
     .filter(story => story.source === "supabase" && story.author_id && storyIdsMatch(story.author_id, userId))
     .map(story => storyId(story.id));
 
-  const bookings = getBookings()
+  const masterBookings = getBookings()
     .filter(booking => {
       const isMine = (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId));
-      return isMine && isBookingPending(booking.status);
-    })
+      return isMine && !isBookingRejectedOrCancelled(booking.status);
+    });
+
+  const pendingBookings = masterBookings
+    .filter(booking => isBookingPending(booking.status))
     .sort((a, b) => getBookingStatusPriority(a.status) - getBookingStatusPriority(b.status));
 
-  count.textContent = bookings.length === 1
+  const confirmedBookings = masterBookings
+    .filter(booking => isBookingAccepted(booking.status))
+    .sort((a, b) => `${a.date || ""} ${a.startTime || a.time || ""}`.localeCompare(`${b.date || ""} ${b.startTime || b.time || ""}`));
+
+  const confirmedUnreadCount = getTotalUnreadBookingMessagesForBookings(confirmedBookings);
+
+  count.textContent = pendingBookings.length === 1
     ? "1 richiesta"
-    : bookings.length + " richieste";
+    : pendingBookings.length + " richieste";
 
-  const pendingCount = bookings.filter(booking => isBookingPending(booking.status)).length;
-  updateMasterRequestsTabBadge(pendingCount);
+  updateMasterRequestsTabBadge(pendingBookings.length);
 
-  container.innerHTML = bookings.length
-    ? bookings.map((booking, index) => {
+  const pendingHtml = pendingBookings.length
+    ? pendingBookings.map((booking, index) => {
         let statusClass = "pending";
         if (isBookingAccepted(booking.status)) statusClass = "accepted";
         if (isBookingRejectedOrCancelled(booking.status)) statusClass = "rejected";
@@ -2275,6 +2779,49 @@ function renderDashboardBookings() {
         `;
       }).join("")
     : "<p>Nessuna richiesta di prenotazione al momento.</p>";
+
+  const confirmedHtml = confirmedBookings.length
+    ? `
+      <div class="master-confirmed-bookings">
+        <div class="master-subsection-head">
+          <h3>Prenotazioni confermate</h3>
+          <div class="master-subsection-counters">
+            <span class="pill-counter">${confirmedBookings.length} confermate</span>
+            ${confirmedUnreadCount > 0 ? `<span class="pill-counter alert-counter">${confirmedUnreadCount > 9 ? "9+" : confirmedUnreadCount} nuovi messaggi</span>` : ""}
+          </div>
+        </div>
+        <div class="master-confirmed-list">
+          ${confirmedBookings.map(booking => {
+            const storyArg = JSON.stringify(storyId(booking.storyId));
+            const windowInfo = getBookingMessagingWindow(booking);
+            const unreadMessages = getUnreadBookingMessageCount(booking.id);
+
+            return `
+              <article class="master-confirmed-booking-row ${unreadMessages > 0 ? "has-unread-messages" : ""}">
+                <div class="master-confirmed-booking-main">
+                  <strong>${escapeHtml(booking.story)}</strong>
+                  <span>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</span>
+                  <small>${escapeHtml(getUserDisplayName(booking.user_id))} · ${escapeHtml(windowInfo.label)}${unreadMessages > 0 ? ` · ${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi` : ""}</small>
+                </div>
+                <span class="status accepted">Accettata</span>
+                <div class="master-confirmed-actions">
+                  ${renderBookingMessageAction(booking, "light")}
+                  <button class="light" onclick='openStory(${storyArg})'>Storia</button>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `
+    : "";
+
+  container.innerHTML = `
+    <div class="master-pending-requests-block">
+      ${pendingHtml}
+    </div>
+    ${confirmedHtml}
+  `;
 }
 
 async function updateBookingStatus(id, status) {
@@ -4136,6 +4683,7 @@ function normalizeSupabaseNotification(row) {
     type: row.type || "info",
     read: Boolean(row.read),
     storyId: row.story_id || null,
+    bookingId: row.booking_id || row.bookingId || null,
     page: row.page || null,
     date: row.created_at ? new Date(row.created_at).toLocaleString("it-IT") : new Date().toLocaleString("it-IT"),
     source: "supabase"
@@ -4222,6 +4770,54 @@ function addNotification(message, type = "info", options = {}) {
   updateNotificationBadge();
 }
 
+function getNotificationActionLabel(notification) {
+  if (!notification) return "Apri dettaglio";
+  if (notification.type === "booking_message") return "Apri messaggi";
+  if (notification.bookingId) return "Apri prenotazione";
+  if (notification.page === "area-master") return "Apri richieste";
+  if (notification.page === "profilo") return "Apri profilo";
+  return "Apri dettaglio";
+}
+
+function notificationHasAction(notification) {
+  return Boolean(notification?.bookingId || notification?.storyId || notification?.page || notification?.type === "booking_message");
+}
+
+async function resolveNotificationBookingId(notification) {
+  if (!notification) return "";
+  if (notification.bookingId) return storyId(notification.bookingId);
+
+  if (notification.type !== "booking_message" || !notification.storyId) return "";
+
+  await loadSupabaseBookings();
+
+  const candidates = getBookings().filter(booking =>
+    storyIdsMatch(booking.storyId, notification.storyId) &&
+    isBookingAccepted(booking.status) &&
+    isBookingMessagingParticipant(booking)
+  );
+
+  return candidates.length === 1 ? storyId(candidates[0].id) : "";
+}
+
+function openNotificationPage(page) {
+  if (!page) return false;
+
+  if (page === "area-master") {
+    currentMasterAreaView = "requests";
+    go("area-master");
+    return true;
+  }
+
+  go(page);
+
+  if (page === "profilo") {
+    setTimeout(() => setProfileLibraryTab("booked"), 350);
+  }
+
+  return true;
+}
+
 function renderNotifications() {
   const container = document.getElementById("notificationsList");
   if (!container) return;
@@ -4230,16 +4826,17 @@ function renderNotifications() {
 
   container.innerHTML = notifications.length
     ? notifications.map(notification => {
-        const hasAction = notification.storyId || notification.page;
+        const hasAction = notificationHasAction(notification);
+        const notificationArg = JSON.stringify(storyId(notification.id));
 
         return `
           <div
             class="card notification-card ${notification.read ? "read" : "unread"} ${hasAction ? "notification-actionable" : ""}"
-            ${hasAction ? `role="button" tabindex="0" onclick="handleNotificationItemClick(${notification.id})"` : ""}
+            ${hasAction ? `role="button" tabindex="0" onclick='handleNotificationItemClick(${notificationArg})'` : ""}
           >
-            <p><strong>${notification.message}</strong></p>
-            <p>${notification.date}</p>
-            ${hasAction ? `<small>Apri dettaglio</small>` : ""}
+            <p><strong>${escapeHtml(notification.message || "Notifica")}</strong></p>
+            <p>${escapeHtml(notification.date || "")}</p>
+            ${hasAction ? `<small>${getNotificationActionLabel(notification)}</small>` : ""}
           </div>
         `;
       }).join("")
@@ -4356,20 +4953,47 @@ function toggleNotificationsDropdown() {
   }
 }
 
-function handleNotificationItemClick(notificationId) {
-  const notification = getNotifications().find(item => Number(item.id) === Number(notificationId));
+async function handleNotificationItemClick(notificationId) {
+  const normalizedNotificationId = storyId(notificationId);
+  const notification = getNotifications().find(item => storyIdsMatch(item.id, normalizedNotificationId));
 
   closeNotificationsDropdown(true);
 
   if (!notification) return;
 
-  if (notification.storyId) {
-    openStory(notification.storyId);
-    return;
+  if (notification.type === "booking_message") {
+    const bookingId = await resolveNotificationBookingId(notification);
+
+    if (bookingId) {
+      await loadSupabaseMarketplaceState();
+      await openBookingMessages(bookingId);
+      return;
+    }
+
+    if (openNotificationPage(notification.page || "area-master")) return;
   }
 
   if (notification.page) {
-    go(notification.page);
+    openNotificationPage(notification.page);
+    return;
+  }
+
+  if (notification.bookingId) {
+    const bookingId = storyId(notification.bookingId);
+    await loadSupabaseMarketplaceState();
+    const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+
+    if (booking && canUseBookingMessages(booking)) {
+      await openBookingMessages(bookingId);
+      return;
+    }
+
+    openNotificationPage(storyIdsMatch(booking?.masterId, getCurrentUserId()) ? "area-master" : "profilo");
+    return;
+  }
+
+  if (notification.storyId) {
+    openStory(notification.storyId);
   }
 }
 
@@ -4381,13 +5005,14 @@ function renderNotificationsPreview() {
 
   container.innerHTML = notifications.length
     ? notifications.map(notification => {
-        const hasAction = notification.storyId || notification.page;
+        const hasAction = notificationHasAction(notification);
+        const notificationArg = JSON.stringify(storyId(notification.id));
 
         return `
-          <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick="handleNotificationItemClick(${notification.id})">
-            <p><strong>${notification.message}</strong></p>
-            <small>${notification.date}</small>
-            ${hasAction ? `<em>Apri dettaglio</em>` : ""}
+          <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick='handleNotificationItemClick(${notificationArg})'>
+            <p><strong>${escapeHtml(notification.message || "Notifica")}</strong></p>
+            <small>${escapeHtml(notification.date || "")}</small>
+            ${hasAction ? `<em>${getNotificationActionLabel(notification)}</em>` : ""}
           </button>
         `;
       }).join("")
@@ -4737,6 +5362,7 @@ function setupGlobalUiHandlers() {
       closeNotificationsDropdown(true);
       closeUserMenu();
       closeProfileEdit();
+      closeBookingMessages();
     }
   });
 }

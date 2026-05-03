@@ -4228,3 +4228,86 @@ body.is-logged-in .home-guest-only {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* UPDATE 55 - Login polish: Google button, centered title and smaller visual */
+.login-title {
+  width: 100%;
+  text-align: center;
+}
+
+.login-wordmark {
+  width: min(330px, 86%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.login-card-clean > p {
+  text-align: center;
+}
+
+.google-button {
+  position: relative;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.google-button .google-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: inherit;
+}
+
+.google-button .google-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.google-button .google-label {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  display: block;
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.login-visual-clean {
+  padding: clamp(18px, 3vw, 52px);
+}
+
+.login-hero-image {
+  width: min(118%, 1080px);
+  max-width: 118%;
+  transform: scale(0.96);
+  object-fit: contain;
+  object-position: center;
+}
+
+@media (max-width: 950px) {
+  .login-title,
+  .login-card-clean > p {
+    text-align: left;
+  }
+
+  .login-wordmark {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .login-hero-image {
+    width: 112%;
+    max-width: 112%;
+    transform: none;
+  }
+}

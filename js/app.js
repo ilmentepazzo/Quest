@@ -1496,8 +1496,6 @@ function getTrendingMasterCards(limit = 3) {
         name: profile.name || story.master || t("trendingMasterFallback", "Master Lorecast"),
         avatarUrl: profile.avatar_url || "",
         stories: [],
-        genres: new Set(),
-        languages: new Set(),
         score: 0,
         acceptedBookings: 0,
         completedBookings: 0,
@@ -1512,8 +1510,6 @@ function getTrendingMasterCards(limit = 3) {
     group.name = supabaseProfilesCache[authorId]?.name || story.master || group.name;
     group.avatarUrl = supabaseProfilesCache[authorId]?.avatar_url || group.avatarUrl;
     group.stories.push(story);
-    if (story.genre) group.genres.add(story.genre);
-    group.languages.add(getStoryLanguageCode(story));
     group.acceptedBookings += stats.acceptedBookings;
     group.completedBookings += stats.completedBookings;
     group.joinedPlayers += stats.joinedPlayers;
@@ -1524,11 +1520,57 @@ function getTrendingMasterCards(limit = 3) {
   return [...groups.values()]
     .filter(master => master.stories.length)
     .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
+      const reviewA = getMasterReviewSummary(a);
+      const reviewB = getMasterReviewSummary(b);
+      const scoreA = a.score + reviewA.count * 2 + reviewA.average * 4;
+      const scoreB = b.score + reviewB.count * 2 + reviewB.average * 4;
+
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      if (reviewB.count !== reviewA.count) return reviewB.count - reviewA.count;
       if (b.stories.length !== a.stories.length) return b.stories.length - a.stories.length;
       return a.name.localeCompare(b.name);
     })
     .slice(0, limit);
+}
+
+function getMasterReviewSummary(master) {
+  const ratings = [];
+  const storyIds = new Set((master?.stories || []).map(story => storyId(story.id)));
+
+  getStoryReviewsStore().forEach(review => {
+    if (!storyIds.has(storyId(review.storyId))) return;
+
+    const rating = Number(review.rating || 0);
+    if (rating > 0) ratings.push(rating);
+  });
+
+  if (!ratings.length && typeof reviewsData !== "undefined") {
+    const seenDemoReviewIds = new Set();
+
+    (master?.stories || []).forEach(story => {
+      reviewsData
+        .filter(review => story.masterId && storyIdsMatch(review.masterId, story.masterId))
+        .forEach(review => {
+          const reviewId = storyId(review.id || `${story.masterId}-${review.author}-${review.date}`);
+          if (seenDemoReviewIds.has(reviewId)) return;
+
+          seenDemoReviewIds.add(reviewId);
+          const rating = Number(review.rating || 0);
+          if (rating > 0) ratings.push(rating);
+        });
+    });
+  }
+
+  const count = ratings.length;
+  const average = count
+    ? ratings.reduce((sum, rating) => sum + rating, 0) / count
+    : 0;
+
+  return {
+    count,
+    average,
+    averageLabel: average.toFixed(1)
+  };
 }
 
 function renderTrendingMasters() {
@@ -1545,44 +1587,41 @@ function renderTrendingMasters() {
   container.innerHTML = masters.map(master => {
     const firstStory = master.stories[0];
     const firstStoryArg = storyJsArg(firstStory.id);
-    const initials = getPublicDisplayName(master.name, "M").slice(0, 1).toUpperCase();
-    const storyCountLabel = master.stories.length === 1
-      ? t("homeMasterStoriesOne", "1 storia")
-      : tf("homeMasterStoriesMany", { count: master.stories.length }, "{count} storie");
-    const activityCount = master.completedBookings + master.acceptedBookings + master.joinedPlayers;
-    const activityLabel = activityCount > 0
-      ? tf("homeMasterActivity", { count: activityCount }, "{count} attività")
-      : t("homeMasterNew", "Nuovo in evidenza");
-    const genres = [...master.genres].slice(0, 2);
-    const languages = [...master.languages].slice(0, 3).map(code => getStoryLanguageLabel(code));
+    const displayName = getPublicDisplayName(master.name, t("trendingMasterFallback", "Master Lorecast"));
+    const initials = displayName.slice(0, 1).toUpperCase();
+    const reviewSummary = getMasterReviewSummary(master);
+    const storyLabel = master.stories.length === 1
+      ? t("homeMasterStoriesShortSingular", "storia")
+      : t("homeMasterStoriesShort", "storie");
+    const reviewLabel = reviewSummary.count === 1
+      ? t("homeMasterReviewShortSingular", "recensione")
+      : t("homeMasterReviewsShort", "recensioni");
+
+    const avatarContent = master.avatarUrl
+      ? `<img src="${escapeHtmlAttribute(master.avatarUrl)}" alt="${escapeHtmlAttribute(displayName)}" />`
+      : `<span>${escapeHtml(initials)}</span>`;
 
     return `
-      <article class="trending-master-card">
+      <article class="trending-master-card" role="button" tabindex="0" onclick='openStoryAuthorProfile(${firstStoryArg})' onkeydown='if(event.key === "Enter" || event.key === " "){ event.preventDefault(); openStoryAuthorProfile(${firstStoryArg}); }'>
+        <div class="trending-master-backdrop" aria-hidden="true">
+          ${avatarContent}
+        </div>
+
         <div class="trending-master-top">
           <div class="trending-master-avatar">
-            ${master.avatarUrl
-              ? `<img src="${escapeHtmlAttribute(master.avatarUrl)}" alt="${escapeHtmlAttribute(master.name)}" />`
-              : `<span>${escapeHtml(initials)}</span>`}
+            ${avatarContent}
           </div>
           <div class="trending-master-title">
-            <h3>${escapeHtml(getPublicDisplayName(master.name, t("trendingMasterFallback", "Master Lorecast")))}</h3>
-            <p>${escapeHtml(activityLabel)}</p>
+            <h3>${escapeHtml(displayName)}</h3>
+            <span class="trending-master-profile-cue">${escapeHtml(t("homeOpenMasterProfile", "Vedi profilo"))}</span>
           </div>
         </div>
 
-        <div class="trending-master-stats">
-          <span><strong>${master.stories.length}</strong>${escapeHtml(storyCountLabel.replace(String(master.stories.length), "").trim() || t("homeMasterStoriesShort", "storie"))}</span>
-          <span><strong>${master.openSessions}</strong>${escapeHtml(t("homeMasterOpenSessionsShort", "aperte"))}</span>
+        <div class="trending-master-stats" aria-label="${escapeHtmlAttribute(t("homeMasterStatsAria", "Statistiche Master"))}">
+          <span><strong>${master.stories.length}</strong><small>${escapeHtml(storyLabel)}</small></span>
+          <span><strong>${reviewSummary.count}</strong><small>${escapeHtml(reviewLabel)}</small></span>
+          <span><strong>${reviewSummary.averageLabel}</strong><small>${escapeHtml(t("homeMasterRatingShort", "rating"))}</small></span>
         </div>
-
-        <div class="trending-master-tags">
-          ${genres.map(genre => `<span class="tag ${getGenreClass(genre)}">${escapeHtml(genre)}</span>`).join("")}
-          ${languages.map(language => `<span class="tag story-language-badge">${escapeHtml(language)}</span>`).join("")}
-        </div>
-
-        <button class="light" type="button" onclick='openStoryAuthorProfile(${firstStoryArg})'>
-          ${escapeHtml(t("homeOpenMasterProfile", "Vedi profilo"))}
-        </button>
       </article>
     `;
   }).join("");

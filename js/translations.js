@@ -401,7 +401,12 @@ window.translations = {
     "homeMasterActivity": "{count} attività",
     "homeMasterNew": "Nuovo in evidenza",
     "homeOpenMasterProfile": "Vedi profilo",
-    "trendingMasterFallback": "Master Lorecast"
+    "trendingMasterFallback": "Master Lorecast",
+    "homeMasterStoriesShortSingular": "storia",
+    "homeMasterReviewShortSingular": "recensione",
+    "homeMasterReviewsShort": "recensioni",
+    "homeMasterRatingShort": "rating",
+    "homeMasterStatsAria": "Statistiche Master"
   },
   "en": {
     "navStories": "Stories",
@@ -805,7 +810,12 @@ window.translations = {
     "homeMasterActivity": "{count} activities",
     "homeMasterNew": "Newly featured",
     "homeOpenMasterProfile": "View profile",
-    "trendingMasterFallback": "Lorecast Master"
+    "trendingMasterFallback": "Lorecast Master",
+    "homeMasterStoriesShortSingular": "story",
+    "homeMasterReviewShortSingular": "review",
+    "homeMasterReviewsShort": "reviews",
+    "homeMasterRatingShort": "rating",
+    "homeMasterStatsAria": "Master stats"
   },
   "es": {
     "navStories": "Historias",
@@ -1209,7 +1219,12 @@ window.translations = {
     "homeMasterActivity": "{count} actividades",
     "homeMasterNew": "Nuevo destacado",
     "homeOpenMasterProfile": "Ver perfil",
-    "trendingMasterFallback": "Master Lorecast"
+    "trendingMasterFallback": "Master Lorecast",
+    "homeMasterStoriesShortSingular": "historia",
+    "homeMasterReviewShortSingular": "reseña",
+    "homeMasterReviewsShort": "reseñas",
+    "homeMasterRatingShort": "valoración",
+    "homeMasterStatsAria": "Estadísticas del Master"
   },
   "fr": {
     "navStories": "Histoires",
@@ -1613,6 +1628,11 @@ window.translations = {
     "homeMasterActivity": "{count} activités",
     "homeMasterNew": "Nouveau en vedette",
     "homeOpenMasterProfile": "Voir le profil",
-    "trendingMasterFallback": "Master Lorecast"
+    "trendingMasterFallback": "Master Lorecast",
+    "homeMasterStoriesShortSingular": "histoire",
+    "homeMasterReviewShortSingular": "avis",
+    "homeMasterReviewsShort": "avis",
+    "homeMasterRatingShort": "note",
+    "homeMasterStatsAria": "Statistiques du Master"
   }
 };

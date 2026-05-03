@@ -1123,8 +1123,8 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
     const bookingSummary = getStoryBookingSummary(story.id || item.storyId);
 
     const meta = type === "booking"
-      ? `${item.source === "public_session" ? t("profileBookingJoinIn", "Join-in") : t("profileBookingPrivate", "Prenotazione privata")} · ${item.date || t("profileBookingDateTbd", "Data da definire")}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
-      : `${story.genre || ""}${story.type ? ` · ${story.type}` : ""}`;
+      ? `${item.source === "public_session" ? t("profileBookingJoinIn", "Join-in") : t("profileBookingPrivate", "Prenotazione privata")} · ${formatBookingDateTime(item.date, item.startTime || item.time, item.endTime)}`
+      : `${getTranslatedGenreLabel(story.genre)}${story.type ? ` · ${getTranslatedStoryTypeLabel(story.type)}` : ""}`;
 
     const statusChip = type === "booking"
       ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
@@ -1356,7 +1356,7 @@ function card(story) {
   const authorName = story.master || "Autore Lorecast";
   const priceLabel = story.isFree || Number(story.price) === 0
     ? `<span class="story-price-free">${t("priceFree", "Gratis")}</span>`
-    : `<span class="story-price-paid">${story.price}€</span>`;
+    : `<span class="story-price-paid">${formatMoney(story.price, { freeLabel: false })}</span>`;
 
   const genreClass = getGenreClass(story.genre);
   const languageLabel = getStoryLanguageLabel(story);
@@ -1380,15 +1380,15 @@ function card(story) {
 
       <div class="story-card-body">
         <div>
-          <span class="tag ${genreClass}">${story.genre}</span>
-          <span class="tag gold">${story.type}</span>
+          <span class="tag ${genreClass}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
+          <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
           <span class="tag story-language-badge">${escapeHtml(languageLabel)}</span>
         </div>
 
         <h2>${story.title}</h2>
         <p>${story.desc}</p>
         <button type="button" class="story-card-author" onclick='event.stopPropagation(); openStoryAuthorProfile(${storyArg})'>
-          di ${escapeHtml(authorName)}
+          ${t("storyBy", "di")} ${escapeHtml(authorName)}
         </button>
 
         <div class="story-card-meta">
@@ -1706,8 +1706,8 @@ function openStory(id, options = {}) {
   };
 
   setHtml("detailTags", `
-    <span class="tag ${getGenreClass(story.genre)}">${story.genre}</span>
-    <span class="tag gold">${story.type}</span>
+    <span class="tag ${getGenreClass(story.genre)}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
+    <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
     <span class="tag story-language-badge">${escapeHtml(getStoryLanguageLabel(story))}</span>
   `);
 
@@ -1726,15 +1726,15 @@ function openStory(id, options = {}) {
   `);
 
   // Compatibilità con vecchi template: se detailPrice non esiste, non blocca più l'apertura della scheda.
-  setText("detailPrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
+  setText("detailPrice", formatMoney(story.price));
 
   renderStoryPaymentPanel(story);
 
   setText(
     "detailAction",
     story.type === "Con Master"
-      ? "Prenota una sessione guidata con il Master oppure sblocca i materiali della storia."
-      : "Acquista o sblocca la storia e giocala in autonomia, quando vuoi e con chi vuoi."
+      ? t("detailActionWithMaster", "Prenota una sessione guidata con il Master oppure sblocca i materiali della storia.")
+      : t("detailActionSelfPlay", "Acquista o sblocca la storia e giocala in autonomia, quando vuoi e con chi vuoi.")
   );
 
   renderStoryMedia(story);
@@ -1769,10 +1769,10 @@ function renderStoryPaymentPanel(story) {
     masterButton.style.display = story.type === "Con Master" && !isOwner ? "inline-flex" : "none";
   }
 
-  if (panelLabel) panelLabel.textContent = isOwner ? "Gestione storia" : "Pagamento";
+  if (panelLabel) panelLabel.textContent = isOwner ? t("ownerStoryManageLabel", "Gestione storia") : t("paymentLabel", "Pagamento");
 
   if (isOwner) {
-    if (priceEl) priceEl.textContent = "Gestisci";
+    if (priceEl) priceEl.textContent = t("commonManage", "Gestisci");
     if (titleEl) titleEl.textContent = story.title;
     if (hintEl) {
       hintEl.textContent = "Questa storia è tua: modifica informazioni, disponibilità e materiali senza passare dal pagamento.";
@@ -1780,9 +1780,7 @@ function renderStoryPaymentPanel(story) {
     return;
   }
 
-  const priceLabel = story.isFree || Number(story.price) === 0
-    ? "Gratis"
-    : `${story.price}€`;
+  const priceLabel = formatMoney(story.price);
 
   if (priceEl) priceEl.textContent = priceLabel;
   if (titleEl) titleEl.textContent = story.title;
@@ -1795,8 +1793,8 @@ function renderStoryPaymentPanel(story) {
 
   if (payButton) {
     payButton.textContent = story.isFree || Number(story.price) === 0
-      ? "Sblocca gratis"
-      : "Paga ora";
+      ? t("paymentUnlockFree", "Sblocca gratis")
+      : t("paymentPayNow", "Paga ora");
   }
 }
 
@@ -2017,7 +2015,9 @@ function getPublicMasterPriceLabel(stories = []) {
     .sort((a, b) => a - b);
 
   if (!prices.length) return t("priceFree", "Gratis");
-  return prices.length === 1 ? `${prices[0]}€` : `${t("publicMasterFrom", "da")} ${prices[0]}€`;
+  return prices.length === 1
+    ? formatMoney(prices[0], { freeLabel: false })
+    : formatMoney(prices[0], { freeLabel: false, from: true });
 }
 
 function getPublicMasterModeLabel(stories = []) {
@@ -2313,7 +2313,9 @@ function formatISODate(date) {
 }
 
 function formatItalianDate(date) {
-  return date.toLocaleDateString("it-IT", {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString(getLocaleForLanguage(), {
     weekday: "short",
     day: "numeric",
     month: "short"
@@ -2321,13 +2323,91 @@ function formatItalianDate(date) {
 }
 
 function formatLongItalianDate(dateString) {
+  if (!dateString) return t("bookingDateTbd", "Data da definire");
+
   const date = new Date(`${dateString}T12:00:00`);
-  return date.toLocaleDateString("it-IT", {
+  if (Number.isNaN(date.getTime())) return dateString;
+
+  return date.toLocaleDateString(getLocaleForLanguage(), {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric"
   });
+}
+
+function formatCompactDate(dateString) {
+  if (!dateString) return t("bookingDateTbd", "Data da definire");
+
+  const date = new Date(`${dateString}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return dateString;
+
+  return date.toLocaleDateString(getLocaleForLanguage(), {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function formatLocalizedDateTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return date.toLocaleString(getLocaleForLanguage(), {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatBookingDateTime(dateString, startTime = "", endTime = "") {
+  if (!dateString) return t("bookingDateTbd", "Data da definire");
+
+  const timePart = startTime
+    ? ` · ${startTime}${endTime ? `–${endTime}` : ""}`
+    : "";
+
+  return `${formatLongItalianDate(dateString)}${timePart}`;
+}
+
+function formatMoney(value, options = {}) {
+  const amount = Number(value || 0);
+  const { freeLabel = true, from = false } = options;
+
+  if (freeLabel && amount <= 0) return t("priceFree", "Gratis");
+
+  const formatted = new Intl.NumberFormat(getLocaleForLanguage(), {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: Number.isInteger(amount) ? 0 : 2
+  }).format(amount);
+
+  return from ? `${t("publicMasterFrom", "da")} ${formatted}` : formatted;
+}
+
+function getTranslatedGenreLabel(genre) {
+  const normalized = String(genre || "").toLowerCase();
+
+  if (normalized.includes("fantasy")) return t("genreFantasy", genre || "Fantasy");
+  if (normalized.includes("horror")) return t("genreHorror", genre || "Horror");
+  if (normalized.includes("investigativo")) return t("genreInvestigative", genre || "Investigativo");
+  if (normalized.includes("cena")) return t("genreMurderDinner", genre || "Cena con delitto");
+  if (normalized.includes("sci")) return t("genreSciFi", genre || "Sci-fi");
+
+  return genre || "";
+}
+
+function getTranslatedStoryTypeLabel(type) {
+  const normalized = String(type || "").toLowerCase();
+
+  if (normalized.includes("master")) return t("typeWithMaster", type || "Con Master");
+  if (normalized.includes("self")) return t("typeSelfPlay", type || "Self-play");
+
+  return type || "";
 }
 
 function getDefaultMasterAvailability() {
@@ -2579,11 +2659,15 @@ function updateSelectedSlotLabel() {
   if (!label) return;
 
   if (!selectedBookingSlot) {
-    label.textContent = "Nessuno slot selezionato.";
+    label.textContent = t("bookingNoSlotSelected", "Nessuno slot selezionato.");
     return;
   }
 
-  label.textContent = `Slot selezionato: ${formatLongItalianDate(selectedBookingSlot.date)}, ${selectedBookingSlot.startTime}–${selectedBookingSlot.endTime}`;
+  label.textContent = tf("bookingSelectedSlot", {
+    date: formatLongItalianDate(selectedBookingSlot.date),
+    start: selectedBookingSlot.startTime,
+    end: selectedBookingSlot.endTime
+  }, `Slot selezionato: ${formatLongItalianDate(selectedBookingSlot.date)}, ${selectedBookingSlot.startTime}–${selectedBookingSlot.endTime}`);
 }
 
 async function notifyMasterBookingEmail(booking) {
@@ -3057,19 +3141,19 @@ function ensureBookingMessagesModal() {
     <div class="booking-messages-box" role="dialog" aria-modal="true" aria-labelledby="bookingMessagesTitle">
       <div class="booking-messages-header">
         <div>
-          <h2 id="bookingMessagesTitle">Messaggi sessione</h2>
+          <h2 id="bookingMessagesTitle">${t("bookingMessagesTitle", "Messaggi sessione")}</h2>
           <p id="bookingMessagesSubtitle"></p>
         </div>
-        <button class="light icon-button" type="button" onclick="closeBookingMessages()" aria-label="Chiudi messaggi">×</button>
+        <button class="light icon-button" type="button" onclick="closeBookingMessages()" aria-label="${escapeHtmlAttribute(t("bookingMessagesClose", "Chiudi messaggi"))}">×</button>
       </div>
 
       <div id="bookingMessagesList" class="booking-messages-list"></div>
 
       <form id="bookingMessagesForm" class="booking-messages-form" onsubmit="sendBookingMessage(event)">
-        <textarea id="bookingMessageText" maxlength="1000" placeholder="Scrivi un messaggio al Master o al giocatore..."></textarea>
+        <textarea id="bookingMessageText" maxlength="1000" placeholder="${escapeHtmlAttribute(t("bookingMessagePlaceholder", "Scrivi un messaggio al Master o al giocatore..."))}"></textarea>
         <div class="booking-messages-form-footer">
-          <small>Disponibile da 48 ore prima fino a 24 ore dopo la sessione.</small>
-          <button class="primary" type="submit">Invia</button>
+          <small>${t("bookingMessagesWindowHint", "Disponibile da 48 ore prima fino a 24 ore dopo la sessione.")}</small>
+          <button class="primary" type="submit">${t("bookingMessagesSend", "Invia")}</button>
         </div>
       </form>
     </div>
@@ -3089,19 +3173,19 @@ function renderBookingMessagesModal(booking, messages = []) {
   const windowInfo = getBookingMessagingWindow(booking);
   const currentUserId = getCurrentUserId();
 
-  if (title) title.textContent = booking?.story || "Messaggi sessione";
+  if (title) title.textContent = booking?.story || t("bookingMessagesTitle", "Messaggi sessione");
   if (subtitle) {
     const counterpartId = getBookingMessageRecipientId(booking, currentUserId);
-    const counterpartName = getUserDisplayName(counterpartId, "partecipante");
-    subtitle.textContent = `${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data da definire"} · con ${counterpartName}. ${windowInfo.label}`;
+    const counterpartName = getUserDisplayName(counterpartId, t("bookingParticipant", "partecipante"));
+    subtitle.textContent = `${formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime)} · ${t("bookingWith", "con")} ${counterpartName}. ${windowInfo.label}`;
   }
 
   if (list) {
     list.innerHTML = messages.length
       ? messages.map(message => {
           const isMine = storyIdsMatch(message.senderId, currentUserId);
-          const senderName = isMine ? "Tu" : getUserDisplayName(message.senderId, "Utente Lorecast");
-          const sentAt = message.createdAt ? new Date(message.createdAt).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+          const senderName = isMine ? t("bookingMessageYou", "Tu") : getUserDisplayName(message.senderId, "Utente Lorecast");
+          const sentAt = message.createdAt ? formatLocalizedDateTime(message.createdAt) : "";
 
           return `
             <article class="booking-message-item ${isMine ? "is-mine" : ""}">
@@ -3113,7 +3197,7 @@ function renderBookingMessagesModal(booking, messages = []) {
             </article>
           `;
         }).join("")
-      : `<div class="booking-messages-empty">Nessun messaggio ancora. Usa questo spazio solo per dettagli pratici della sessione.</div>`;
+      : `<div class="booking-messages-empty">${t("bookingMessagesEmpty", "Nessun messaggio ancora. Usa questo spazio solo per dettagli pratici della sessione.")}</div>`;
 
     list.scrollTop = list.scrollHeight;
   }
@@ -3278,8 +3362,8 @@ function renderDashboardBookings() {
   const confirmedUnreadCount = getTotalUnreadBookingMessagesForBookings(confirmedBookings);
 
   count.textContent = pendingBookings.length === 1
-    ? "1 richiesta"
-    : pendingBookings.length + " richieste";
+    ? t("masterOneRequest", "1 richiesta")
+    : tf("masterRequestsCount", { count: pendingBookings.length }, `${pendingBookings.length} richieste`);
 
   updateMasterRequestsTabBadge(pendingBookings.length);
 
@@ -3299,45 +3383,45 @@ function renderDashboardBookings() {
             <summary class="master-request-summary">
               <div class="master-request-summary-main">
                 <strong>${escapeHtml(booking.story)}</strong>
-                <span>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</span>
+                <span>${formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime)}</span>
               </div>
               <div class="master-request-summary-meta">
                 <span class="master-request-user">${escapeHtml(getUserDisplayName(booking.user_id))}</span>
-                <span class="status ${statusClass}">${booking.status}</span>
+                <span class="status ${statusClass}">${getTranslatedBookingStatus(booking.status)}</span>
               </div>
             </summary>
 
             <div class="master-request-body">
               <div class="booking-master-details compact-details">
-                <span><strong>Utente:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
-                <span><strong>Gruppo:</strong> ${escapeHtml(booking.group || "Non indicato")}</span>
-                <span><strong>Giocatori:</strong> ${escapeHtml(booking.players || "-")}</span>
-                <span><strong>Richiesta:</strong> ${booking.created_at ? new Date(booking.created_at).toLocaleString("it-IT") : "-"}</span>
+                <span><strong>${t("masterRequestUser", "Utente")}:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
+                <span><strong>${t("masterRequestGroup", "Gruppo")}:</strong> ${escapeHtml(booking.group || t("commonNotProvided", "Non indicato"))}</span>
+                <span><strong>${t("masterRequestPlayers", "Giocatori")}:</strong> ${escapeHtml(booking.players || "-")}</span>
+                <span><strong>${t("masterRequestCreated", "Richiesta")}:</strong> ${formatLocalizedDateTime(booking.created_at)}</span>
               </div>
 
-              ${booking.message ? `<p class="booking-master-message">“${escapeHtml(booking.message)}”</p>` : `<p class="muted-small">Nessun messaggio dal giocatore.</p>`}
+              ${booking.message ? `<p class="booking-master-message">“${escapeHtml(booking.message)}”</p>` : `<p class="muted-small">${t("masterNoPlayerMessage", "Nessun messaggio dal giocatore.")}</p>`}
 
               <div class="booking-master-actions compact-actions">
-                <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
+                <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
                 ${canManage ? `
-                  <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>Accetta</button>
-                  <button class="danger-light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>Rifiuta</button>
+                  <button class="primary" onclick='updateBookingStatus(${bookingArg}, "Accettata")'>${t("bookingAccept", "Accetta")}</button>
+                  <button class="danger-light" onclick='updateBookingStatus(${bookingArg}, "Rifiutata")'>${t("bookingReject", "Rifiuta")}</button>
                 ` : ""}
               </div>
             </div>
           </details>
         `;
       }).join("")
-    : "<p>Nessuna richiesta di prenotazione al momento.</p>";
+    : `<p>${t("masterNoPendingRequests", "Nessuna richiesta di prenotazione al momento.")}</p>`;
 
   const confirmedHtml = confirmedBookings.length
     ? `
       <div class="master-confirmed-bookings">
         <div class="master-subsection-head">
-          <h3>Prenotazioni confermate</h3>
+          <h3>${t("masterConfirmedBookings", "Prenotazioni confermate")}</h3>
           <div class="master-subsection-counters">
-            <span class="pill-counter">${confirmedBookings.length} confermate</span>
-            ${confirmedUnreadCount > 0 ? `<span class="pill-counter alert-counter">${confirmedUnreadCount > 9 ? "9+" : confirmedUnreadCount} nuovi messaggi</span>` : ""}
+            <span class="pill-counter">${tf("masterConfirmedCount", { count: confirmedBookings.length }, `${confirmedBookings.length} confermate`)}</span>
+            ${confirmedUnreadCount > 0 ? `<span class="pill-counter alert-counter">${tf("bookingUnreadMessages", { count: confirmedUnreadCount > 9 ? "9+" : confirmedUnreadCount }, `${confirmedUnreadCount > 9 ? "9+" : confirmedUnreadCount} nuovi messaggi`)}</span>` : ""}
           </div>
         </div>
         <div class="master-confirmed-list">
@@ -3350,13 +3434,13 @@ function renderDashboardBookings() {
               <article class="master-confirmed-booking-row ${unreadMessages > 0 ? "has-unread-messages" : ""}">
                 <div class="master-confirmed-booking-main">
                   <strong>${escapeHtml(booking.story)}</strong>
-                  <span>${booking.date ? `${formatLongItalianDate(booking.date)} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}` : "Data non indicata"}</span>
-                  <small>${escapeHtml(getUserDisplayName(booking.user_id))} · ${escapeHtml(windowInfo.label)}${unreadMessages > 0 ? ` · ${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi` : ""}</small>
+                  <span>${formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime)}</span>
+                  <small>${escapeHtml(getUserDisplayName(booking.user_id))} · ${escapeHtml(windowInfo.label)}${unreadMessages > 0 ? ` · ${tf("bookingUnreadMessages", { count: unreadMessages > 9 ? "9+" : unreadMessages }, `${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi`)}` : ""}</small>
                 </div>
-                <span class="status accepted">Accettata</span>
+                <span class="status accepted">${t("bookingStatusAccepted", "Accettata")}</span>
                 <div class="master-confirmed-actions">
                   ${renderBookingMessageAction(booking, "light")}
-                  <button class="light" onclick='openStory(${storyArg})'>Storia</button>
+                  <button class="light" onclick='openStory(${storyArg})'>${t("storySingular", "Storia")}</button>
                 </div>
               </article>
             `;
@@ -3613,17 +3697,17 @@ function renderJoinSession(story) {
 
   if (intro) {
     intro.textContent = isOwner
-      ? "Crea una sessione pubblica scegliendo uno slot libero: i giocatori potranno unirsi da Sessioni aperte."
+      ? t("publicSessionIntroOwner", "Crea una sessione pubblica scegliendo uno slot libero: i giocatori potranno unirsi da Sessioni aperte.")
       : isMasterStory
-        ? "Puoi unirti a una sessione pubblica già creata dal Master, oppure richiedere una prenotazione privata."
-        : "Per le storie self-play puoi organizzarti liberamente con il tuo gruppo.";
+        ? t("publicSessionIntroPlayer", "Puoi unirti a una sessione pubblica già creata dal Master, oppure richiedere una prenotazione privata.")
+        : t("publicSessionIntroSelfPlay", "Per le storie self-play puoi organizzarti liberamente con il tuo gruppo.");
   }
 
   if (cancelButton) cancelButton.hidden = !joinedSession;
   if (createButton) {
     createButton.hidden = Boolean(joinedSession || ownerSession || !canCreatePublicSession);
     createButton.disabled = Boolean(!selectedBookingSlot);
-    createButton.textContent = selectedBookingSlot ? "Crea sessione pubblica" : "Seleziona uno slot";
+    createButton.textContent = selectedBookingSlot ? t("publicSessionCreate", "Crea sessione pubblica") : t("publicSessionSelectSlot", "Seleziona uno slot");
   }
   if (joinButton) {
     joinButton.hidden = Boolean(isOwner || joinedSession) || !openSessions.length;
@@ -3635,10 +3719,10 @@ function renderJoinSession(story) {
       <div class="join-session-owner-confirmation">
         <div class="join-session-check">✓</div>
         <div>
-          <strong>Hai creato questa sessione pubblica</strong>
-          <p>${ownerSession.joined} / ${ownerSession.maxPlayers} giocatori iscritti</p>
-          <p>${ownerSession.sessionDate ? `${formatLongItalianDate(ownerSession.sessionDate)}, ${ownerSession.startTime}–${ownerSession.endTime}` : "Data in definizione"}</p>
-          <p class="muted-small">Tu sei il Master: non vieni contato tra i giocatori.</p>
+          <strong>${t("publicSessionOwnerCreated", "Hai creato questa sessione pubblica")}</strong>
+          <p>${tf("publicSessionPlayersJoined", { joined: ownerSession.joined, max: ownerSession.maxPlayers }, `${ownerSession.joined} / ${ownerSession.maxPlayers} giocatori iscritti`)}</p>
+          <p>${formatBookingDateTime(ownerSession.sessionDate, ownerSession.startTime, ownerSession.endTime)}</p>
+          <p class="muted-small">${t("publicSessionMasterNotCounted", "Tu sei il Master: non vieni contato tra i giocatori.")}</p>
         </div>
       </div>
     `;
@@ -3650,9 +3734,9 @@ function renderJoinSession(story) {
       <div class="join-session-confirmation">
         <div class="join-session-check">✓</div>
         <div>
-          <strong>Ti sei unito a questa sessione pubblica</strong>
-          <p>${joinedSession.joined} / ${joinedSession.maxPlayers} giocatori iscritti</p>
-          <p>${joinedSession.sessionDate ? `${formatLongItalianDate(joinedSession.sessionDate)}, ${joinedSession.startTime}–${joinedSession.endTime}` : "Data in definizione"}</p>
+          <strong>${t("publicSessionYouJoined", "Ti sei unito a questa sessione pubblica")}</strong>
+          <p>${tf("publicSessionPlayersJoined", { joined: joinedSession.joined, max: joinedSession.maxPlayers }, `${joinedSession.joined} / ${joinedSession.maxPlayers} giocatori iscritti`)}</p>
+          <p>${formatBookingDateTime(joinedSession.sessionDate, joinedSession.startTime, joinedSession.endTime)}</p>
         </div>
       </div>
     `;
@@ -3661,14 +3745,14 @@ function renderJoinSession(story) {
 
   if (!openSessions.length) {
     const emptyText = isOwner
-      ? "Scegli uno slot libero e crea una sessione pubblica: i giocatori potranno unirsi dalla pagina “Sessioni aperte”."
+      ? t("publicSessionEmptyOwner", "Scegli uno slot libero e crea una sessione pubblica: i giocatori potranno unirsi dalla pagina “Sessioni aperte”.")
       : isMasterStory
-        ? "Al momento non ci sono sessioni pubbliche aperte. Solo il Master può crearne una per questa storia."
-        : "Per le storie self-play puoi organizzarti liberamente con il tuo gruppo.";
+        ? t("publicSessionEmptyPlayer", "Al momento non ci sono sessioni pubbliche aperte. Solo il Master può crearne una per questa storia.")
+        : t("publicSessionIntroSelfPlay", "Per le storie self-play puoi organizzarti liberamente con il tuo gruppo.");
 
     container.innerHTML = `
       <div class="join-session-status-box">
-        <p><strong>Nessuna sessione pubblica aperta per questa storia.</strong></p>
+        <p><strong>${t("publicSessionNoneOpen", "Nessuna sessione pubblica aperta per questa storia.")}</strong></p>
         <p>${emptyText}</p>
       </div>
     `;
@@ -3680,9 +3764,9 @@ function renderJoinSession(story) {
 
   container.innerHTML = `
     <div class="join-session-status-box">
-      <p><strong>${session.joined} / ${session.maxPlayers}</strong> giocatori iscritti</p>
-      <p>${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Data in definizione"}</p>
-      <p><strong>${ready ? "Sessione pronta a partire" : "In attesa di altri giocatori"}</strong></p>
+      <p><strong>${session.joined} / ${session.maxPlayers}</strong> ${t("publicSessionPlayers", "giocatori iscritti")}</p>
+      <p>${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</p>
+      <p><strong>${ready ? t("sessionStatusReady", "Sessione pronta a partire") : t("sessionStatusWaitingMore", "In attesa di altri giocatori")}</strong></p>
     </div>
   `;
 }
@@ -3734,7 +3818,9 @@ function renderOpenSessions() {
           const ready = Number(session.joined) >= Number(session.minPlayers);
           const isJoined = hasJoinedOpenSession(session.id);
           const isOwner = isCurrentUserStory(story);
-          const status = isJoined ? "Ti sei unito" : (ready ? "Pronta a partire" : "In attesa di giocatori");
+          const status = isJoined
+            ? t("sessionStatusJoined", "Ti sei unito")
+            : (ready ? t("sessionStatusReady", "Pronta a partire") : t("sessionStatusWaiting", "In attesa di giocatori"));
           const coverStyle = story.cover ? `style="background-image:url('${story.cover}')"` : "";
           const storyArg = storyJsArg(story.id);
           const sessionArg = storyJsArg(session.id);
@@ -3743,8 +3829,8 @@ function renderOpenSessions() {
             <div class="card open-session-card ${isJoined ? "open-session-card-joined" : ""}" data-open-session-card="${escapeHtmlAttribute(session.id)}">
               <div class="join-success-overlay">
                 <div class="join-success-icon">✓</div>
-                <strong>Ti sei unito</strong>
-                <span>Ora apriamo la storia</span>
+                <strong>${t("sessionStatusJoined", "Ti sei unito")}</strong>
+                <span>${t("sessionOpeningStory", "Ora apriamo la storia")}</span>
               </div>
               <div class="open-session-cover ${genreClass}" ${coverStyle}></div>
               <div class="open-session-content">
@@ -3752,19 +3838,19 @@ function renderOpenSessions() {
                 <h3>${escapeHtml(story.title)}</h3>
                 <p>${escapeHtml(story.desc || "")}</p>
                 <div class="open-session-meta">
-                  <span><strong>Autore:</strong> ${escapeHtml(story.master || "Master Lorecast")}</span>
-                  <span><strong>Quando:</strong> ${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Da definire"}</span>
-                  <span><strong>Posti:</strong> ${session.joined} / ${session.maxPlayers}</span>
-                  <span><strong>Stato:</strong> ${status}</span>
+                  <span><strong>${t("storyAuthor", "Autore")}:</strong> ${escapeHtml(story.master || "Master Lorecast")}</span>
+                  <span><strong>${t("sessionWhen", "Quando")}:</strong> ${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</span>
+                  <span><strong>${t("sessionSeats", "Posti")}:</strong> ${session.joined} / ${session.maxPlayers}</span>
+                  <span><strong>${t("sessionStatusLabel", "Stato")}:</strong> ${status}</span>
                 </div>
-                ${isJoined ? `<div class="joined-inline-banner"><span>✓</span> Sei già iscritto a questa sessione.</div>` : ""}
+                ${isJoined ? `<div class="joined-inline-banner"><span>✓</span> ${t("sessionAlreadyJoined", "Sei già iscritto a questa sessione.")}</div>` : ""}
                 <div class="open-session-actions">
-                  <button class="light" onclick='openStory(${storyArg})'>Vedi storia</button>
+                  <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
                   ${isOwner
-                    ? `<button class="primary" onclick="go('area-master')">Gestisci</button>`
+                    ? `<button class="primary" onclick="go('area-master')">${t("commonManage", "Gestisci")}</button>`
                     : isJoined
-                      ? `<button class="light" onclick='openStory(${storyArg})'>Apri sessione</button>`
-                      : `<button class="primary" onclick='joinOpenSession(${sessionArg})'>Unisciti</button>`}
+                      ? `<button class="light" onclick='openStory(${storyArg})'>${t("sessionOpen", "Apri sessione")}</button>`
+                      : `<button class="primary" onclick='joinOpenSession(${sessionArg})'>${t("sessionJoin", "Unisciti")}</button>`}
                 </div>
               </div>
             </div>
@@ -4022,7 +4108,7 @@ async function joinOpenSession(targetSessionId) {
     });
   }
 
-  showToast("Ti sei unito a questa sessione.", "success");
+  showToast(t("publicSessionJoinedToast", "Ti sei unito a questa sessione."), "success");
 
   setTimeout(() => {
     renderOpenSessions();
@@ -4693,8 +4779,8 @@ function renderMasterPublicSessions() {
 
   if (count) {
     count.textContent = sessions.length === 1
-      ? "1 sessione pubblica"
-      : `${sessions.length} sessioni pubbliche`;
+      ? t("masterOnePublicSession", "1 sessione pubblica")
+      : tf("masterPublicSessionsCount", { count: sessions.length }, `${sessions.length} sessioni pubbliche`);
   }
 
   container.innerHTML = sessions.length
@@ -4703,14 +4789,14 @@ function renderMasterPublicSessions() {
         const participants = getParticipantsForSession(session.id);
         const ready = Number(session.joined) >= Number(session.minPlayers);
         const statusLabel = session.status === "cancelled"
-          ? "Annullata"
+          ? t("sessionStatusCancelled", "Annullata")
           : session.status === "closed"
-            ? "Chiusa"
+            ? t("sessionStatusClosed", "Chiusa")
             : session.status === "complete"
-              ? "Completa"
+              ? t("sessionStatusComplete", "Completa")
               : ready
-                ? "Pronta"
-                : "Aperta";
+                ? t("sessionStatusReadyShort", "Pronta")
+                : t("sessionStatusOpen", "Aperta");
         const statusClass = session.status === "cancelled" || session.status === "closed"
           ? "rejected"
           : ready
@@ -4723,41 +4809,41 @@ function renderMasterPublicSessions() {
             <div class="master-session-main">
               <div>
                 <h3>${escapeHtml(story?.title || session.storyTitle || "Sessione Lorecast")}</h3>
-                <p>${session.sessionDate ? `${formatLongItalianDate(session.sessionDate)}, ${session.startTime}–${session.endTime}` : "Data in definizione"}</p>
+                <p>${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</p>
               </div>
               <span class="status ${statusClass}">${statusLabel}</span>
             </div>
 
             <div class="master-session-meta">
-              <span><strong>Iscritti:</strong> ${session.joined} / ${session.maxPlayers}</span>
-              <span><strong>Minimo:</strong> ${session.minPlayers}</span>
-              <span><strong>Partecipanti:</strong> ${participants.length}</span>
+              <span><strong>${t("sessionJoinedCount", "Iscritti")}:</strong> ${session.joined} / ${session.maxPlayers}</span>
+              <span><strong>${t("sessionMinPlayers", "Minimo")}:</strong> ${session.minPlayers}</span>
+              <span><strong>${t("sessionParticipants", "Partecipanti")}:</strong> ${participants.length}</span>
             </div>
 
             <details class="session-participants-details">
-              <summary>Vedi partecipanti</summary>
+              <summary>${t("sessionViewParticipants", "Vedi partecipanti")}</summary>
               ${participants.length
                 ? `<div class="session-participants-list">
                     ${participants.map((participant, index) => `
                       <div class="session-participant-row">
                         <span>${escapeHtml(getUserDisplayName(participant.user_id, `Giocatore ${index + 1}`))}</span>
-                        <small>${Number(participant.seats || 1)} posto${Number(participant.seats || 1) > 1 ? "i" : ""}</small>
+                        <small>${tf(Number(participant.seats || 1) > 1 ? "sessionSeatsPlural" : "sessionSeatsSingular", { count: Number(participant.seats || 1) }, `${Number(participant.seats || 1)} posto${Number(participant.seats || 1) > 1 ? "i" : ""}`)}</small>
                       </div>
                     `).join("")}
                   </div>`
-                : `<p class="muted-small">Non ci sono ancora giocatori iscritti.</p>`}
+                : `<p class="muted-small">${t("sessionNoPlayersYet", "Non ci sono ancora giocatori iscritti.")}</p>`}
             </details>
 
             ${["open", "complete"].includes(session.status) ? `
               <div class="master-session-actions">
-                <button class="light" type="button" onclick='closePublicSession(${sessionArg})'>Chiudi sessione</button>
-                <button class="danger-light" type="button" onclick='cancelPublicSessionAsMaster(${sessionArg})'>Annulla sessione</button>
+                <button class="light" type="button" onclick='closePublicSession(${sessionArg})'>${t("sessionClose", "Chiudi sessione")}</button>
+                <button class="danger-light" type="button" onclick='cancelPublicSessionAsMaster(${sessionArg})'>${t("sessionCancel", "Annulla sessione")}</button>
               </div>
             ` : ""}
           </div>
         `;
       }).join("")
-    : `<p>Non hai ancora sessioni pubbliche create.</p>`;
+    : `<p>${t("masterNoPublicSessions", "Non hai ancora sessioni pubbliche create.")}</p>`;
 }
 
 async function updatePublicSessionStatus(sessionIdValue, status) {
@@ -5242,7 +5328,7 @@ function normalizeSupabaseNotification(row) {
     storyId: row.story_id || null,
     bookingId: row.booking_id || row.bookingId || null,
     page: row.page || null,
-    date: row.created_at ? new Date(row.created_at).toLocaleString("it-IT") : new Date().toLocaleString("it-IT"),
+    date: row.created_at ? formatLocalizedDateTime(row.created_at) : formatLocalizedDateTime(new Date().toISOString()),
     source: "supabase"
   };
 }

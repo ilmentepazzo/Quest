@@ -40,6 +40,55 @@ const sections = [
   "login"
 ];
 
+function getPageFromHash() {
+  const raw = decodeURIComponent(window.location.hash || "")
+    .replace(/^#\/?/, "")
+    .trim();
+
+  return sections.includes(raw) ? raw : "";
+}
+
+function getStoredPage() {
+  const stored = localStorage.getItem("questhubCurrentPage") || "";
+  return sections.includes(stored) ? stored : "";
+}
+
+function getInitialPage() {
+  return getPageFromHash() || getStoredPage() || "home";
+}
+
+function getActivePageId() {
+  return document.querySelector(".page.active")?.id || "";
+}
+
+function updateRouteHash(page, options = {}) {
+  if (!sections.includes(page)) return;
+
+  const nextHash = `#${page}`;
+  if (window.location.hash === nextHash) return;
+
+  if (options.replaceHistory) {
+    window.history.replaceState(null, "", nextHash);
+  } else {
+    window.history.pushState(null, "", nextHash);
+  }
+}
+
+function handleRouteHashChange() {
+  const page = getPageFromHash();
+  if (!page || page === getActivePageId()) return;
+
+  if (page === "scheda") {
+    const savedStoryId = localStorage.getItem("questhubCurrentStoryId") || "";
+    if (savedStoryId) {
+      openStory(savedStoryId, { updateHash: false });
+      return;
+    }
+  }
+
+  go(page, { updateHash: false });
+}
+
 async function loadSections() {
   const app = document.getElementById("app");
 
@@ -76,7 +125,19 @@ async function loadSections() {
   await checkAuthSession();
   await loadSupabaseMarketplaceState();
   renderFeatured();
-  go("home");
+
+  window.addEventListener("hashchange", handleRouteHashChange);
+
+  const initialPage = getInitialPage();
+  if (initialPage === "scheda") {
+    const savedStoryId = localStorage.getItem("questhubCurrentStoryId") || "";
+    if (savedStoryId) {
+      openStory(savedStoryId, { replaceHistory: true });
+      return;
+    }
+  }
+
+  go(initialPage, { replaceHistory: true });
 }
 
 function storyId(value) {
@@ -513,7 +574,9 @@ function setMasterAreaView(view) {
   if (target) target.classList.add("is-active");
 }
 
-function go(page) {
+function go(page, options = {}) {
+  const targetPage = sections.includes(page) ? page : "home";
+
   closeNotificationsDropdown();
   closeUserMenu();
 
@@ -521,20 +584,28 @@ function go(page) {
     pageEl.classList.remove("active");
   });
 
-  const selected = document.getElementById(page);
+  const selected = document.getElementById(targetPage);
   if (selected) selected.classList.add("active");
 
-  window.scrollTo(0, 0);
+  localStorage.setItem("questhubCurrentPage", targetPage);
 
-  if (page === "catalogo") renderCatalog();
-  if (page === "sessioni") renderOpenSessions();
+  if (options.updateHash !== false) {
+    updateRouteHash(targetPage, { replaceHistory: options.replaceHistory });
+  }
 
-  if (page === "crea-storia") {
+  if (options.scroll !== false) {
+    window.scrollTo(0, 0);
+  }
+
+  if (targetPage === "catalogo") renderCatalog();
+  if (targetPage === "sessioni") renderOpenSessions();
+
+  if (targetPage === "crea-storia") {
     updateCreateStoryMode();
     togglePriceField();
   }
 
-  if (page === "area-master") {
+  if (targetPage === "area-master") {
     loadSupabaseMarketplaceState().then(() => {
       renderDashboardBookings();
       renderDashboardStats();
@@ -544,16 +615,16 @@ function go(page) {
     });
   }
 
-  if (page === "dashboard") {
+  if (targetPage === "dashboard") {
     renderDashboardBookings();
     renderDashboardStats();
     togglePriceField();
   }
 
-  if (page === "mie-storie") renderMyStories();
-  if (page === "profilo") renderUserProfile();
-  if (page === "notifiche") renderNotifications();
-  if (page === "login") renderAuthState();
+  if (targetPage === "mie-storie") renderMyStories();
+  if (targetPage === "profilo") renderUserProfile();
+  if (targetPage === "notifiche") renderNotifications();
+  if (targetPage === "login") renderAuthState();
 }
 
 /* AUTH + SUPABASE PROFILE */
@@ -816,11 +887,11 @@ async function renderUserProfile() {
     updateHeaderUser();
 
     if (avatarLarge) avatarLarge.textContent = "U";
-    if (profileName) profileName.textContent = "Non hai effettuato l’accesso";
-    if (profileMeta) profileMeta.textContent = "Accedi per personalizzare il profilo.";
-    if (profileMainName) profileMainName.textContent = "Profilo utente";
-    if (roleBadge) roleBadge.textContent = "Guest";
-    if (reviewLink) reviewLink.textContent = "0 recensioni ricevute";
+    if (profileName) profileName.textContent = t("profileLoggedOutTitle", "Non hai effettuato l’accesso");
+    if (profileMeta) profileMeta.textContent = t("profileLoggedOutIntro", "Accedi per personalizzare il profilo.");
+    if (profileMainName) profileMainName.textContent = t("profileTitle", "Profilo utente");
+    if (roleBadge) roleBadge.textContent = t("profileRoleGuest", "Guest");
+    if (reviewLink) reviewLink.textContent = t("profileReviewsReceivedZero", "0 recensioni ricevute");
     renderProfileLibrary([], [], []);
     return;
   }
@@ -866,13 +937,13 @@ async function renderUserProfile() {
   }
 
   if (profileName) profileName.textContent = displayName;
-  if (profileMeta) profileMeta.textContent = "Membro Lorecast";
+  if (profileMeta) profileMeta.textContent = t("profileMetaMember", "Membro Lorecast");
   if (profileMainName) profileMainName.textContent = displayName;
-  if (roleBadge) roleBadge.textContent = profile.isMaster ? "Player + Master" : "Player";
+  if (roleBadge) roleBadge.textContent = profile.isMaster ? t("profileRoleMaster", "Player + Master") : t("profileRolePlayer", "Player");
   if (reviewLink) {
     reviewLink.textContent = reviews.length === 1
-      ? "1 recensione ricevuta"
-      : `${reviews.length} recensioni ricevute`;
+      ? t("profileReviewsReceivedOne", "1 recensione ricevuta")
+      : tf("profileReviewsReceivedMany", { count: reviews.length }, `${reviews.length} recensioni ricevute`);
   }
 
   const storiesCreated = document.getElementById("profileStoriesCreated");
@@ -902,14 +973,14 @@ function getStoryReviewSummary(storyIdValue) {
   const reviews = getStoryReviewsStore().filter(review => storyIdsMatch(review.storyId, storyIdValue));
 
   if (!reviews.length) {
-    return { count: 0, average: null, label: "Nessuna recensione" };
+    return { count: 0, average: null, label: t("profileNoReviews", "Nessuna recensione") };
   }
 
   const average = reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length;
   return {
     count: reviews.length,
     average,
-    label: `${average.toFixed(1)} ★ · ${reviews.length} ${reviews.length === 1 ? "recensione" : "recensioni"}`
+    label: `${average.toFixed(1)} ★ · ${reviews.length} ${reviews.length === 1 ? t("profileReviewSingular", "recensione") : t("profileReviewPlural", "recensioni")}`
   };
 }
 
@@ -921,7 +992,9 @@ function getStoryBookingSummary(storyIdValue) {
 
   return {
     count: bookings.length,
-    label: bookings.length === 1 ? "1 prenotazione" : `${bookings.length} prenotazioni`
+    label: bookings.length === 1
+      ? t("profileBookingOne", "1 prenotazione")
+      : tf("profileBookingMany", { count: bookings.length }, `${bookings.length} prenotazioni`)
   };
 }
 
@@ -931,7 +1004,7 @@ function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
 
   const unread = Number(unreadCount || 0);
   const unreadBadge = unread > 0
-    ? `<span class="profile-tab-unread" title="${unread} nuovi messaggi">${unread > 9 ? "9+" : unread}</span>`
+    ? `<span class="profile-tab-unread" title="${escapeHtmlAttribute(tf("bookingUnreadMessages", { count: unread }, `${unread} nuovi messaggi`))}">${unread > 9 ? "9+" : unread}</span>`
     : "";
 
   button.innerHTML = `
@@ -966,11 +1039,11 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
         source: "public_session",
         storyId: session.storyId,
         story: story?.title || session.storyTitle || "Sessione pubblica",
-        message: "Sessione pubblica join-in",
+        message: t("profileBookingPublicSession", "Sessione pubblica join-in"),
         date: session.sessionDate,
         startTime: session.startTime,
         endTime: session.endTime,
-        status: session.status === "complete" ? "Completa" : "Iscritto",
+        status: session.status === "complete" ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
         user_id: participant.user_id,
         session_id: session.id,
         seats: participant.seats || 1
@@ -998,11 +1071,11 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
     const bookingSummary = getStoryBookingSummary(story.id || item.storyId);
 
     const meta = type === "booking"
-      ? `${item.source === "public_session" ? "Join-in" : "Prenotazione privata"} · ${item.date || "Data da definire"}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
+      ? `${item.source === "public_session" ? t("profileBookingJoinIn", "Join-in") : t("profileBookingPrivate", "Prenotazione privata")} · ${item.date || t("profileBookingDateTbd", "Data da definire")}${item.startTime || item.time ? ` · ${item.startTime || item.time}${item.endTime ? `–${item.endTime}` : ""}` : ""}`
       : `${story.genre || ""}${story.type ? ` · ${story.type}` : ""}`;
 
     const statusChip = type === "booking"
-      ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? "Sessione pubblica" : (item.status || "In attesa")}</span>`
+      ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
       : "";
 
     const bookingChip = type === "story"
@@ -1011,7 +1084,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 
     const unreadMessages = type === "booking" ? getUnreadBookingMessageCount(item.id) : 0;
     const unreadChip = unreadMessages > 0
-      ? `<span class="profile-info-chip unread-chip">${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi</span>`
+      ? `<span class="profile-info-chip unread-chip">${tf("bookingUnreadMessages", { count: unreadMessages > 9 ? "9+" : unreadMessages }, `${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi`)}</span>`
       : "";
 
     const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
@@ -1031,7 +1104,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
           ${reviewChip}
         </div>
         ${messageAction}
-        <button class="light compact-action" onclick='openStory(${storyArg})'>Apri</button>
+        <button class="light compact-action" onclick='openStory(${storyArg})'>${t("commonOpen", "Apri")}</button>
       </article>
     `;
   }).join("");
@@ -1040,9 +1113,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 function renderProfileLibrary(createdStories, playedStories, bookedStories) {
   const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
   updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount);
-  renderCompactStoryList("profileCreatedStories", createdStories, "Non hai ancora creato storie.");
-  renderCompactStoryList("profilePlayedStories", playedStories, "Non hai ancora storie giocate.", "booking");
-  renderCompactStoryList("profileBookedStories", bookedStories, "Non hai ancora storie prenotate.", "booking");
+  renderCompactStoryList("profileCreatedStories", createdStories, t("profileEmptyCreated", "Non hai ancora creato storie."));
+  renderCompactStoryList("profilePlayedStories", playedStories, t("profileEmptyPlayed", "Non hai ancora storie giocate."), "booking");
+  renderCompactStoryList("profileBookedStories", bookedStories, t("profileEmptyBooked", "Non hai ancora storie prenotate."), "booking");
 }
 
 function setProfileLibraryTab(tabName) {
@@ -1319,7 +1392,7 @@ async function renderCatalog() {
     : `<p>${t("catalogNoResults", "Nessuna storia trovata.")}</p>`;
 }
 
-function openStory(id) {
+function openStory(id, options = {}) {
   const story = getAllStories().find(s => storyIdsMatch(s.id, id));
 
   if (!story) {
@@ -1328,6 +1401,7 @@ function openStory(id) {
   }
 
   currentStory = story;
+  localStorage.setItem("questhubCurrentStoryId", storyId(story.id));
   currentMaster = mastersData.find(m => Number(m.id) === Number(story.masterId)) || null;
 
   const setText = (elementId, value) => {
@@ -1375,7 +1449,7 @@ function openStory(id) {
   renderJoinSession(story);
   renderStoryBookingMode(story);
 
-  go("scheda");
+  go("scheda", options);
 }
 
 function renderStoryPaymentPanel(story) {
@@ -2211,6 +2285,20 @@ function isBookingInactive(status) {
   return isBookingRejectedOrCancelled(status) || isBookingCompleted(status);
 }
 
+function getTranslatedBookingStatus(status) {
+  const key = getBookingStatusKey(status);
+
+  if (isBookingPending(status)) return t("bookingStatusPending", "In attesa");
+  if (isBookingAccepted(status)) return t("bookingStatusAccepted", "Accettata");
+  if (isBookingCompleted(status)) return t("bookingStatusCompleted", "Completata");
+  if (["rifiutata", "rejected"].includes(key)) return t("bookingStatusRejected", "Rifiutata");
+  if (["annullata", "cancelled", "canceled"].includes(key)) return t("bookingStatusCancelled", "Annullata");
+  if (["iscritto", "joined"].includes(key)) return t("bookingStatusJoined", "Iscritto");
+  if (["open"].includes(key)) return t("bookingStatusOpen", "Aperta");
+
+  return status || t("bookingStatusPending", "In attesa");
+}
+
 function getBookingStatusPriority(status) {
   if (isBookingPending(status)) return 0;
   if (isBookingAccepted(status)) return 1;
@@ -2268,7 +2356,7 @@ function getBookingDateObject(dateValue, timeValue) {
 function formatBookingMessageDateTime(date) {
   if (!date || Number.isNaN(date.getTime())) return "";
 
-  return date.toLocaleString("it-IT", {
+  return date.toLocaleString(getLocaleForLanguage(), {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -2284,8 +2372,8 @@ function getBookingMessagingWindow(booking) {
     return {
       isOpen: false,
       state: "missing-date",
-      label: "Messaggi disponibili quando la data della sessione è definita.",
-      shortLabel: "Data da definire"
+      label: t("bookingMessagesMissingDate", "Messaggi disponibili quando la data della sessione è definita."),
+      shortLabel: t("profileBookingDateTbd", "Data da definire")
     };
   }
 
@@ -2300,8 +2388,8 @@ function getBookingMessagingWindow(booking) {
       state: "future",
       openAt,
       closeAt,
-      label: `Messaggi disponibili da ${dateLabel}.`,
-      shortLabel: `Dal ${dateLabel}`
+      label: tf("bookingMessagesAvailableFrom", { date: dateLabel }, `Messaggi disponibili da ${dateLabel}.`),
+      shortLabel: tf("bookingMessagesFromShort", { date: dateLabel }, `Dal ${dateLabel}`)
     };
   }
 
@@ -2311,8 +2399,8 @@ function getBookingMessagingWindow(booking) {
       state: "closed",
       openAt,
       closeAt,
-      label: "Messaggi chiusi: finestra sessione terminata.",
-      shortLabel: "Chat chiusa"
+      label: t("bookingMessagesClosedWindow", "Messaggi chiusi: finestra sessione terminata."),
+      shortLabel: t("bookingMessagesClosedShort", "Chat chiusa")
     };
   }
 
@@ -2322,8 +2410,8 @@ function getBookingMessagingWindow(booking) {
     state: "open",
     openAt,
     closeAt,
-    label: `Messaggi aperti fino a ${closeLabel}.`,
-    shortLabel: `Aperta fino al ${closeLabel}`
+    label: tf("bookingMessagesOpenUntil", { date: closeLabel }, `Messaggi aperti fino a ${closeLabel}.`),
+    shortLabel: tf("bookingMessagesOpenUntilShort", { date: closeLabel }, `Aperta fino al ${closeLabel}`)
   };
 }
 
@@ -2372,7 +2460,7 @@ function renderBookingMessageUnreadBadge(bookingId) {
   const unread = getUnreadBookingMessageCount(bookingId);
   if (!unread) return "";
 
-  return `<span class="booking-message-count" aria-label="${unread} nuovi messaggi">${unread > 9 ? "9+" : unread}</span>`;
+  return `<span class="booking-message-count" aria-label="${escapeHtmlAttribute(tf("bookingUnreadMessages", { count: unread }, `${unread} nuovi messaggi`))}">${unread > 9 ? "9+" : unread}</span>`;
 }
 
 function markBookingMessageNotificationsRead(bookingId) {
@@ -2428,10 +2516,10 @@ function renderBookingMessageAction(booking, className = "light compact-action")
 
   if (!windowInfo.isOpen) {
     const disabledLabel = windowInfo.state === "future"
-      ? "Messaggi non ancora aperti"
+      ? t("bookingMessagesNotOpenYet", "Messaggi non ancora aperti")
       : windowInfo.state === "closed"
-        ? "Messaggi chiusi"
-        : "Messaggi";
+        ? t("bookingMessagesClosedButton", "Messaggi chiusi")
+        : t("bookingMessagesButton", "Messaggi");
 
     return `
       <button class="${className} booking-message-button is-disabled${unreadClass}" type="button" disabled title="${escapeHtmlAttribute(windowInfo.label)}">
@@ -2443,7 +2531,7 @@ function renderBookingMessageAction(booking, className = "light compact-action")
 
   return `
     <button class="${className} booking-message-button${unreadClass}" type="button" onclick='openBookingMessages(${bookingArg})' title="${escapeHtmlAttribute(windowInfo.label)}">
-      <span>Messaggi</span>
+      <span>${t("bookingMessagesButton", "Messaggi")}</span>
       ${unreadBadge}
     </button>
   `;
@@ -5076,6 +5164,23 @@ function t(key, fallback = "") {
     || key;
 }
 
+function tf(key, values = {}, fallback = "") {
+  return String(t(key, fallback)).replace(/\{(\w+)\}/g, (match, name) => {
+    return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : match;
+  });
+}
+
+function getLocaleForLanguage(language = getCurrentLanguage()) {
+  const locales = {
+    it: "it-IT",
+    en: "en-GB",
+    es: "es-ES",
+    fr: "fr-FR"
+  };
+
+  return locales[language] || "it-IT";
+}
+
 function applyTranslations() {
   document.querySelectorAll("[data-i18n]").forEach(element => {
     const key = element.getAttribute("data-i18n");
@@ -5103,6 +5208,52 @@ function applyTranslations() {
   togglePriceField();
 }
 
+
+async function refreshActivePageForLanguage() {
+  const activePage = getActivePageId();
+
+  updateHeaderUser();
+  renderNotificationsPreview();
+
+  if (activePage === "catalogo") {
+    await renderCatalog();
+    return;
+  }
+
+  if (activePage === "sessioni") {
+    renderOpenSessions();
+    return;
+  }
+
+  if (activePage === "profilo") {
+    await renderUserProfile();
+    return;
+  }
+
+  if (activePage === "notifiche") {
+    renderNotifications();
+    return;
+  }
+
+  if (activePage === "area-master") {
+    renderDashboardBookings();
+    renderDashboardStats();
+    renderMasterAvailability();
+    renderMasterPublicSessions();
+    setMasterAreaView(currentMasterAreaView || "availability");
+    return;
+  }
+
+  if (activePage === "scheda" && currentStory) {
+    openStory(currentStory.id, { updateHash: false, scroll: false });
+    return;
+  }
+
+  if (activePage === "crea-storia") {
+    updateCreateStoryMode();
+    togglePriceField();
+  }
+}
 
 function setupLanguageSwitcher() {
   const switcher = document.getElementById("languageSwitcher");
@@ -5132,6 +5283,7 @@ function setupLanguageSwitcher() {
     }
 
     applyTranslations();
+    await refreshActivePageForLanguage();
   };
 }
 

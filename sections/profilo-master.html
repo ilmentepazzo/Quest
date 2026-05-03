@@ -1,25 +1,74 @@
-<section id="profilo-master" class="page">
-  <button class="light" onclick="go('scheda')" data-i18n="commonBackToStory">← Torna alla storia</button>
-  <div class="detail">
-    <div class="card">
-      <h1 id="masterProfileName"></h1>
-      <p id="masterProfileStats"></p>
-      <p id="masterProfileBio"></p>
-      <h2 data-i18n="authorSpecialties">Specializzazioni</h2>
-      <div id="masterProfileSpecialties"></div>
-      <h2 data-i18n="authorBio">Bio</h2>
-      <p id="masterProfileLongBio"></p>
-      <h2 data-i18n="authorReviews">Recensioni</h2>
-      <div id="masterReviews"></div>
+<section id="profilo-master" class="page public-master-page">
+  <button class="light public-master-back" onclick="go('scheda')" data-i18n="commonBackToStory">← Torna alla storia</button>
+
+  <div class="public-master-layout">
+    <section class="card public-master-hero">
+      <div id="masterProfileHeroBg" class="public-master-hero-bg" aria-hidden="true"></div>
+
+      <div id="masterProfileAvatar" class="public-master-avatar">M</div>
+
+      <div class="public-master-identity">
+        <p class="eyebrow" data-i18n="authorProfileTitle">Profilo Master</p>
+        <h1 id="masterProfileName"></h1>
+        <p id="masterProfileBio"></p>
+        <div id="masterProfileSpecialties" class="public-master-tags"></div>
+      </div>
+
+      <div class="public-master-stats" aria-label="Statistiche Master">
+        <div>
+          <strong id="masterProfileStoriesCount">0</strong>
+          <span data-i18n="publicMasterStoriesStat">Storie</span>
+        </div>
+        <div>
+          <strong id="masterProfileReviewsCount">0</strong>
+          <span data-i18n="publicMasterReviewsStat">Recensioni</span>
+        </div>
+        <div>
+          <strong id="masterProfileRating">0.0</strong>
+          <span data-i18n="publicMasterRatingStat">Rating</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="public-master-content">
+      <main class="public-master-main">
+        <section id="publicMasterStoriesSection" class="card public-master-section-card">
+          <div class="section-heading-row compact-heading">
+            <div>
+              <h2 data-i18n="publicMasterPublishedStories">Storie pubblicate</h2>
+              <p id="masterProfileStats"></p>
+            </div>
+          </div>
+
+          <div id="masterPublishedStories" class="public-master-story-grid"></div>
+        </section>
+
+        <section class="card public-master-section-card">
+          <div class="section-heading-row compact-heading">
+            <div>
+              <h2 data-i18n="authorReviews">Recensioni</h2>
+              <p id="masterReviewsSummary"></p>
+            </div>
+          </div>
+
+          <div id="masterReviews" class="public-master-reviews"></div>
+        </section>
+      </main>
+
+      <aside class="card public-master-sidebar">
+        <h2 data-i18n="publicMasterQuickInfo">Info rapide</h2>
+
+        <div class="public-master-info-list">
+          <p><strong data-i18n="authorAveragePrice">Prezzo medio:</strong> <span id="masterProfilePrice"></span></p>
+          <p><strong data-i18n="authorMode">Modalità:</strong> <span id="masterProfileMode"></span></p>
+          <p><strong data-i18n="authorLanguage">Lingua:</strong> <span id="masterProfileLanguage"></span></p>
+          <p><strong data-i18n="authorAvailability">Disponibilità:</strong> <span id="masterProfileAvailability"></span></p>
+        </div>
+
+        <button class="primary" type="button" onclick="scrollToPublicMasterStories()" data-i18n="publicMasterViewStories">
+          Vedi storie pubblicate
+        </button>
+      </aside>
     </div>
-    <aside class="card">
-      <h2 data-i18n="authorProfileTitle">Profilo Master</h2>
-      <p><strong data-i18n="authorAveragePrice">Prezzo medio:</strong> <span id="masterProfilePrice"></span></p>
-      <p><strong data-i18n="authorMode">Modalità:</strong> <span id="masterProfileMode"></span></p>
-      <p><strong data-i18n="authorLanguage">Lingua:</strong> <span id="masterProfileLanguage"></span></p>
-      <p><strong data-i18n="authorAvailability">Disponibilità:</strong> <span id="masterProfileAvailability"></span></p>
-      <button class="primary" onclick="notice('masterBookingNotice')" data-i18n="authorRequestSession">Richiedi una sessione</button>
-      <div id="masterBookingNotice" class="notice" data-i18n="authorBookingNotice">Richiesta simulata inviata al Master.</div>
-    </aside>
   </div>
 </section>

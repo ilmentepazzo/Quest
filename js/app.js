@@ -1953,7 +1953,214 @@ function unlockCurrentStory() {
   addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success", { storyId: currentStory.id });
 }
 
-function openStoryAuthorProfile(storyIdValue) {
+function getPublicMasterReviews(stories = []) {
+  const storyIds = new Set(stories.map(story => storyId(story.id)).filter(Boolean));
+  const reviews = [];
+  const seen = new Set();
+
+  getStoryReviewsStore().forEach(review => {
+    if (!storyIds.has(storyId(review.storyId))) return;
+
+    const reviewKey = storyId(review.id || `${review.storyId}-${review.author || "user"}-${review.text || ""}`);
+    if (seen.has(reviewKey)) return;
+    seen.add(reviewKey);
+
+    reviews.push({
+      author: review.author || t("publicMasterGenericPlayer", "Giocatore Lorecast"),
+      rating: Number(review.rating || 0),
+      text: review.text || "",
+      date: review.date || ""
+    });
+  });
+
+  if (typeof reviewsData !== "undefined") {
+    stories.forEach(story => {
+      reviewsData
+        .filter(review => story.masterId && storyIdsMatch(review.masterId, story.masterId))
+        .forEach(review => {
+          const reviewKey = storyId(review.id || `${story.masterId}-${review.author}-${review.date}`);
+          if (seen.has(reviewKey)) return;
+          seen.add(reviewKey);
+
+          reviews.push({
+            author: review.author || t("publicMasterGenericPlayer", "Giocatore Lorecast"),
+            rating: Number(review.rating || 0),
+            text: review.text || "",
+            date: review.date || ""
+          });
+        });
+    });
+  }
+
+  return reviews.filter(review => review.rating > 0);
+}
+
+function getPublicMasterReviewSummary(stories = []) {
+  const reviews = getPublicMasterReviews(stories);
+  const count = reviews.length;
+  const average = count
+    ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / count
+    : 0;
+
+  return {
+    count,
+    average,
+    averageLabel: average ? average.toFixed(1) : "0.0",
+    reviews
+  };
+}
+
+function getPublicMasterPriceLabel(stories = []) {
+  const prices = stories
+    .map(story => Number(story.price || 0))
+    .filter(price => price > 0)
+    .sort((a, b) => a - b);
+
+  if (!prices.length) return t("priceFree", "Gratis");
+  return prices.length === 1 ? `${prices[0]}€` : `${t("publicMasterFrom", "da")} ${prices[0]}€`;
+}
+
+function getPublicMasterModeLabel(stories = []) {
+  const modes = [...new Set(stories.map(story => story.mode).filter(Boolean))];
+  return modes.length ? modes.slice(0, 2).join(" / ") : "Online";
+}
+
+function getPublicMasterLanguageLabel(stories = []) {
+  const languages = [...new Set(stories.map(story => getStoryLanguageCode(story)).filter(Boolean))];
+  return languages.length
+    ? languages.slice(0, 3).map(code => getStoryLanguageLabel(code)).join(" / ")
+    : getStoryLanguageLabel("it");
+}
+
+function getPublicMasterSpecialties(stories = [], fallback = []) {
+  const genres = [...new Set(stories.map(story => story.genre).filter(Boolean))];
+  return genres.length ? genres.slice(0, 4) : fallback.slice(0, 4);
+}
+
+function renderPublicMasterAvatar(name, avatarUrl = "") {
+  const avatarEl = document.getElementById("masterProfileAvatar");
+  const bgEl = document.getElementById("masterProfileHeroBg");
+  const displayName = getPublicDisplayName(name, t("trendingMasterFallback", "Master Lorecast"));
+  const initial = displayName.slice(0, 1).toUpperCase() || "M";
+
+  const avatarHtml = avatarUrl
+    ? `<img src="${escapeHtmlAttribute(avatarUrl)}" alt="${escapeHtmlAttribute(displayName)}" />`
+    : `<span>${escapeHtml(initial)}</span>`;
+
+  if (avatarEl) avatarEl.innerHTML = avatarHtml;
+
+  if (bgEl) {
+    bgEl.innerHTML = avatarUrl
+      ? `<img src="${escapeHtmlAttribute(avatarUrl)}" alt="" />`
+      : `<span>${escapeHtml(initial)}</span>`;
+    bgEl.classList.toggle("has-image", Boolean(avatarUrl));
+  }
+}
+
+function renderPublicMasterStories(stories = []) {
+  const container = document.getElementById("masterPublishedStories");
+  if (!container) return;
+
+  if (!stories.length) {
+    container.innerHTML = `<p>${t("publicMasterNoStories", "Nessuna storia pubblicata al momento.")}</p>`;
+    return;
+  }
+
+  container.innerHTML = stories.map(story => {
+    const storyArg = storyJsArg(story.id);
+    const genreClass = getGenreClass(story.genre || "");
+    const coverHtml = story.cover
+      ? `<div class="public-master-story-cover image-cover" style="background-image: url('${escapeHtmlAttribute(story.cover)}')"></div>`
+      : `<div class="public-master-story-cover ${genreClass}"><span>${escapeHtml(story.genre || "Storia")}</span></div>`;
+
+    return `
+      <article class="public-master-story-card" onclick='openStory(${storyArg})'>
+        ${coverHtml}
+        <div class="public-master-story-body">
+          <h3>${escapeHtml(story.title || "Storia")}</h3>
+          <p>${escapeHtml(story.genre || "")} · ${escapeHtml(story.type || "")} · ${escapeHtml(getStoryLanguageLabel(story))}</p>
+          <small>${escapeHtml(story.players || "")} · ${escapeHtml(story.duration || "")}</small>
+        </div>
+        <button class="light" type="button" onclick='event.stopPropagation(); openStory(${storyArg})'>${escapeHtml(t("commonOpen", "Apri"))}</button>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderPublicMasterReviews(stories = []) {
+  const summaryEl = document.getElementById("masterReviewsSummary");
+  const container = document.getElementById("masterReviews");
+  if (!container) return;
+
+  const summary = getPublicMasterReviewSummary(stories);
+
+  if (summaryEl) {
+    summaryEl.textContent = summary.count
+      ? `${summary.averageLabel} ★ · ${summary.count} ${summary.count === 1 ? t("homeMasterReviewShortSingular", "recensione") : t("homeMasterReviewsShort", "recensioni")}`
+      : t("profileNoReviews", "Nessuna recensione");
+  }
+
+  if (!summary.reviews.length) {
+    container.innerHTML = `<div class="public-master-empty-review">${escapeHtml(t("profileNoReviews", "Nessuna recensione"))}</div>`;
+    return;
+  }
+
+  container.innerHTML = summary.reviews.slice(0, 3).map(review => `
+    <article class="public-master-review-card">
+      <div>
+        <strong>${"★".repeat(Math.round(review.rating))}${"☆".repeat(Math.max(0, 5 - Math.round(review.rating)))}</strong>
+        <span>${escapeHtml(review.author || t("publicMasterGenericPlayer", "Giocatore Lorecast"))}</span>
+      </div>
+      <p>${escapeHtml(review.text || "")}</p>
+    </article>
+  `).join("");
+}
+
+function renderPublicMasterProfile(options = {}) {
+  const stories = options.stories || [];
+  const displayName = getPublicDisplayName(options.name, t("trendingMasterFallback", "Master Lorecast"));
+  const summary = getPublicMasterReviewSummary(stories);
+  const specialties = getPublicMasterSpecialties(stories, options.specialties || []);
+
+  const setText = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.textContent = value ?? "";
+  };
+
+  const setHtml = (elementId, value) => {
+    const element = document.getElementById(elementId);
+    if (element) element.innerHTML = value ?? "";
+  };
+
+  renderPublicMasterAvatar(displayName, options.avatarUrl || "");
+
+  setText("masterProfileName", displayName);
+  setText("masterProfileBio", options.bio || t("publicMasterDefaultBio", "Profilo pubblico Master con storie pubblicate e attività disponibili su Lorecast."));
+  setText("masterProfileStoriesCount", stories.length);
+  setText("masterProfileReviewsCount", summary.count);
+  setText("masterProfileRating", summary.averageLabel);
+  setText("masterProfileStats", stories.length === 1
+    ? t("homeMasterStoriesOne", "1 storia")
+    : tf("homeMasterStoriesMany", { count: stories.length }, `${stories.length} storie`)
+  );
+
+  setText("masterProfilePrice", options.price || getPublicMasterPriceLabel(stories));
+  setText("masterProfileMode", options.mode || getPublicMasterModeLabel(stories));
+  setText("masterProfileLanguage", options.language || getPublicMasterLanguageLabel(stories));
+  setText("masterProfileAvailability", options.availability || t("publicMasterAvailabilityManaged", "Disponibilità gestita dal calendario"));
+
+  setHtml("masterProfileSpecialties", specialties.length
+    ? specialties.map(item => `<span class="tag ${getGenreClass(item)}">${escapeHtml(item)}</span>`).join("")
+    : `<span class="tag">${escapeHtml(t("trendingMasterFallback", "Master Lorecast"))}</span>`
+  );
+
+  renderPublicMasterStories(stories);
+  renderPublicMasterReviews(stories);
+  applyTranslations();
+  go("profilo-master");
+}
+
+async function openStoryAuthorProfile(storyIdValue) {
   const story = getAllStories().find(item => storyIdsMatch(item.id, storyIdValue)) || currentStory;
 
   if (!story) {
@@ -1973,91 +2180,49 @@ function openStoryAuthorProfile(storyIdValue) {
     return;
   }
 
-  renderBasicAuthorProfile(story);
+  await renderBasicAuthorProfile(story);
 }
 
-function renderBasicAuthorProfile(story) {
-  const authorName = story.master || "Autore Lorecast";
+async function renderBasicAuthorProfile(story) {
   const authorId = story.author_id || story.owner_id || story.masterId || null;
+
+  if (authorId) {
+    await loadSupabaseProfilesForUserIds([authorId]);
+  }
+
+  const profile = supabaseProfilesCache[storyId(authorId)] || {};
+  const authorName = profile.name || story.master || t("trendingMasterFallback", "Master Lorecast");
   const authorStories = getStoriesByAuthorId(authorId);
+  const stories = authorStories.length ? authorStories : [story];
 
-  const setText = (elementId, value) => {
-    const element = document.getElementById(elementId);
-    if (element) element.textContent = value ?? "";
-  };
-
-  const setHtml = (elementId, value) => {
-    const element = document.getElementById(elementId);
-    if (element) element.innerHTML = value ?? "";
-  };
-
-  const authorStoryCards = authorStories.length
-    ? authorStories.map(authorStory => `
-        <div class="profile-compact-row">
-          ${compactStoryCover(authorStory)}
-          <div class="profile-compact-content">
-            <strong>${escapeHtml(authorStory.title)}</strong>
-            <small>${escapeHtml(authorStory.genre)} · ${escapeHtml(authorStory.type)}</small>
-          </div>
-          <button class="light" type="button" onclick='openStory(${storyJsArg(authorStory.id)})'>Apri</button>
-        </div>
-      `).join("")
-    : "<p>Nessun'altra storia pubblicata.</p>";
-
-  setText("masterProfileName", authorName);
-  setText("masterProfileStats", authorStories.length === 1 ? "1 storia pubblicata" : `${authorStories.length} storie pubblicate`);
-  setText("masterProfileBio", `Creatore della storia "${story.title}".`);
-  setText("masterProfileLongBio", "Profilo pubblico autore. Qui potrai trovare le storie pubblicate, le recensioni e le disponibilità quando saranno collegate a Supabase.");
-  setText("masterProfilePrice", story.isFree || Number(story.price) === 0 ? "Gratis" : `${story.price}€`);
-  setText("masterProfileMode", story.mode || "Online");
-  setText("masterProfileLanguage", "Italiano");
-  setText("masterProfileAvailability", "Disponibilità gestita dal calendario");
-  setHtml("masterProfileSpecialties", `<span class="tag ${getGenreClass(story.genre)}">${escapeHtml(story.genre)}</span>`);
-  setHtml("masterReviews", `
-    <div class="author-public-stories">
-      <h3>Storie pubblicate</h3>
-      ${authorStoryCards}
-    </div>
-  `);
-
-  go("profilo-master");
+  renderPublicMasterProfile({
+    name: authorName,
+    avatarUrl: profile.avatar_url || "",
+    bio: tf("publicMasterCreatedStory", { title: story.title }, `Creatore della storia "${story.title}".`),
+    stories
+  });
 }
 
 function openMasterProfile() {
   if (!currentMaster) return;
 
-  const reviews = reviewsData.filter(review => review.masterId === currentMaster.id);
+  const masterStories = getAllStories().filter(story => story.masterId && storyIdsMatch(story.masterId, currentMaster.id));
 
-  document.getElementById("masterProfileName").textContent = currentMaster.name;
+  renderPublicMasterProfile({
+    name: currentMaster.name,
+    bio: currentMaster.bio,
+    stories: masterStories,
+    specialties: currentMaster.specialties || [],
+    price: currentMaster.price,
+    mode: currentMaster.mode,
+    language: currentMaster.language,
+    availability: currentMaster.availability
+  });
+}
 
-  document.getElementById("masterProfileStats").textContent =
-    `Master verificato · ★ ${currentMaster.rating} · ${currentMaster.sessions} sessioni completate`;
-
-  document.getElementById("masterProfileBio").textContent = currentMaster.bio;
-  document.getElementById("masterProfileLongBio").textContent = currentMaster.longBio;
-  document.getElementById("masterProfilePrice").textContent = currentMaster.price;
-  document.getElementById("masterProfileMode").textContent = currentMaster.mode;
-  document.getElementById("masterProfileLanguage").textContent = currentMaster.language;
-  document.getElementById("masterProfileAvailability").textContent = currentMaster.availability;
-
-  document.getElementById("masterProfileSpecialties").innerHTML =
-    currentMaster.specialties.map(item => `<span class="tag">${item}</span>`).join("");
-
-  const reviewsContainer = document.getElementById("masterReviews");
-
-  if (reviewsContainer) {
-    reviewsContainer.innerHTML = reviews.length
-      ? reviews.map(review => `
-          <div class="card">
-            <p>${"★".repeat(review.rating)}</p>
-            <p><strong>${review.author}</strong> · ${review.date}</p>
-            <p>“${review.text}”</p>
-          </div>
-        `).join("")
-      : "<p>Nessuna recensione disponibile.</p>";
-  }
-
-  go("profilo-master");
+function scrollToPublicMasterStories() {
+  const section = document.getElementById("publicMasterStoriesSection");
+  if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* SEARCH */

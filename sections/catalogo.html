@@ -31,6 +31,14 @@
         <option value="30" data-i18n="priceUpTo30">Fino a 30€</option>
       </select>
 
+      <select id="storyLanguageFilter" onchange="renderCatalog()">
+        <option value="" data-i18n="storyLanguageAny">Tutte le lingue</option>
+        <option value="it" data-i18n="storyLanguageItalian">Italiano</option>
+        <option value="en" data-i18n="storyLanguageEnglish">English</option>
+        <option value="es" data-i18n="storyLanguageSpanish">Español</option>
+        <option value="fr" data-i18n="storyLanguageFrench">Français</option>
+      </select>
+
       <button class="light" onclick="resetFilters()" data-i18n="commonReset">Reset</button>
     </aside>
 

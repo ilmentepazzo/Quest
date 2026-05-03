@@ -4755,3 +4755,75 @@ body.is-logged-in .home-guest-only {
     white-space: normal;
   }
 }
+
+
+/* UPDATE 60A - Payment preparation UI */
+.payment-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.payment-status-not_required,
+.payment-status-paid {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.payment-status-not_active,
+.payment-status-unpaid,
+.payment-status-pending {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.payment-status-refunded,
+.payment-status-failed {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.payment-panel-chip {
+  margin-top: 10px;
+}
+
+.payment-hint {
+  display: grid;
+  gap: 8px;
+}
+
+.payment-button.is-disabled,
+button.is-disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
+}
+
+.profile-info-chip.payment-status-chip {
+  display: inline-flex;
+}
+
+.master-confirmed-statuses {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.booking-master-details .payment-status-chip {
+  vertical-align: middle;
+}
+
+@media (max-width: 760px) {
+  .master-confirmed-statuses {
+    justify-items: start;
+  }
+}

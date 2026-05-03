@@ -74,6 +74,15 @@ function updateRouteHash(page, options = {}) {
   }
 }
 
+function setHomeAsNextRoute() {
+  localStorage.setItem("questhubCurrentPage", "home");
+  localStorage.removeItem("questhubCurrentStoryId");
+
+  if (window.location.hash !== "#home") {
+    window.history.replaceState(null, "", "#home");
+  }
+}
+
 function handleRouteHashChange() {
   const page = getPageFromHash();
   if (!page || page === getActivePageId()) return;
@@ -134,13 +143,15 @@ async function loadSections() {
   setupLanguageSwitcher();
   applyTranslations();
   updateNotificationBadge();
-  await checkAuthSession();
+  const authUser = await checkAuthSession();
   await loadSupabaseMarketplaceState();
   renderHomeMarketplace();
 
   window.addEventListener("hashchange", handleRouteHashChange);
 
-  if (initialPage === "scheda") {
+  const finalInitialPage = authUser && initialPage === "login" ? "home" : initialPage;
+
+  if (finalInitialPage === "scheda") {
     const savedStoryId = localStorage.getItem("questhubCurrentStoryId") || "";
     if (savedStoryId) {
       openStory(savedStoryId, { replaceHistory: true });
@@ -148,7 +159,7 @@ async function loadSections() {
     }
   }
 
-  go(initialPage, { replaceHistory: true });
+  go(finalInitialPage, { replaceHistory: true });
 }
 
 function storyId(value) {
@@ -360,6 +371,12 @@ function normalizeBooking(row) {
     players: row.players || "",
     message: row.message || "",
     status: row.status || "In attesa",
+    paymentStatus: normalizePaymentStatus(row.payment_status || row.paymentStatus || ""),
+    paymentAmount: Number(row.payment_amount ?? row.paymentAmount ?? 0),
+    paymentCurrency: row.payment_currency || row.paymentCurrency || "EUR",
+    paymentProvider: row.payment_provider || row.paymentProvider || "",
+    paymentReference: row.payment_reference || row.paymentReference || "",
+    paidAt: row.paid_at || row.paidAt || null,
     user_id: row.user_id,
     created_at: row.created_at || null,
     source: "supabase"
@@ -751,6 +768,8 @@ async function checkAuthSession() {
   updateHeaderUser();
   renderAuthState();
   await loadSupabaseMarketplaceState();
+
+  return data.user || null;
 }
 
 async function signUpWithEmail() {
@@ -810,7 +829,7 @@ async function loginWithEmail() {
   showToast("Accesso effettuato.", "success");
   updateHeaderUser();
   renderAuthState();
-  go("profilo");
+  go("home", { replaceHistory: true });
 }
 
 window.loginWithGoogle = async function () {
@@ -846,16 +865,19 @@ window.logoutUser = async function () {
     if (
       key.startsWith("sb-") ||
       key.includes("supabase") ||
-      key === "questhubUserProfile"
+      key === "questhubUserProfile" ||
+      key === "questhubCurrentStoryId"
     ) {
       localStorage.removeItem(key);
     }
   });
 
+  setHomeAsNextRoute();
+
   showToast("Logout effettuato.", "success");
 
   setTimeout(() => {
-    window.location.href = window.location.origin + "?logout=1";
+    window.location.href = `${window.location.origin}?logout=1#home`;
   }, 500);
 };
 
@@ -1130,6 +1152,10 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
       : "";
 
+    const paymentChip = type === "booking" && item.source !== "public_session"
+      ? renderBookingPaymentChip(item, "profile-info-chip")
+      : "";
+
     const bookingChip = type === "story"
       ? `<span class="profile-info-chip">${bookingSummary.label}</span>`
       : "";
@@ -1151,6 +1177,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
         </div>
         <div class="profile-compact-meta">
           ${statusChip}
+          ${paymentChip}
           ${bookingChip}
           ${unreadChip}
           ${reviewChip}
@@ -1760,8 +1787,11 @@ function renderStoryPaymentPanel(story) {
 
   const isOwner = isCurrentUserStory(story);
 
+  const paymentState = getInitialPaymentStateForStory(story);
+  const paymentRequired = paymentState.status !== "not_required";
+
   if (ownerActions) ownerActions.hidden = !isOwner;
-  if (paymentMethods) paymentMethods.hidden = isOwner;
+  if (paymentMethods) paymentMethods.hidden = true;
   if (paymentNote) paymentNote.hidden = isOwner;
   if (payButton) payButton.hidden = isOwner;
 
@@ -1775,7 +1805,7 @@ function renderStoryPaymentPanel(story) {
     if (priceEl) priceEl.textContent = t("commonManage", "Gestisci");
     if (titleEl) titleEl.textContent = story.title;
     if (hintEl) {
-      hintEl.textContent = "Questa storia è tua: modifica informazioni, disponibilità e materiali senza passare dal pagamento.";
+      hintEl.textContent = t("storyOwnerPaymentHint", "Questa storia è tua: modifica informazioni, disponibilità e materiali senza passare dal pagamento.");
     }
     return;
   }
@@ -1786,15 +1816,26 @@ function renderStoryPaymentPanel(story) {
   if (titleEl) titleEl.textContent = story.title;
 
   if (hintEl) {
-    hintEl.textContent = story.type === "Con Master"
-      ? "Pagamento storia/materiali. La prenotazione resta in attesa finché il Master accetta lo slot."
-      : "Dopo il pagamento sblocchi subito tutti i materiali self-play.";
+    hintEl.innerHTML = `
+      <span>${escapeHtml(paymentRequired
+        ? t("paymentPrepStoryHint", "I pagamenti reali non sono ancora attivi. Puoi continuare a usare prenotazioni, materiali e gestione storia senza checkout reale.")
+        : t("paymentFreeStoryHint", "Questa storia è gratuita: puoi sbloccare i materiali senza pagamento."))}</span>
+      ${renderPaymentStatusChipFromState(paymentState, "payment-panel-chip")}
+    `;
+  }
+
+  if (paymentNote) {
+    paymentNote.textContent = paymentRequired
+      ? t("paymentPrepNote", "Checkout reale non ancora collegato. Questa sezione prepara lo stato pagamento per una futura integrazione sicura.")
+      : t("paymentFreeNote", "Nessun pagamento richiesto per questa storia.");
   }
 
   if (payButton) {
-    payButton.textContent = story.isFree || Number(story.price) === 0
-      ? t("paymentUnlockFree", "Sblocca gratis")
-      : t("paymentPayNow", "Paga ora");
+    payButton.disabled = paymentRequired;
+    payButton.classList.toggle("is-disabled", paymentRequired);
+    payButton.textContent = paymentRequired
+      ? t("paymentComingSoonButton", "Pagamenti in preparazione")
+      : t("paymentUnlockFree", "Sblocca gratis");
   }
 }
 
@@ -1803,34 +1844,19 @@ function payForCurrentStory() {
 
   const profile = getUserProfile();
   if (!profile.email) {
-    showToast("Accedi per completare il pagamento o sbloccare la storia.", "warning");
+    showToast(t("paymentLoginRequired", "Accedi per sbloccare questa storia."), "warning");
     go("login");
     return;
   }
 
-  const method = document.querySelector('input[name="paymentMethod"]:checked')?.value || "card";
-  const payments = JSON.parse(localStorage.getItem("questhubPayments") || "[]");
-
-  payments.push({
-    id: Date.now(),
-    storyId: currentStory.id,
-    story: currentStory.title,
-    amount: currentStory.isFree || Number(currentStory.price) === 0 ? 0 : Number(currentStory.price),
-    method,
-    status: "Simulato",
-    createdAt: new Date().toISOString()
-  });
-
-  localStorage.setItem("questhubPayments", JSON.stringify(payments));
+  if (isStoryPaymentRequired(currentStory)) {
+    showPaymentsNotActiveNotice();
+    return;
+  }
 
   unlockCurrentStory();
 
-  showToast(
-    currentStory.isFree || Number(currentStory.price) === 0
-      ? "Storia sbloccata gratuitamente."
-      : "Pagamento simulato completato. Materiali sbloccati.",
-    "success"
-  );
+  showToast(t("paymentFreeUnlockedToast", "Storia sbloccata gratuitamente."), "success");
 }
 
 function renderStoryBookingMode(story) {
@@ -2389,6 +2415,94 @@ function formatMoney(value, options = {}) {
   return from ? `${t("publicMasterFrom", "da")} ${formatted}` : formatted;
 }
 
+
+function normalizePaymentStatus(status, fallback = "not_active") {
+  const key = String(status || "").trim().toLowerCase().replaceAll(" ", "_").replaceAll("-", "_");
+
+  if (["not_required", "free", "gratuito", "gratis", "non_necessario"].includes(key)) return "not_required";
+  if (["not_active", "disabled", "preparation", "preparazione", "not_enabled"].includes(key)) return "not_active";
+  if (["unpaid", "da_pagare", "non_pagato"].includes(key)) return "unpaid";
+  if (["pending", "in_attesa", "processing", "in_elaborazione"].includes(key)) return "pending";
+  if (["paid", "pagato", "completed", "succeeded"].includes(key)) return "paid";
+  if (["refunded", "rimborsato"].includes(key)) return "refunded";
+  if (["failed", "fallito", "errore"].includes(key)) return "failed";
+
+  return fallback;
+}
+
+function getTranslatedPaymentStatus(status) {
+  const normalized = normalizePaymentStatus(status);
+
+  if (normalized === "not_required") return t("paymentStatusNotRequired", "Non richiesto");
+  if (normalized === "not_active") return t("paymentStatusNotActive", "Pagamento non ancora attivo");
+  if (normalized === "unpaid") return t("paymentStatusUnpaid", "Da pagare");
+  if (normalized === "pending") return t("paymentStatusPending", "Pagamento in attesa");
+  if (normalized === "paid") return t("paymentStatusPaid", "Pagato");
+  if (normalized === "refunded") return t("paymentStatusRefunded", "Rimborsato");
+  if (normalized === "failed") return t("paymentStatusFailed", "Pagamento non riuscito");
+
+  return t("paymentStatusNotActive", "Pagamento non ancora attivo");
+}
+
+function getStoryPaymentAmount(story) {
+  return Number(story?.price || 0);
+}
+
+function isStoryPaymentRequired(story) {
+  return getStoryPaymentAmount(story) > 0 && !(story?.isFree);
+}
+
+function getInitialPaymentStateForStory(story) {
+  const amount = getStoryPaymentAmount(story);
+  const required = amount > 0 && !(story?.isFree);
+
+  return {
+    status: required ? "not_active" : "not_required",
+    amount: required ? amount : 0,
+    currency: "EUR"
+  };
+}
+
+function getBookingPaymentState(booking) {
+  const story = getAllStories().find(item => storyIdsMatch(item.id, booking?.storyId));
+  const storyAmount = story ? getStoryPaymentAmount(story) : 0;
+  const rawAmount = Number(booking?.paymentAmount ?? booking?.payment_amount ?? 0);
+  const amount = rawAmount > 0 ? rawAmount : storyAmount;
+  const required = amount > 0;
+  let status = normalizePaymentStatus(
+    booking?.paymentStatus || booking?.payment_status || "",
+    required ? "not_active" : "not_required"
+  );
+
+  if (!required && status === "not_active") {
+    status = "not_required";
+  }
+
+  return {
+    status,
+    amount: required ? amount : 0,
+    currency: booking?.paymentCurrency || booking?.payment_currency || "EUR",
+    label: getTranslatedPaymentStatus(status)
+  };
+}
+
+function renderPaymentStatusChipFromState(state, extraClass = "") {
+  const normalized = normalizePaymentStatus(state?.status);
+  const label = state?.label || getTranslatedPaymentStatus(normalized);
+  const amount = Number(state?.amount || 0);
+  const amountLabel = amount > 0 ? ` · ${formatMoney(amount, { freeLabel: false })}` : "";
+
+  return `<span class="payment-status-chip payment-status-${normalized} ${extraClass}">${escapeHtml(label)}${amountLabel}</span>`;
+}
+
+function renderBookingPaymentChip(booking, extraClass = "") {
+  return renderPaymentStatusChipFromState(getBookingPaymentState(booking), extraClass);
+}
+
+function showPaymentsNotActiveNotice() {
+  showToast(t("paymentNotActiveToast", "I pagamenti reali non sono ancora attivi su Lorecast."), "warning");
+}
+
 function getTranslatedGenreLabel(genre) {
   const normalized = String(genre || "").toLowerCase();
 
@@ -2720,6 +2834,8 @@ async function createBooking() {
     return;
   }
 
+  const paymentState = getInitialPaymentStateForStory(currentStory);
+
   const bookingPayload = {
     story_id: storyId(currentStory.id),
     story_title: currentStory.title,
@@ -2732,7 +2848,10 @@ async function createBooking() {
     duration_minutes: getStoryDurationMinutes(currentStory),
     players,
     message,
-    status: "In attesa"
+    status: "In attesa",
+    payment_status: paymentState.status,
+    payment_amount: paymentState.amount,
+    payment_currency: paymentState.currency
   };
 
   let booking = null;
@@ -2770,6 +2889,9 @@ async function createBooking() {
       players,
       message,
       status: "In attesa",
+      paymentStatus: paymentState.status,
+      paymentAmount: paymentState.amount,
+      paymentCurrency: paymentState.currency,
       user_id: getCurrentUserId()
     };
     bookings.push(booking);
@@ -3396,6 +3518,7 @@ function renderDashboardBookings() {
                 <span><strong>${t("masterRequestUser", "Utente")}:</strong> ${escapeHtml(getUserDisplayName(booking.user_id))}</span>
                 <span><strong>${t("masterRequestGroup", "Gruppo")}:</strong> ${escapeHtml(booking.group || t("commonNotProvided", "Non indicato"))}</span>
                 <span><strong>${t("masterRequestPlayers", "Giocatori")}:</strong> ${escapeHtml(booking.players || "-")}</span>
+                <span><strong>${t("paymentStatusLabel", "Pagamento")}:</strong> ${renderBookingPaymentChip(booking)}</span>
                 <span><strong>${t("masterRequestCreated", "Richiesta")}:</strong> ${formatLocalizedDateTime(booking.created_at)}</span>
               </div>
 
@@ -3437,7 +3560,10 @@ function renderDashboardBookings() {
                   <span>${formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime)}</span>
                   <small>${escapeHtml(getUserDisplayName(booking.user_id))} · ${escapeHtml(windowInfo.label)}${unreadMessages > 0 ? ` · ${tf("bookingUnreadMessages", { count: unreadMessages > 9 ? "9+" : unreadMessages }, `${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi`)}` : ""}</small>
                 </div>
-                <span class="status accepted">${t("bookingStatusAccepted", "Accettata")}</span>
+                <div class="master-confirmed-statuses">
+                  <span class="status accepted">${t("bookingStatusAccepted", "Accettata")}</span>
+                  ${renderBookingPaymentChip(booking)}
+                </div>
                 <div class="master-confirmed-actions">
                   ${renderBookingMessageAction(booking, "light")}
                   <button class="light" onclick='openStory(${storyArg})'>${t("storySingular", "Storia")}</button>
@@ -3528,7 +3654,7 @@ async function updateBookingStatus(id, status) {
   renderBookingCalendar(currentStory);
 
   if (status === "Accettata") {
-    showToast("Prenotazione accettata. L’utente riceverà una notifica.", "success");
+    showToast(t("bookingAcceptedPaymentPrepToast", "Prenotazione accettata. Il pagamento reale non è ancora attivo: l’utente riceverà una notifica."), "success");
   }
 
   if (status === "Rifiutata") {

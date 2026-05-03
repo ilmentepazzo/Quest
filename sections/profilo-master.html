@@ -1,38 +1,25 @@
 <section id="profilo-master" class="page">
-  <button class="light" onclick="go('scheda')">← Torna alla storia</button>
-
+  <button class="light" onclick="go('scheda')" data-i18n="commonBackToStory">← Torna alla storia</button>
   <div class="detail">
     <div class="card">
       <h1 id="masterProfileName"></h1>
       <p id="masterProfileStats"></p>
-
       <p id="masterProfileBio"></p>
-
-      <h2>Specializzazioni</h2>
+      <h2 data-i18n="authorSpecialties">Specializzazioni</h2>
       <div id="masterProfileSpecialties"></div>
-
-      <h2>Bio</h2>
+      <h2 data-i18n="authorBio">Bio</h2>
       <p id="masterProfileLongBio"></p>
-
-      <h2>Recensioni</h2>
+      <h2 data-i18n="authorReviews">Recensioni</h2>
       <div id="masterReviews"></div>
     </div>
-
     <aside class="card">
-      <h2>Profilo Master</h2>
-
-      <p><strong>Prezzo medio:</strong> <span id="masterProfilePrice"></span></p>
-      <p><strong>Modalità:</strong> <span id="masterProfileMode"></span></p>
-      <p><strong>Lingua:</strong> <span id="masterProfileLanguage"></span></p>
-      <p><strong>Disponibilità:</strong> <span id="masterProfileAvailability"></span></p>
-
-      <button class="primary" onclick="notice('masterBookingNotice')">
-        Richiedi una sessione
-      </button>
-
-      <div id="masterBookingNotice" class="notice">
-        Richiesta simulata inviata al Master.
-      </div>
+      <h2 data-i18n="authorProfileTitle">Profilo Master</h2>
+      <p><strong data-i18n="authorAveragePrice">Prezzo medio:</strong> <span id="masterProfilePrice"></span></p>
+      <p><strong data-i18n="authorMode">Modalità:</strong> <span id="masterProfileMode"></span></p>
+      <p><strong data-i18n="authorLanguage">Lingua:</strong> <span id="masterProfileLanguage"></span></p>
+      <p><strong data-i18n="authorAvailability">Disponibilità:</strong> <span id="masterProfileAvailability"></span></p>
+      <button class="primary" onclick="notice('masterBookingNotice')" data-i18n="authorRequestSession">Richiedi una sessione</button>
+      <div id="masterBookingNotice" class="notice" data-i18n="authorBookingNotice">Richiesta simulata inviata al Master.</div>
     </aside>
   </div>
 </section>

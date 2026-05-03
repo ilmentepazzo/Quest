@@ -1,26 +1,26 @@
 <section id="catalogo" class="page">
-  <h1>Catalogo storie</h1>
-  <p>Filtra le esperienze e clicca una storia per aprire la scheda.</p>
+  <h1 data-i18n="catalogTitle">Catalogo storie</h1>
+  <p data-i18n="catalogIntro">Filtra le esperienze e clicca una storia per aprire la scheda.</p>
 
   <div class="layout">
     <aside class="card filters">
-      <h2>Filtri</h2>
+      <h2 data-i18n="catalogFilters">Filtri</h2>
 
-      <input id="q" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
+      <input id="q" data-i18n-placeholder="catalogSearchPlaceholder" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
 
       <select id="genre" onchange="renderCatalog()">
-        <option value="">Tutti i generi</option>
-        <option>Fantasy</option>
-        <option>Horror</option>
-        <option>Cena con delitto</option>
-        <option>Investigativo</option>
-        <option>Sci-fi</option>
+        <option value="" data-i18n="genreAny">Tutti i generi</option>
+        <option value="Fantasy" data-i18n="genreFantasy">Fantasy</option>
+        <option value="Horror" data-i18n="genreHorror">Horror</option>
+        <option value="Cena con delitto" data-i18n="genreMurderDinner">Cena con delitto</option>
+        <option value="Investigativo" data-i18n="genreInvestigative">Investigativo</option>
+        <option value="Sci-fi" data-i18n="genreSciFi">Sci-fi</option>
       </select>
 
       <select id="type" onchange="renderCatalog()">
-        <option value="">Tutti i tipi</option>
-        <option>Con Master</option>
-        <option>Self-play</option>
+        <option value="" data-i18n="typeAny">Tutti i tipi</option>
+        <option value="Con Master" data-i18n="typeWithMaster">Con Master</option>
+        <option value="Self-play" data-i18n="typeSelfPlay">Self-play</option>
       </select>
 
       <select id="price" onchange="renderCatalog()">
@@ -31,7 +31,7 @@
         <option value="30" data-i18n="priceUpTo30">Fino a 30€</option>
       </select>
 
-      <button class="light" onclick="resetFilters()">Reset</button>
+      <button class="light" onclick="resetFilters()" data-i18n="commonReset">Reset</button>
     </aside>
 
     <div>

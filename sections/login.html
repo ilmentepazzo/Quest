@@ -1,57 +1,26 @@
 <section id="login" class="page login-page">
   <div class="login-screen">
     <div class="login-card-clean">
-     <h1 class="login-title">
-  Accedi a
-</h1>
-
-<img src="assets/lorecast-wordmark.png" alt="Lorecast" class="login-wordmark" />
-
-<p>
-        Entra per prenotare sessioni, unirti a gruppi Join-in
-        o pubblicare le tue storie.
-      </p>
-
-      <button class="google-button" type="button" onclick="window.loginWithGoogle()">
-        <span>G</span>
-        Continua con Google
-      </button>
-
-      <div class="login-divider">
-        <span>oppure accedi con email</span>
-      </div>
-
-      <input id="loginEmail" type="email" placeholder="Email" />
-      <input id="loginPassword" type="password" placeholder="Password" />
-
-      <button class="primary login-full-button" type="button" onclick="loginWithEmail()">
-        Accedi
-      </button>
-
+      <h1 class="login-title" data-i18n="loginTitle">Accedi a</h1>
+      <img src="assets/lorecast-wordmark.png" alt="Lorecast" class="login-wordmark" />
+      <p data-i18n="loginIntro">Entra per prenotare sessioni, unirti a gruppi Join-in o pubblicare le tue storie.</p>
+      <button class="google-button" type="button" onclick="window.loginWithGoogle()"><span>G</span><span data-i18n="loginGoogle">Continua con Google</span></button>
+      <div class="login-divider"><span data-i18n="loginDivider">oppure accedi con email</span></div>
+      <input id="loginEmail" type="email" data-i18n-placeholder="loginEmailPlaceholder" placeholder="Email" />
+      <input id="loginPassword" type="password" data-i18n-placeholder="loginPasswordPlaceholder" placeholder="Password" />
+      <button class="primary login-full-button" type="button" onclick="loginWithEmail()" data-i18n="loginButton">Accedi</button>
       <div class="signup-box">
-        <h2>Crea account</h2>
-
-        <input id="signupName" placeholder="Nome pubblico" />
-        <input id="signupEmail" type="email" placeholder="Email registrazione" />
-        <input id="signupPassword" type="password" placeholder="Password registrazione" />
-
-        <button class="dark login-full-button" type="button" onclick="signUpWithEmail()">
-          Crea account
-        </button>
+        <h2 data-i18n="loginSignupTitle">Crea account</h2>
+        <input id="signupName" data-i18n-placeholder="loginSignupNamePlaceholder" placeholder="Nome pubblico" />
+        <input id="signupEmail" type="email" data-i18n-placeholder="loginSignupEmailPlaceholder" placeholder="Email registrazione" />
+        <input id="signupPassword" type="password" data-i18n-placeholder="loginSignupPasswordPlaceholder" placeholder="Password registrazione" />
+        <button class="dark login-full-button" type="button" onclick="signUpWithEmail()" data-i18n="loginSignupButton">Crea account</button>
       </div>
-
-      <p id="authStatus" class="login-status">
-        Non hai ancora effettuato l’accesso.
-      </p>
+      <p id="authStatus" class="login-status" data-i18n="loginStatusLoggedOut">Non hai ancora effettuato l’accesso.</p>
     </div>
-
     <div class="login-visual-clean">
       <img src="assets/login-hero.png" alt="Avventura fantasy" class="login-hero-image" />
-
-      <div class="visual-content">
-        <h2>Stories. Realms. Experiences.</h2>
-        <p>Trova il tuo Master, entra in sessioni pubbliche e vivi storie condivise.</p>
-      </div>
+      <div class="visual-content"><h2 data-i18n="loginVisualTitle">Stories. Realms. Experiences.</h2><p data-i18n="loginVisualText">Trova il tuo Master, entra in sessioni pubbliche e vivi storie condivise.</p></div>
     </div>
   </div>
 </section>

@@ -743,8 +743,8 @@ async function renderAuthState() {
   const { data } = await supabaseClient.auth.getUser();
 
   status.textContent = data.user
-     ? `Accesso effettuato.`
-    : "Non hai ancora effettuato l’accesso.";
+     ? t("loginStatusLoggedIn", "Accesso effettuato.")
+    : t("loginStatusLoggedOut", "Non hai ancora effettuato l’accesso.");
 }
 
 /* HEADER / PROFILE */
@@ -942,9 +942,9 @@ function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
 }
 
 function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0) {
-  setProfileTabLabel("created", "Create", createdCount);
-  setProfileTabLabel("played", "Giocate", playedCount);
-  setProfileTabLabel("booked", "Prenotate", bookedCount, bookedUnreadCount);
+  setProfileTabLabel("created", t("profileTabCreated", "Create"), createdCount);
+  setProfileTabLabel("played", t("profileTabPlayed", "Giocate"), playedCount);
+  setProfileTabLabel("booked", t("profileTabBooked", "Prenotate"), bookedCount, bookedUnreadCount);
 }
 
 function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
@@ -1230,7 +1230,7 @@ function card(story) {
   const storyArg = storyJsArg(story.id);
   const authorName = story.master || "Autore Lorecast";
   const priceLabel = story.isFree || Number(story.price) === 0
-    ? `<span class="story-price-free">Gratis</span>`
+    ? `<span class="story-price-free">${t("priceFree", "Gratis")}</span>`
     : `<span class="story-price-paid">${story.price}€</span>`;
 
   const genreClass = getGenreClass(story.genre);
@@ -1310,11 +1310,13 @@ async function renderCatalog() {
     return matchesSearch && matchesGenre && matchesType && matchesPrice;
   });
 
-  count.textContent = results.length + " storie trovate";
+  count.textContent = results.length === 1
+    ? t("catalogCountOne", "1 storia trovata")
+    : t("catalogCountMany", "{count} storie trovate").replace("{count}", results.length);
 
   container.innerHTML = results.length
     ? results.map(card).join("")
-    : "<p>Nessuna storia trovata.</p>";
+    : `<p>${t("catalogNoResults", "Nessuna storia trovata.")}</p>`;
 }
 
 function openStory(id) {
@@ -3170,8 +3172,8 @@ function renderOpenSessions() {
 
   if (count) {
     count.textContent = visibleSessions.length === 1
-      ? "1 sessione aperta"
-      : `${visibleSessions.length} sessioni aperte`;
+      ? t("sessionsCountOne", "1 sessione aperta")
+      : t("sessionsCountMany", "{count} sessioni aperte").replace("{count}", visibleSessions.length);
   }
 
   function buildHtml(sessions) {
@@ -5055,10 +5057,10 @@ function togglePriceField() {
   if (priceMode.value === "free") {
     priceField.value = "";
     priceField.disabled = true;
-    priceField.placeholder = "Prezzo non necessario: storia gratuita";
+    priceField.placeholder = t("priceNotNeeded", "Prezzo non necessario: storia gratuita");
   } else {
     priceField.disabled = false;
-    priceField.placeholder = "Prezzo in €";
+    priceField.placeholder = t("priceEuro", "Prezzo in €");
   }
 }
 
@@ -5066,20 +5068,39 @@ function getCurrentLanguage() {
   return localStorage.getItem("questhubLanguage") || "it";
 }
 
-function applyTranslations() {
+function t(key, fallback = "") {
   const language = getCurrentLanguage();
-  const dictionary = window.translations?.[language] || window.translations?.it || {};
+  return window.translations?.[language]?.[key]
+    || window.translations?.it?.[key]
+    || fallback
+    || key;
+}
 
+function applyTranslations() {
   document.querySelectorAll("[data-i18n]").forEach(element => {
     const key = element.getAttribute("data-i18n");
+    element.textContent = t(key, element.textContent);
+  });
 
-    if (dictionary[key]) {
-      element.textContent = dictionary[key];
-    }
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(element => {
+    const key = element.getAttribute("data-i18n-placeholder");
+    element.placeholder = t(key, element.placeholder);
+  });
+
+  document.querySelectorAll("[data-i18n-aria-label]").forEach(element => {
+    const key = element.getAttribute("data-i18n-aria-label");
+    element.setAttribute("aria-label", t(key, element.getAttribute("aria-label") || ""));
+  });
+
+  document.querySelectorAll("[data-i18n-title]").forEach(element => {
+    const key = element.getAttribute("data-i18n-title");
+    element.setAttribute("title", t(key, element.getAttribute("title") || ""));
   });
 
   const switcher = document.getElementById("languageSwitcher");
-  if (switcher) switcher.value = language;
+  if (switcher) switcher.value = getCurrentLanguage();
+
+  togglePriceField();
 }
 
 

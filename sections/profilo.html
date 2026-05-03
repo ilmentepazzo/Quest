@@ -4,29 +4,29 @@
       <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
 
       <h2 id="profileDisplayName">Utente Lorecast</h2>
-      <p id="profileDisplayMeta">Membro Lorecast</p>
+      <p id="profileDisplayMeta" data-i18n="profileMetaMember">Membro Lorecast</p>
       <span class="tag" id="profileRoleBadge">Player</span>
 
       <div class="profile-side-stats">
         <div>
           <strong id="profileStoriesCreated">0</strong>
-          <span>Storie create</span>
+          <span data-i18n="profileStoriesCreated">Storie create</span>
         </div>
 
         <div>
           <strong id="profileBookingsCount">0</strong>
-          <span>Sessioni giocate</span>
+          <span data-i18n="profileSessionsPlayed">Sessioni giocate</span>
         </div>
 
         <div>
           <strong id="profileUnlockedCount">0</strong>
-          <span>Storie prenotate</span>
+          <span data-i18n="profileStoriesBooked">Storie prenotate</span>
         </div>
       </div>
 
-      <button class="primary" onclick="goCreateStory()">Crea storia</button>
-      <button class="light" onclick="openProfileEdit()">Modifica informazioni account</button>
-      <button class="light" onclick="logoutUser()">Esci</button>
+      <button class="primary" onclick="goCreateStory()" data-i18n="profileCreateStory">Crea storia</button>
+      <button class="light" onclick="openProfileEdit()" data-i18n="profileEditAccount">Modifica informazioni account</button>
+      <button class="light" onclick="logoutUser()" data-i18n="profileLogout">Esci</button>
     </aside>
 
     <main class="profile-main">
@@ -35,7 +35,7 @@
           <h1 id="profileMainName">Utente Lorecast</h1>
           <p>
             <a href="#profileReviewsList" class="profile-review-link">
-              0 recensioni ricevute
+              <span data-i18n="profileReviewsReceivedZero">0 recensioni ricevute</span>
             </a>
           </p>
         </div>
@@ -43,39 +43,39 @@
         <div class="profile-rating-box">
           <strong>0.0</strong>
           <span>★★★★★</span>
-          <small>Valutazione media</small>
+          <small data-i18n="profileAverageRating">Valutazione media</small>
         </div>
       </section>
 
       <section class="card profile-library-card">
         <div class="profile-library-header">
           <div>
-            <h2>La mia libreria</h2>
-            <p>Gestisci rapidamente storie create, giocate e prenotate.</p>
+            <h2 data-i18n="profileLibraryTitle">La mia libreria</h2>
+            <p data-i18n="profileLibraryIntro">Gestisci rapidamente storie create, giocate e prenotate.</p>
           </div>
         </div>
 
-        <div class="profile-tabs" role="tablist" aria-label="Libreria profilo">
-          <button class="profile-tab-button active" data-profile-tab="created" onclick="setProfileLibraryTab('created')">Create</button>
-          <button class="profile-tab-button" data-profile-tab="played" onclick="setProfileLibraryTab('played')">Giocate</button>
-          <button class="profile-tab-button" data-profile-tab="booked" onclick="setProfileLibraryTab('booked')">Prenotate</button>
+        <div class="profile-tabs" role="tablist" aria-label="Libreria profilo" data-i18n-aria-label="profileLibraryTitle">
+          <button class="profile-tab-button active" data-profile-tab="created" onclick="setProfileLibraryTab('created')"> <span data-i18n="profileTabCreated">Create</span></button>
+          <button class="profile-tab-button" data-profile-tab="played" onclick="setProfileLibraryTab('played')"> <span data-i18n="profileTabPlayed">Giocate</span></button>
+          <button class="profile-tab-button" data-profile-tab="booked" onclick="setProfileLibraryTab('booked')"> <span data-i18n="profileTabBooked">Prenotate</span></button>
         </div>
 
         <div class="profile-tab-panel active" data-profile-panel="created">
           <div id="profileCreatedStories" class="profile-compact-list">
-            <p>Non hai ancora creato storie.</p>
+            <p data-i18n="profileEmptyCreated">Non hai ancora creato storie.</p>
           </div>
         </div>
 
         <div class="profile-tab-panel" data-profile-panel="played">
           <div id="profilePlayedStories" class="profile-compact-list">
-            <p>Non hai ancora storie giocate.</p>
+            <p data-i18n="profileEmptyPlayed">Non hai ancora storie giocate.</p>
           </div>
         </div>
 
         <div class="profile-tab-panel" data-profile-panel="booked">
           <div id="profileBookedStories" class="profile-compact-list">
-            <p>Non hai ancora storie prenotate.</p>
+            <p data-i18n="profileEmptyBooked">Non hai ancora storie prenotate.</p>
           </div>
         </div>
       </section>
@@ -83,15 +83,15 @@
       <section class="card">
         <div class="reviews-header">
           <div>
-            <h2>Recensioni ricevute</h2>
-            <p>Feedback dei giocatori, filtrabile per valutazione.</p>
+            <h2 data-i18n="profileReviewsTitle">Recensioni ricevute</h2>
+            <p data-i18n="profileReviewsIntro">Feedback dei giocatori, filtrabile per valutazione.</p>
           </div>
 
           <select id="reviewFilter" onchange="renderUserReviews()">
-            <option value="all">Tutte</option>
-            <option value="5">5 stelle</option>
-            <option value="4">4 stelle</option>
-            <option value="3">3 stelle</option>
+            <option value="all" data-i18n="profileReviewsAll">Tutte</option>
+            <option value="5" data-i18n="profileReviews5">5 stelle</option>
+            <option value="4" data-i18n="profileReviews4">4 stelle</option>
+            <option value="3" data-i18n="profileReviews3">3 stelle</option>
           </select>
         </div>
 
@@ -99,7 +99,7 @@
           <div>
             <strong>0.0</strong>
             <span>★★★★★</span>
-            <small>Media recensioni</small>
+            <small data-i18n="profileReviewsAverage">Media recensioni</small>
           </div>
 
           <div class="review-bars">
@@ -118,20 +118,20 @@
     <div class="profile-edit-box" onclick="event.stopPropagation()">
       <div class="profile-edit-header">
         <div>
-          <h2>Modifica profilo</h2>
-          <p>Aggiorna nome pubblico, lingua e immagine profilo.</p>
+          <h2 data-i18n="profileEditTitle">Modifica profilo</h2>
+          <p data-i18n="profileEditIntro">Aggiorna nome pubblico, lingua e immagine profilo.</p>
         </div>
-        <button class="light icon-button" onclick="closeProfileEdit()" aria-label="Chiudi modale">×</button>
+        <button class="light icon-button" onclick="closeProfileEdit()" aria-label="Chiudi modale" data-i18n-aria-label="commonCloseModal">×</button>
       </div>
 
-      <label for="profileAvatarFile">Foto profilo</label>
+      <label for="profileAvatarFile" data-i18n="profilePhotoLabel">Foto profilo</label>
       <input id="profileAvatarFile" type="file" accept="image/jpeg,image/png" />
-      <p class="profile-upload-hint">Formati accettati: JPG o PNG, massimo 3 MB.</p>
+      <p class="profile-upload-hint" data-i18n="profilePhotoHint">Formati accettati: JPG o PNG, massimo 3 MB.</p>
 
-      <label for="profileName">Nome pubblico</label>
-      <input id="profileName" placeholder="Nome utente" />
+      <label for="profileName" data-i18n="profilePublicNameLabel">Nome pubblico</label>
+      <input id="profileName" data-i18n-placeholder="profilePublicNamePlaceholder" placeholder="Nome utente" />
 
-      <label for="profileLanguage">Lingua preferita</label>
+      <label for="profileLanguage" data-i18n="profileLanguageLabel">Lingua preferita</label>
       <select id="profileLanguage">
         <option value="it">Italiano</option>
         <option value="en">English</option>
@@ -140,8 +140,8 @@
       </select>
 
       <div class="profile-edit-actions">
-        <button class="primary" onclick="saveUserProfile()">Salva modifiche</button>
-        <button class="light" onclick="closeProfileEdit()">Annulla</button>
+        <button class="primary" onclick="saveUserProfile()" data-i18n="commonSaveChanges">Salva modifiche</button>
+        <button class="light" onclick="closeProfileEdit()" data-i18n="commonCancel">Annulla</button>
       </div>
     </div>
   </div>

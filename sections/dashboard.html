@@ -1,89 +1,91 @@
 <section id="dashboard" class="page">
-  <h1>Dashboard Master</h1>
-  <p>Gestisci storie, materiali, prenotazioni e contenuti riservati.</p>
+  <h1 data-i18n="dashboardTitle">Dashboard Master</h1>
+  <p data-i18n="dashboardIntro">Gestisci storie, materiali, prenotazioni private e tavoli pubblici join-in.</p>
 
   <div class="grid">
     <div class="card">
-      <h2>Storie pubblicate</h2>
+      <h2 data-i18n="masterPublishedStories">Storie pubblicate</h2>
       <p id="dashboardStoriesCount">3 storie attive</p>
     </div>
 
     <div class="card">
-      <h2>Prenotazioni</h2>
+      <h2 data-i18n="dashboardSessionRequests">Richieste sessione</h2>
       <p id="dashboardBookingCount">0 richieste</p>
     </div>
 
     <div class="card">
-      <h2>Valutazione</h2>
+      <h2 data-i18n="masterRating">Valutazione</h2>
       <p>★ 4.9 media recensioni</p>
     </div>
   </div>
 
   <div class="card">
-    <h2>Richieste prenotazione</h2>
+    <h2 data-i18n="dashboardCalendarRequests">Calendario e richieste</h2>
+    <p data-i18n="dashboardCalendarIntro">Le prenotazioni private bloccano direttamente lo slot scelto. I tavoli pubblici raccolgono giocatori sullo stesso slot e possono essere confermati quando raggiungono il numero minimo.</p>
     <div id="dashboardBookings"></div>
   </div>
 
   <div class="card">
-    <h2>Crea nuova storia</h2>
+    <h2 data-i18n="createStoryTitle">Crea nuova storia</h2>
     <p>
-      I contenuti pubblici presentano la storia. I materiali possono essere visibili subito,
-      dopo acquisto, durante la sessione o solo al Master.
+      I contenuti pubblici presentano la storia. La durata viene usata anche dal calendario per calcolare
+      la fine degli slot prenotabili.
     </p>
 
-    <h3>Informazioni pubbliche</h3>
+    <h3 data-i18n="createStoryPublicInfo">Informazioni pubbliche</h3>
 
-    <input id="newStoryTitle" data-required="true" placeholder="Titolo storia *" />
+    <input id="newStoryTitle" data-required="true" data-i18n-placeholder="createStoryTitlePlaceholder" placeholder="Titolo storia *" />
 
     <select id="newStoryGenre" data-required="true">
-      <option value="">Genere *</option>
-      <option>Fantasy</option>
-      <option>Horror</option>
-      <option>Investigativo</option>
-      <option>Cena con delitto</option>
-      <option>Sci-fi</option>
+      <option value="" data-i18n="genreRequired">Genere *</option>
+      <option value="Fantasy" data-i18n="genreFantasy">Fantasy</option>
+      <option value="Horror" data-i18n="genreHorror">Horror</option>
+      <option value="Investigativo" data-i18n="genreInvestigative">Investigativo</option>
+      <option value="Cena con delitto" data-i18n="genreMurderDinner">Cena con delitto</option>
+      <option value="Sci-fi" data-i18n="genreSciFi">Sci-fi</option>
     </select>
 
     <select id="newStoryType" data-required="true">
-      <option value="">Tipo *</option>
-      <option>Con Master</option>
-      <option>Self-play</option>
+      <option value="" data-i18n="typeRequired">Tipo *</option>
+      <option value="Con Master" data-i18n="typeWithMaster">Con Master</option>
+      <option value="Self-play" data-i18n="typeSelfPlay">Self-play</option>
     </select>
 
     <select id="newStoryPriceMode" data-required="true" onchange="togglePriceField()">
-      <option value="">Costo *</option>
-      <option value="free">Gratuita</option>
-      <option value="paid">A pagamento</option>
+      <option value="" data-i18n="costRequired">Costo *</option>
+      <option value="free" data-i18n="costFree">Gratuita</option>
+      <option value="paid" data-i18n="costPaid">A pagamento</option>
     </select>
 
-    <input id="newStoryPrice" type="number" placeholder="Prezzo in €" />
+    <input id="newStoryPrice" type="number" data-i18n-placeholder="priceEuro" placeholder="Prezzo in €" />
 
-    <input id="newStoryDuration" data-required="true" placeholder="Durata, es. 2 ore *" />
-    <input id="newStoryPlayers" data-required="true" placeholder="Numero giocatori, es. 3–5 *" />
+    <input id="newStoryDuration" data-required="true" data-i18n-placeholder="createStoryDurationPlaceholderLong" placeholder="Durata, es. 2 ore oppure 90 min *" />
+    <input id="newStoryPlayers" data-required="true" data-i18n-placeholder="createStoryPlayersPlaceholder" placeholder="Numero giocatori, es. 3–5 *" />
 
-    <textarea id="newStoryDesc" data-required="true" placeholder="Descrizione breve pubblica *"></textarea>
-    <textarea id="newStoryLong" placeholder="Descrizione completa della storia"></textarea>
+    <textarea id="newStoryDesc" data-required="true" data-i18n-placeholder="createStoryShortDescPlaceholder" placeholder="Descrizione breve pubblica *"></textarea>
+    <textarea id="newStoryLong" data-i18n-placeholder="createStoryLongDescPlaceholder" placeholder="Descrizione completa della storia"></textarea>
 
-    <h3>Media pubblici</h3>
+    <h3 data-i18n="createStoryMediaTitle">Media pubblici</h3>
 
-    <input id="newStoryCover" placeholder="URL immagine copertina pubblica" />
-    <input id="newStoryTrailer" placeholder="URL video trailer / presentazione" />
+    <input id="newStoryCover" data-i18n-placeholder="createStoryCoverUrlPlaceholder" placeholder="URL immagine copertina pubblica" />
+    <input id="newStoryTrailer" data-i18n-placeholder="createStoryTrailerPlaceholder" placeholder="URL video trailer / presentazione" />
 
-    <h3>Materiali della storia</h3>
+    <h3 data-i18n="createStoryMaterialsTitle">Materiali della storia</h3>
     <p>
-      Usa il pulsante + per aggiungere più materiali. Ogni materiale può avere una visibilità diversa.
+      Usa il pulsante + per aggiungere più materiali. Per le storie self-play, i materiali “Dopo acquisto”
+      sono quelli che l’utente sblocca per giocare in autonomia.
     </p>
 
     <div id="materialsBuilder"></div>
 
     <button class="light" type="button" onclick="addMaterialField()">
-      + Aggiungi materiale
+      <span data-i18n="createStoryAddMaterial">+ Aggiungi materiale</span>
     </button>
 
     <br><br>
 
     <button class="primary" onclick="createStory()">
-      Pubblica storia
+      <span data-i18n="createStoryPublish">Pubblica storia</span>
     </button>
   </div>
 </section>

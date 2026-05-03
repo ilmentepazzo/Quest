@@ -1,84 +1,34 @@
 <section id="area-master" class="page">
-  <h1>Area Master</h1>
-  <p>Gestisci disponibilità, richieste prenotazione e attività legate alle tue storie.</p>
+  <h1 data-i18n="masterAreaTitle">Area Master</h1>
+  <p data-i18n="masterAreaIntro">Gestisci disponibilità, richieste prenotazione e attività legate alle tue storie.</p>
 
   <div class="grid">
-    <div class="card">
-      <h2>Storie pubblicate</h2>
-      <p id="dashboardStoriesCount">0 storie attive</p>
-    </div>
-
-    <div class="card">
-      <h2>Prenotazioni</h2>
-      <p id="dashboardBookingCount">0 richieste</p>
-    </div>
-
-    <div class="card">
-      <h2>Valutazione</h2>
-      <p>★ 4.9 media recensioni</p>
-    </div>
+    <div class="card"><h2 data-i18n="masterPublishedStories">Storie pubblicate</h2><p id="dashboardStoriesCount">0 storie attive</p></div>
+    <div class="card"><h2 data-i18n="masterBookings">Prenotazioni</h2><p id="dashboardBookingCount">0 richieste</p></div>
+    <div class="card"><h2 data-i18n="masterRating">Valutazione</h2><p data-i18n="masterRatingText">★ 4.9 media recensioni</p></div>
   </div>
 
   <div class="master-sections-nav card">
-    <button type="button" class="master-section-tab active" data-master-view="availability" onclick="setMasterAreaView('availability')">Disponibilità</button>
-    <button type="button" class="master-section-tab" data-master-view="requests" onclick="setMasterAreaView('requests')">Richieste <span id="masterRequestsTabBadge" class="master-tab-badge">0</span></button>
-    <button type="button" class="master-section-tab" data-master-view="sessions" onclick="setMasterAreaView('sessions')">Sessioni pubbliche</button>
+    <button type="button" class="master-section-tab active" data-master-view="availability" onclick="setMasterAreaView('availability')"><span data-i18n="masterTabAvailability">Disponibilità</span></button>
+    <button type="button" class="master-section-tab" data-master-view="requests" onclick="setMasterAreaView('requests')"><span data-i18n="masterTabRequests">Richieste</span> <span id="masterRequestsTabBadge" class="master-tab-badge">0</span></button>
+    <button type="button" class="master-section-tab" data-master-view="sessions" onclick="setMasterAreaView('sessions')"><span data-i18n="masterTabPublicSessions">Sessioni pubbliche</span></button>
   </div>
 
   <div id="masterViewAvailability" class="master-view is-active">
     <div class="card master-availability-card">
-      <div class="section-heading-row">
-        <div>
-          <h2>Disponibilità calendario</h2>
-          <p>Imposta gli slot dal calendario e controlla a destra quelli già inseriti.</p>
-        </div>
-      </div>
-
+      <div class="section-heading-row"><div><h2 data-i18n="masterAvailabilityTitle">Disponibilità calendario</h2><p data-i18n="masterAvailabilityIntro">Imposta gli slot dal calendario e controlla a destra quelli già inseriti.</p></div></div>
       <div class="master-availability-layout">
-        <div class="master-availability-main">
-          <div class="availability-calendar-controls">
-            <select id="availabilityStoryId" onchange="renderMasterAvailability()">
-              <option value="">Scegli una tua storia Con Master</option>
-            </select>
-          </div>
-
-          <div id="masterAvailabilityPicker" class="master-availability-picker"></div>
-        </div>
-
-        <aside class="master-slots-sidebar">
-          <div class="master-subsection-head">
-            <h3>Slot già impostati</h3>
-            <span id="masterAvailabilityCount" class="pill-counter">0 slot</span>
-          </div>
-          <div id="masterAvailabilityList" class="availability-list compact-scroll"></div>
-        </aside>
+        <div class="master-availability-main"><div class="availability-calendar-controls"><select id="availabilityStoryId" onchange="renderMasterAvailability()"><option value="" data-i18n="masterChooseStory">Scegli una tua storia Con Master</option></select></div><div id="masterAvailabilityPicker" class="master-availability-picker"></div></div>
+        <aside class="master-slots-sidebar"><div class="master-subsection-head"><h3 data-i18n="masterExistingSlots">Slot già impostati</h3><span id="masterAvailabilityCount" class="pill-counter">0 slot</span></div><div id="masterAvailabilityList" class="availability-list compact-scroll"></div></aside>
       </div>
     </div>
   </div>
 
   <div id="masterViewRequests" class="master-view">
-    <div class="card">
-      <div class="section-heading-row">
-        <div>
-          <h2>Richieste prenotazione</h2>
-          <p>Qui arrivano le richieste dei giocatori per giocare una storia con te come Master.</p>
-        </div>
-      </div>
-      <div id="dashboardBookings" class="master-requests-list compact-scroll"></div>
-    </div>
+    <div class="card"><div class="section-heading-row"><div><h2 data-i18n="masterRequestsTitle">Richieste prenotazione</h2><p data-i18n="masterRequestsIntro">Qui arrivano le richieste dei giocatori per giocare una storia con te come Master.</p></div></div><div id="dashboardBookings" class="master-requests-list compact-scroll"></div></div>
   </div>
 
   <div id="masterViewSessions" class="master-view">
-    <div class="card master-public-sessions-card">
-      <div class="section-heading-row">
-        <div>
-          <h2>Sessioni pubbliche create</h2>
-          <p>Controlla i tavoli join-in legati alle tue storie, verifica i partecipanti e chiudi o annulla una sessione.</p>
-        </div>
-        <span id="masterPublicSessionsCount" class="pill-counter">0 sessioni pubbliche</span>
-      </div>
-
-      <div id="masterPublicSessions" class="master-session-list"></div>
-    </div>
+    <div class="card master-public-sessions-card"><div class="section-heading-row"><div><h2 data-i18n="masterPublicSessionsTitle">Sessioni pubbliche create</h2><p data-i18n="masterPublicSessionsIntro">Controlla i tavoli join-in legati alle tue storie, verifica i partecipanti e chiudi o annulla una sessione.</p></div><span id="masterPublicSessionsCount" class="pill-counter" data-i18n="masterPublicSessionsCount">0 sessioni pubbliche</span></div><div id="masterPublicSessions" class="master-session-list"></div></div>
   </div>
 </section>

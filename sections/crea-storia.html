@@ -1,72 +1,45 @@
 <section id="crea-storia" class="page">
-  <h1 id="createStoryPageTitle">Crea nuova storia</h1>
-  <p id="createStoryPageIntro">
-    Pubblica una storia self-play o una storia con Master. I materiali possono essere visibili subito,
-    dopo acquisto, durante la sessione o solo al Master.
-  </p>
+  <h1 id="createStoryPageTitle" data-i18n="createStoryTitle">Crea nuova storia</h1>
+  <p id="createStoryPageIntro" data-i18n="createStoryIntro">Pubblica una storia self-play o una storia con Master. I materiali possono essere visibili subito, dopo acquisto, durante la sessione o solo al Master.</p>
 
   <div class="card">
-    <h2>Informazioni pubbliche</h2>
-
-    <input id="newStoryTitle" data-required="true" placeholder="Titolo storia *" />
-
+    <h2 data-i18n="createStoryPublicInfo">Informazioni pubbliche</h2>
+    <input id="newStoryTitle" data-required="true" data-i18n-placeholder="createStoryTitlePlaceholder" placeholder="Titolo storia *" />
     <select id="newStoryGenre" data-required="true">
-      <option value="">Genere *</option>
-      <option>Fantasy</option>
-      <option>Horror</option>
-      <option>Investigativo</option>
-      <option>Cena con delitto</option>
-      <option>Sci-fi</option>
+      <option value="" data-i18n="genreRequired">Genere *</option>
+      <option value="Fantasy" data-i18n="genreFantasy">Fantasy</option>
+      <option value="Horror" data-i18n="genreHorror">Horror</option>
+      <option value="Investigativo" data-i18n="genreInvestigative">Investigativo</option>
+      <option value="Cena con delitto" data-i18n="genreMurderDinner">Cena con delitto</option>
+      <option value="Sci-fi" data-i18n="genreSciFi">Sci-fi</option>
     </select>
-
     <select id="newStoryType" data-required="true">
-      <option value="">Tipo *</option>
-      <option>Con Master</option>
-      <option>Self-play</option>
+      <option value="" data-i18n="typeRequired">Tipo *</option>
+      <option value="Con Master" data-i18n="typeWithMaster">Con Master</option>
+      <option value="Self-play" data-i18n="typeSelfPlay">Self-play</option>
     </select>
-
     <select id="newStoryPriceMode" data-required="true" onchange="togglePriceField()">
-      <option value="">Costo *</option>
-      <option value="free">Gratuita</option>
-      <option value="paid">A pagamento</option>
+      <option value="" data-i18n="costRequired">Costo *</option>
+      <option value="free" data-i18n="costFree">Gratuita</option>
+      <option value="paid" data-i18n="costPaid">A pagamento</option>
     </select>
-
-    <input id="newStoryPrice" type="number" placeholder="Prezzo in €" />
-
-    <input id="newStoryDuration" data-required="true" placeholder="Durata, es. 2 ore *" />
-    <input id="newStoryPlayers" data-required="true" placeholder="Numero giocatori, es. 3–5 *" />
-
-    <textarea id="newStoryDesc" data-required="true" placeholder="Descrizione breve pubblica *"></textarea>
-    <textarea id="newStoryLong" placeholder="Descrizione completa della storia"></textarea>
-
-    <h2>Media pubblici</h2>
-
-    <label for="newStoryCoverFile">Immagine copertina</label>
+    <input id="newStoryPrice" type="number" data-i18n-placeholder="priceEuro" placeholder="Prezzo in €" />
+    <input id="newStoryDuration" data-required="true" data-i18n-placeholder="createStoryDurationPlaceholder" placeholder="Durata, es. 2 ore *" />
+    <input id="newStoryPlayers" data-required="true" data-i18n-placeholder="createStoryPlayersPlaceholder" placeholder="Numero giocatori, es. 3–5 *" />
+    <textarea id="newStoryDesc" data-required="true" data-i18n-placeholder="createStoryShortDescPlaceholder" placeholder="Descrizione breve pubblica *"></textarea>
+    <textarea id="newStoryLong" data-i18n-placeholder="createStoryLongDescPlaceholder" placeholder="Descrizione completa della storia"></textarea>
+    <h2 data-i18n="createStoryMediaTitle">Media pubblici</h2>
+    <label for="newStoryCoverFile" data-i18n="createStoryCoverLabel">Immagine copertina</label>
     <input id="newStoryCoverFile" type="file" accept="image/jpeg,image/png,image/webp" />
-    <p class="form-help">Carica JPG, PNG o WebP. Verrà salvata nel bucket Supabase <strong>story-covers</strong>.</p>
-
-    <input id="newStoryCover" placeholder="Oppure URL immagine copertina pubblica" />
-    <input id="newStoryTrailer" placeholder="URL video trailer / presentazione" />
-
-    <h2>Materiali della storia</h2>
-    <p>
-      Usa il pulsante + per aggiungere più materiali. Ogni materiale può avere una visibilità diversa.
-    </p>
-
+    <p class="form-help" data-i18n="createStoryCoverHelp">Carica JPG, PNG o WebP. Verrà salvata nel bucket Supabase story-covers.</p>
+    <input id="newStoryCover" data-i18n-placeholder="createStoryCoverUrlPlaceholder" placeholder="Oppure URL immagine copertina pubblica" />
+    <input id="newStoryTrailer" data-i18n-placeholder="createStoryTrailerPlaceholder" placeholder="URL video trailer / presentazione" />
+    <h2 data-i18n="createStoryMaterialsTitle">Materiali della storia</h2>
+    <p data-i18n="createStoryMaterialsIntro">Usa il pulsante + per aggiungere più materiali. Ogni materiale può avere una visibilità diversa.</p>
     <div id="materialsBuilder"></div>
-
-    <button class="light" type="button" onclick="addMaterialField()">
-      + Aggiungi materiale
-    </button>
-
+    <button class="light" type="button" onclick="addMaterialField()" data-i18n="createStoryAddMaterial">+ Aggiungi materiale</button>
     <br><br>
-
-    <button id="createStorySubmitButton" class="primary" onclick="createStory()">
-      Pubblica storia
-    </button>
-
-    <button id="cancelStoryEditButton" class="light" type="button" onclick="cancelStoryEdit()" hidden>
-      Annulla modifica
-    </button>
+    <button id="createStorySubmitButton" class="primary" onclick="createStory()" data-i18n="createStoryPublish">Pubblica storia</button>
+    <button id="cancelStoryEditButton" class="light" type="button" onclick="cancelStoryEdit()" hidden data-i18n="createStoryCancelEdit">Annulla modifica</button>
   </div>
 </section>

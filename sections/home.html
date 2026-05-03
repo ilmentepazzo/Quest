@@ -1,35 +1,62 @@
-<section id="home" class="page active">
+<section id="home" class="page active home-page">
   <div class="hero">
     <div class="hero-copy">
-      <h1>Trova il Master giusto per la tua prossima avventura.</h1>
+      <span class="eyebrow" data-i18n="homeEyebrow">Lorecast marketplace</span>
+      <h1 data-i18n="homeTitle">Trova il Master giusto per la tua prossima avventura.</h1>
 
-      <p>
-        Marketplace per giochi di ruolo, horror, fantasy, investigative e cene con delitto.
-        Prenota un Master live oppure gioca storie in autonomia.
-      </p>
+      <p data-i18n="homeIntro">Marketplace per giochi di ruolo, horror, fantasy, investigative e cene con delitto. Prenota un Master live, unisciti a una sessione aperta oppure gioca storie in autonomia.</p>
 
       <div class="hero-actions">
-        <button class="primary" onclick="go('catalogo')">
-          Esplora storie
-        </button>
-
-        <button class="light" onclick="goCreateStory()">
-          Crea storia
-        </button>
+        <button class="primary" onclick="go('catalogo')" data-i18n="homeExploreStories">Esplora storie</button>
+        <button class="light" onclick="go('sessioni')" data-i18n="homeOpenSessions">Sessioni aperte</button>
+        <button class="light" onclick="goCreateStory()" data-i18n="homeCreateStory">Crea storia</button>
       </div>
     </div>
 
     <div class="hero-art-card">
-      <img
-        src="assets/home-hero.png"
-        alt="Avventura Lorecast"
-        class="hero-art-image"
-      />
+      <img src="assets/home-hero.png" alt="Avventura Lorecast" data-i18n-aria-label="homeHeroAlt" class="hero-art-image" />
     </div>
   </div>
 
+  <section class="home-section home-reviews-section">
+    <div class="section-heading-row compact-heading">
+      <div>
+        <span class="eyebrow" data-i18n="homeCommunity">Community</span>
+        <h2 data-i18n="homeReviewsTitle">Cosa dicono giocatori e Master</h2>
+        <p data-i18n="homeReviewsIntro">Recensioni compatte, immediate e centrate sull’esperienza vissuta.</p>
+      </div>
+      <button class="light" onclick="go('catalogo')" data-i18n="homeDiscoverStories">Scopri le storie</button>
+    </div>
+
+    <div class="home-reviews-grid">
+      <article class="home-review-card featured-review">
+        <div class="review-stars">★★★★★</div>
+        <p data-i18n="homeReview1">“Sessione curatissima: ritmo perfetto, atmosfera forte e materiali pronti da usare.”</p>
+        <div><strong>Giulia R.</strong><span>La Maschera del Re Corvo</span></div>
+      </article>
+
+      <article class="home-review-card">
+        <div class="review-stars">★★★★★</div>
+        <p data-i18n="homeReview2">“Mi sono unito da solo a una sessione aperta e ho trovato subito un gruppo.”</p>
+        <div><strong>Marco L.</strong><span>Black Hollow</span></div>
+      </article>
+
+      <article class="home-review-card">
+        <div class="review-stars">★★★★☆</div>
+        <p data-i18n="homeReview3">“Ho sbloccato una storia self-play e l’ho masterata a casa con amici. Comodissimo.”</p>
+        <div><strong>Elena P.</strong><span>Ultimo Brindisi</span></div>
+      </article>
+    </div>
+  </section>
+
   <section class="home-section">
-    <h2>Storie in evidenza</h2>
+    <div class="section-heading-row compact-heading">
+      <div>
+        <span class="eyebrow" data-i18n="homeCatalogEyebrow">Catalogo</span>
+        <h2 data-i18n="homeFeaturedTitle">Storie in evidenza</h2>
+      </div>
+      <button class="light" onclick="go('catalogo')" data-i18n="homeViewCatalog">Vedi catalogo</button>
+    </div>
     <div class="grid" id="featured"></div>
   </section>
 </section>

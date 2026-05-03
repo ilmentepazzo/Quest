@@ -1,40 +1,18 @@
 <section id="master" class="page">
-  <h1>Diventa Master</h1>
-  <p>Pubblica le tue storie, ricevi prenotazioni e costruisci la tua reputazione.</p>
-
+  <h1 data-i18n="becomeMasterTitle">Diventa Master</h1>
+  <p data-i18n="becomeMasterIntro">Pubblica le tue storie, ricevi prenotazioni e costruisci la tua reputazione.</p>
   <div class="grid">
-    <div class="card">
-      <h2>1. Crea profilo</h2>
-      <p>Presentati come Master professionale.</p>
-    </div>
-
-    <div class="card">
-      <h2>2. Pubblica storie</h2>
-      <p>Carica one-shot, campagne e cene con delitto.</p>
-    </div>
-
-    <div class="card">
-      <h2>3. Ricevi prenotazioni</h2>
-      <p>Trasforma la passione in lavoro.</p>
-    </div>
+    <div class="card"><h2 data-i18n="becomeMasterStep1">1. Crea profilo</h2><p data-i18n="becomeMasterStep1Text">Presentati come Master professionale.</p></div>
+    <div class="card"><h2 data-i18n="becomeMasterStep2">2. Pubblica storie</h2><p data-i18n="becomeMasterStep2Text">Carica one-shot, campagne e cene con delitto.</p></div>
+    <div class="card"><h2 data-i18n="becomeMasterStep3">3. Ricevi prenotazioni</h2><p data-i18n="becomeMasterStep3Text">Trasforma la passione in lavoro.</p></div>
   </div>
-
   <div class="card">
-    <h2>Candidatura Master</h2>
-
-    <input placeholder="Nome Master" />
-    <input placeholder="Email" />
-
-    <select>
-      <option>Specialità</option>
-      <option>Fantasy</option>
-      <option>Horror</option>
-      <option>Cena con delitto</option>
-    </select>
-
-    <textarea placeholder="Descrivi le esperienze che vuoi proporre"></textarea>
-
-    <button class="dark" onclick="notice('masterNotice')">Invia candidatura</button>
-    <div id="masterNotice" class="notice">Candidatura simulata salvata.</div>
+    <h2 data-i18n="becomeMasterApplication">Candidatura Master</h2>
+    <input data-i18n-placeholder="becomeMasterNamePlaceholder" placeholder="Nome Master" />
+    <input data-i18n-placeholder="contactEmailPlaceholder" placeholder="Email" />
+    <select><option data-i18n="becomeMasterSpecialty">Specialità</option><option>Fantasy</option><option>Horror</option><option data-i18n="genreMurderDinner">Cena con delitto</option></select>
+    <textarea data-i18n-placeholder="becomeMasterDescribePlaceholder" placeholder="Descrivi le esperienze che vuoi proporre"></textarea>
+    <button class="dark" onclick="notice('masterNotice')" data-i18n="becomeMasterSend">Invia candidatura</button>
+    <div id="masterNotice" class="notice" data-i18n="becomeMasterNotice">Candidatura simulata salvata.</div>
   </div>
 </section>

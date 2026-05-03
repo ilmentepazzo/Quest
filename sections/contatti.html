@@ -1,36 +1,29 @@
 <section id="contatti" class="page">
   <div class="content-narrow">
     <p class="eyebrow">Lorecast</p>
-    <h1>Contattaci</h1>
-    <p>
-      Hai domande, vuoi proporre una storia o vuoi collaborare come Master?
-      Scrivici: ti risponderemo appena possibile.
-    </p>
-
+    <h1 data-i18n="contactTitle">Contattaci</h1>
+    <p data-i18n="contactIntro">Hai domande, vuoi proporre una storia o vuoi collaborare come Master? Scrivici: ti risponderemo appena possibile.</p>
     <div class="contact-layout">
       <div class="card contact-card">
-        <h2>Invia un messaggio</h2>
-
-        <input id="contactName" placeholder="Nome" />
-        <input id="contactEmail" type="email" placeholder="Email" />
+        <h2 data-i18n="contactSendTitle">Invia un messaggio</h2>
+        <input id="contactName" data-i18n-placeholder="contactNamePlaceholder" placeholder="Nome" />
+        <input id="contactEmail" type="email" data-i18n-placeholder="contactEmailPlaceholder" placeholder="Email" />
         <select id="contactTopic">
-          <option value="">Motivo del contatto</option>
-          <option>Supporto account</option>
-          <option>Diventare Master</option>
-          <option>Collaborazioni</option>
-          <option>Altro</option>
+          <option value="" data-i18n="contactTopicPlaceholder">Motivo del contatto</option>
+          <option data-i18n="contactTopicSupport">Supporto account</option>
+          <option data-i18n="contactTopicBecomeMaster">Diventare Master</option>
+          <option data-i18n="contactTopicPartnerships">Collaborazioni</option>
+          <option data-i18n="contactTopicOther">Altro</option>
         </select>
-        <textarea id="contactMessage" placeholder="Scrivi il tuo messaggio"></textarea>
-
-        <button class="primary" onclick="notice('contactNotice')">Invia messaggio</button>
-        <div id="contactNotice" class="notice">Messaggio simulato salvato. Collegheremo l'invio reale più avanti.</div>
+        <textarea id="contactMessage" data-i18n-placeholder="contactMessagePlaceholder" placeholder="Scrivi il tuo messaggio"></textarea>
+        <button class="primary" onclick="notice('contactNotice')" data-i18n="contactSendButton">Invia messaggio</button>
+        <div id="contactNotice" class="notice" data-i18n="contactNotice">Messaggio simulato salvato. Collegheremo l'invio reale più avanti.</div>
       </div>
-
       <aside class="card contact-side-card">
-        <h2>Canali</h2>
+        <h2 data-i18n="contactChannels">Canali</h2>
         <p><strong>Email:</strong> support@lorecast.app</p>
         <p><strong>Master:</strong> master@lorecast.app</p>
-        <p><strong>Tempo risposta:</strong> 24–48 ore</p>
+        <p><strong data-i18n="contactResponseTime">Tempo risposta:</strong> 24–48 ore</p>
       </aside>
     </div>
   </div>

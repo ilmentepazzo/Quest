@@ -1,165 +1,100 @@
 <section id="scheda" class="page">
-  <button class="light" onclick="go('catalogo')">← Torna al catalogo</button>
+  <button class="light" onclick="go('catalogo')" data-i18n="commonBackToCatalog">← Torna al catalogo</button>
 
   <div class="detail story-detail-layout">
     <main>
       <div class="card">
         <div id="detailTags"></div>
-
         <h1 id="detailTitle"></h1>
         <p id="detailDesc"></p>
-
         <div id="detailMedia"></div>
-
-        <h2>Cosa aspettarsi</h2>
+        <h2 data-i18n="storyExpectations">Cosa aspettarsi</h2>
         <p id="detailLong"></p>
-
         <hr />
-
         <div class="story-facts-grid">
-          <p><strong>Durata:</strong> <span id="detailDuration"></span></p>
-          <p><strong>Giocatori:</strong> <span id="detailPlayers"></span></p>
-          <p><strong>Livello:</strong> <span id="detailLevel"></span></p>
-          <p><strong>Modalità:</strong> <span id="detailMode"></span></p>
+          <p><strong data-i18n="storyDurationLabel">Durata:</strong> <span id="detailDuration"></span></p>
+          <p><strong data-i18n="storyPlayersLabel">Giocatori:</strong> <span id="detailPlayers"></span></p>
+          <p><strong data-i18n="storyLevelLabel">Livello:</strong> <span id="detailLevel"></span></p>
+          <p><strong data-i18n="storyModeLabel">Modalità:</strong> <span id="detailMode"></span></p>
         </div>
       </div>
 
       <div class="card story-play-card">
-        <h2>Come vuoi giocare?</h2>
+        <h2 data-i18n="storyHowPlayTitle">Come vuoi giocare?</h2>
         <p id="detailAction"></p>
 
         <div id="storySelfPlayPanel" class="play-mode-panel">
-          <h3>Gioca in autonomia</h3>
-          <p>
-            Questa storia è self-play: puoi sbloccare i materiali e usarli quando vuoi,
-            anche se vuoi fare tu da Master con i tuoi amici.
-          </p>
-
-          <button id="unlockStoryButton" class="primary" onclick="unlockCurrentStory()">
-            Sblocca materiali self-play
-          </button>
+          <h3 data-i18n="storySelfPlayTitle">Gioca in autonomia</h3>
+          <p data-i18n="storySelfPlayText">Questa storia è self-play: puoi sbloccare i materiali e usarli quando vuoi, anche se vuoi fare tu da Master con i tuoi amici.</p>
+          <button id="unlockStoryButton" class="primary" onclick="unlockCurrentStory()" data-i18n="storyUnlockSelfPlay">Sblocca materiali self-play</button>
         </div>
 
         <div id="storyMasterBookingPanel" class="play-mode-panel">
-          <h3>Prenota una sessione con il Master</h3>
-          <p>
-            Scegli uno slot libero nel calendario del Master. Se uno slot è già occupato,
-            resta visibile ma non è prenotabile.
-          </p>
+          <h3 data-i18n="storyBookMasterTitle">Prenota una sessione con il Master</h3>
+          <p data-i18n="storyBookMasterText">Scegli uno slot libero nel calendario del Master. Se uno slot è già occupato, resta visibile ma non è prenotabile.</p>
 
           <div class="booking-choice-grid booking-choice-grid-calendar">
             <div class="booking-choice-box calendar-choice-box">
               <div class="booking-calendar-header-copy">
-                <h3>Calendario disponibilità</h3>
-                <p>Gli slot mostrano esattamente le disponibilità impostate dal Master per questa storia.</p>
+                <h3 data-i18n="storyAvailabilityCalendarTitle">Calendario disponibilità</h3>
+                <p data-i18n="storyAvailabilityCalendarText">Gli slot mostrano esattamente le disponibilità impostate dal Master per questa storia.</p>
               </div>
-
               <div id="bookingCalendar" class="booking-calendar"></div>
-
-              <div class="selected-slot-box" id="bookingSelectedSlotLabel">
-                Nessuno slot selezionato.
-              </div>
-
-              <input id="bookingGroup" type="text" placeholder="Nome gruppo / referente" />
-
+              <div class="selected-slot-box" id="bookingSelectedSlotLabel" data-i18n="storyNoSlotSelected">Nessuno slot selezionato.</div>
+              <input id="bookingGroup" type="text" data-i18n-placeholder="storyBookingGroupPlaceholder" placeholder="Nome gruppo / referente" />
               <select id="bookingPlayers">
-                <option value="">Numero giocatori</option>
-                <option>1</option>
-                <option>2</option>
-                <option>3</option>
-                <option>4</option>
-                <option>5+</option>
+                <option value="" data-i18n="storyBookingPlayersPlaceholder">Numero giocatori</option>
+                <option>1</option><option>2</option><option>3</option><option>4</option><option>5+</option>
               </select>
-
-              <textarea id="bookingMessage" placeholder="Messaggio per il Master (facoltativo)"></textarea>
-
-              <button class="primary" onclick="createBooking()">
-                Richiedi prenotazione privata
-              </button>
+              <textarea id="bookingMessage" data-i18n-placeholder="storyBookingMessagePlaceholder" placeholder="Messaggio per il Master (facoltativo)"></textarea>
+              <button class="primary" onclick="createBooking()" data-i18n="storyRequestPrivateBooking">Richiedi prenotazione privata</button>
             </div>
 
             <div class="booking-choice-box public-choice-box">
-              <h3>Sessione pubblica join-in</h3>
-              <p id="publicSessionIntro">
-                Puoi unirti a una sessione pubblica già creata dal Master, oppure richiedere una prenotazione privata.
-              </p>
-
+              <h3 data-i18n="storyPublicSessionTitle">Sessione pubblica join-in</h3>
+              <p id="publicSessionIntro" data-i18n="storyPublicSessionIntro">Puoi unirti a una sessione pubblica già creata dal Master, oppure richiedere una prenotazione privata.</p>
               <div id="joinSessionStatus"></div>
-
               <div class="join-session-actions">
-                <button id="createPublicSessionButton" class="dark" onclick="createPublicSession()">
-                  Crea sessione pubblica
-                </button>
-
-                <button id="joinPublicSessionButton" class="primary" onclick="joinPublicSession()">
-                  Unisciti alla sessione aperta
-                </button>
-
-                <button id="cancelJoinSessionButton" class="light danger-light" onclick="cancelOpenSession(currentStory?.id)" hidden>
-                  Annulla partecipazione
-                </button>
-
-                <button class="light" onclick="go('sessioni')">
-                  Vedi tutte le sessioni aperte
-                </button>
+                <button id="createPublicSessionButton" class="dark" onclick="createPublicSession()" data-i18n="storyCreatePublicSession">Crea sessione pubblica</button>
+                <button id="joinPublicSessionButton" class="primary" onclick="joinPublicSession()" data-i18n="storyJoinPublicSession">Unisciti alla sessione aperta</button>
+                <button id="cancelJoinSessionButton" class="light danger-light" onclick="cancelOpenSession(currentStory?.id)" hidden data-i18n="storyCancelParticipation">Annulla partecipazione</button>
+                <button class="light" onclick="go('sessioni')" data-i18n="storySeeAllOpenSessions">Vedi tutte le sessioni aperte</button>
               </div>
             </div>
           </div>
-
-          <div id="bookNotice" class="notice">
-            Richiesta inviata correttamente. Ora compare nell’Area Master.
-          </div>
+          <div id="bookNotice" class="notice" data-i18n="storyBookingNotice">Richiesta inviata correttamente. Ora compare nell’Area Master.</div>
         </div>
       </div>
 
       <div class="card">
-        <h2>Materiali di gioco</h2>
+        <h2 data-i18n="storyMaterialsTitle">Materiali di gioco</h2>
         <div id="storyMaterials"></div>
       </div>
     </main>
 
     <aside class="card story-summary-card payment-summary-card">
       <div class="payment-summary-header">
-        <span id="paymentPanelLabel">Pagamento</span>
+        <span id="paymentPanelLabel" data-i18n="storyPaymentLabel">Pagamento</span>
         <h2 id="paymentTotalPrice">0€</h2>
         <span id="detailPrice" hidden></span>
       </div>
-
       <p class="payment-story-title" id="paymentStoryTitle"></p>
-
       <div id="ownerStoryActions" class="owner-story-actions" hidden>
-        <button class="primary" type="button" onclick="openEditCurrentStory()">Modifica storia</button>
-        <button class="light" type="button" onclick="openEditCurrentStory({ focus: 'materials' })">Gestisci documenti</button>
-        <button class="light" type="button" onclick="go('area-master')">Modifica disponibilità</button>
-        <button class="light danger-light" type="button" onclick="deleteCurrentStory()">Elimina storia</button>
+        <button class="primary" type="button" onclick="openEditCurrentStory()" data-i18n="storyOwnerEdit">Modifica storia</button>
+        <button class="light" type="button" onclick="openEditCurrentStory({ focus: 'materials' })" data-i18n="storyOwnerDocs">Gestisci documenti</button>
+        <button class="light" type="button" onclick="go('area-master')" data-i18n="storyOwnerAvailability">Modifica disponibilità</button>
+        <button class="light danger-light" type="button" onclick="deleteCurrentStory()" data-i18n="storyOwnerDelete">Elimina storia</button>
       </div>
-      <p><strong>Master / Autore:</strong> <span id="detailMaster"></span></p>
+      <p><strong data-i18n="storyMasterAuthorLabel">Master / Autore:</strong> <span id="detailMaster"></span></p>
       <p class="payment-hint" id="paymentHint"></p>
-
-      <div id="paymentMethods" class="payment-methods" aria-label="Modalità di pagamento">
-        <label>
-          <input type="radio" name="paymentMethod" value="card" checked />
-          <span>Carta</span>
-        </label>
-        <label>
-          <input type="radio" name="paymentMethod" value="paypal" />
-          <span>PayPal</span>
-        </label>
-        <label>
-          <input type="radio" name="paymentMethod" value="wallet" />
-          <span>Google / Apple Pay</span>
-        </label>
+      <div id="paymentMethods" class="payment-methods" aria-label="Modalità di pagamento" data-i18n-aria-label="storyPaymentAria">
+        <label><input type="radio" name="paymentMethod" value="card" checked /> <span data-i18n="storyCardPayment">Carta</span></label>
+        <label><input type="radio" name="paymentMethod" value="paypal" /> <span>PayPal</span></label>
+        <label><input type="radio" name="paymentMethod" value="wallet" /> <span>Google / Apple Pay</span></label>
       </div>
-
-      <button id="paymentButton" class="primary payment-button" onclick="payForCurrentStory()">
-        Paga ora
-      </button>
-
-      <button id="summaryMasterButton" class="light" onclick="openMasterProfile()">Vedi profilo Master</button>
-
-      <small id="paymentNote" class="payment-note">
-        Pagamento simulato in fase prototipo. In produzione collegheremo Stripe o altro provider.
-      </small>
+      <button id="paymentButton" class="primary payment-button" onclick="payForCurrentStory()" data-i18n="storyPayNow">Paga ora</button>
+      <button id="summaryMasterButton" class="light" onclick="openMasterProfile()" data-i18n="storyViewMasterProfile">Vedi profilo Master</button>
+      <small id="paymentNote" class="payment-note" data-i18n="storyPaymentNote">Pagamento simulato in fase prototipo. In produzione collegheremo Stripe o altro provider.</small>
     </aside>
   </div>
 </section>

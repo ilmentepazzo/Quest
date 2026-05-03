@@ -91,6 +91,7 @@ function handleRouteHashChange() {
 
 async function loadSections() {
   const app = document.getElementById("app");
+  const initialPage = getInitialPage();
 
   for (const section of sections) {
     try {
@@ -113,6 +114,17 @@ async function loadSections() {
 
       const html = await response.text();
       app.insertAdjacentHTML("beforeend", html);
+
+      const insertedSection = document.getElementById(section);
+      if (insertedSection) {
+        if (section === "home" && initialPage !== "home") {
+          insertedSection.classList.remove("active");
+        }
+
+        if (section === initialPage && initialPage !== "scheda") {
+          insertedSection.classList.add("active");
+        }
+      }
     } catch (error) {
       console.warn(`Errore caricamento sezione ${section}:`, error);
     }
@@ -128,7 +140,6 @@ async function loadSections() {
 
   window.addEventListener("hashchange", handleRouteHashChange);
 
-  const initialPage = getInitialPage();
   if (initialPage === "scheda") {
     const savedStoryId = localStorage.getItem("questhubCurrentStoryId") || "";
     if (savedStoryId) {
@@ -4860,13 +4871,93 @@ function addNotification(message, type = "info", options = {}) {
   updateNotificationBadge();
 }
 
+function extractQuotedText(value) {
+  const match = String(value || "").match(/[“"]([^”"]+)[”"]/);
+  return match ? match[1] : "";
+}
+
+function getLocalizedNotificationMessage(notification) {
+  const rawMessage = String(notification?.message || "").trim();
+  if (!rawMessage) return t("notificationFallback", "Notifica");
+
+  const storyTitle = extractQuotedText(rawMessage);
+
+  if (notification?.type === "booking_message" || /^Nuovo messaggio da /i.test(rawMessage)) {
+    const senderMatch = rawMessage.match(/^Nuovo messaggio da\s+(.+?)\s+per\s+[“"]/i);
+    const sender = senderMatch?.[1]?.trim() || t("notificationSenderFallback", "un utente");
+    return tf("notificationMessageNewBookingMessage", {
+      sender,
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/prenotazione per [“"].+[”"] è stata accettata/i.test(rawMessage)) {
+    return tf("notificationMessageBookingAccepted", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/prenotazione per [“"].+[”"] è stata rifiutata/i.test(rawMessage)) {
+    return tf("notificationMessageBookingRejected", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^Nuova richiesta di prenotazione per /i.test(rawMessage)) {
+    return tf("notificationMessageBookingRequest", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^Richiesta di prenotazione inviata per /i.test(rawMessage)) {
+    return tf("notificationMessageBookingSent", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^La sessione pubblica di /i.test(rawMessage)) {
+    return tf("notificationMessagePublicSessionCancelled", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^Hai creato una sessione pubblica per /i.test(rawMessage)) {
+    return tf("notificationMessagePublicSessionCreated", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^Ti sei unito alla sessione pubblica:/i.test(rawMessage)) {
+    const story = rawMessage.split(":").slice(1).join(":").trim() || t("storyFallback", "una storia");
+    return tf("notificationMessagePublicSessionJoined", { storyTitle: story }, rawMessage);
+  }
+
+  if (/^Materiali sbloccati per /i.test(rawMessage)) {
+    return tf("notificationMessageMaterialsUnlocked", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  if (/^Modalità Master attivata/i.test(rawMessage)) {
+    return t("notificationMessageMasterModeActivated", rawMessage);
+  }
+
+  if (/^Hai eliminato la storia:/i.test(rawMessage)) {
+    return tf("notificationMessageStoryDeleted", {
+      storyTitle: storyTitle || t("storyFallback", "una storia")
+    }, rawMessage);
+  }
+
+  return rawMessage;
+}
+
 function getNotificationActionLabel(notification) {
-  if (!notification) return "Apri dettaglio";
-  if (notification.type === "booking_message") return "Apri messaggi";
-  if (notification.bookingId) return "Apri prenotazione";
-  if (notification.page === "area-master") return "Apri richieste";
-  if (notification.page === "profilo") return "Apri profilo";
-  return "Apri dettaglio";
+  if (!notification) return t("notificationActionDetail", "Apri dettaglio");
+  if (notification.type === "booking_message") return t("notificationActionMessages", "Apri messaggi");
+  if (notification.bookingId) return t("notificationActionBooking", "Apri prenotazione");
+  if (notification.page === "area-master") return t("notificationActionRequests", "Apri richieste");
+  if (notification.page === "profilo") return t("notificationActionProfile", "Apri profilo");
+  return t("notificationActionDetail", "Apri dettaglio");
 }
 
 function notificationHasAction(notification) {
@@ -4924,13 +5015,13 @@ function renderNotifications() {
             class="card notification-card ${notification.read ? "read" : "unread"} ${hasAction ? "notification-actionable" : ""}"
             ${hasAction ? `role="button" tabindex="0" onclick='handleNotificationItemClick(${notificationArg})'` : ""}
           >
-            <p><strong>${escapeHtml(notification.message || "Notifica")}</strong></p>
+            <p><strong>${escapeHtml(getLocalizedNotificationMessage(notification))}</strong></p>
             <p>${escapeHtml(notification.date || "")}</p>
             ${hasAction ? `<small>${getNotificationActionLabel(notification)}</small>` : ""}
           </div>
         `;
       }).join("")
-    : "<p>Non hai notifiche.</p>";
+    : `<p>${t("notificationsEmpty", "Non hai notifiche.")}</p>`;
 }
 
 function markNotificationsAsRead(showMessage = false) {
@@ -5100,13 +5191,13 @@ function renderNotificationsPreview() {
 
         return `
           <button type="button" class="notification-preview-item ${notification.read ? "read" : "unread"}" onclick='handleNotificationItemClick(${notificationArg})'>
-            <p><strong>${escapeHtml(notification.message || "Notifica")}</strong></p>
+            <p><strong>${escapeHtml(getLocalizedNotificationMessage(notification))}</strong></p>
             <small>${escapeHtml(notification.date || "")}</small>
             ${hasAction ? `<em>${getNotificationActionLabel(notification)}</em>` : ""}
           </button>
         `;
       }).join("")
-    : "<p>Nessuna notifica.</p>";
+    : `<p>${t("notificationsEmpty", "Nessuna notifica.")}</p>`;
 }
 
 /* HELPERS */

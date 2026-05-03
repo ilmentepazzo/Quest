@@ -136,7 +136,7 @@ async function loadSections() {
   updateNotificationBadge();
   await checkAuthSession();
   await loadSupabaseMarketplaceState();
-  renderFeatured();
+  renderHomeMarketplace();
 
   window.addEventListener("hashchange", handleRouteHashChange);
 
@@ -163,6 +163,39 @@ function storyJsArg(id) {
   return JSON.stringify(storyId(id));
 }
 
+const STORY_LANGUAGE_KEYS = {
+  it: "storyLanguageItalian",
+  en: "storyLanguageEnglish",
+  es: "storyLanguageSpanish",
+  fr: "storyLanguageFrench"
+};
+
+function getStoryLanguageCode(storyOrCode) {
+  const raw = typeof storyOrCode === "string"
+    ? storyOrCode
+    : (storyOrCode?.story_language || storyOrCode?.storyLanguage || storyOrCode?.language || "it");
+
+  const normalized = String(raw || "it").toLowerCase().slice(0, 2);
+  return STORY_LANGUAGE_KEYS[normalized] ? normalized : "it";
+}
+
+function getStoryLanguageLabel(storyOrCode) {
+  const code = getStoryLanguageCode(storyOrCode);
+  const fallbacks = {
+    it: "Italiano",
+    en: "English",
+    es: "Español",
+    fr: "Français"
+  };
+
+  return t(STORY_LANGUAGE_KEYS[code], fallbacks[code] || code.toUpperCase());
+}
+
+function getDefaultStoryLanguage() {
+  const current = getCurrentLanguage();
+  return STORY_LANGUAGE_KEYS[current] ? current : "it";
+}
+
 function normalizeSupabaseStory(row) {
   if (!row) return null;
 
@@ -175,6 +208,8 @@ function normalizeSupabaseStory(row) {
     title: row.title,
     genre: row.genre,
     type: row.type,
+    story_language: getStoryLanguageCode(row.story_language || row.language || "it"),
+    storyLanguage: getStoryLanguageCode(row.story_language || row.language || "it"),
     price: Number(row.price || 0),
     isFree: Boolean(row.is_free || Number(row.price || 0) === 0),
     duration: row.duration || "2 ore",
@@ -406,6 +441,11 @@ async function loadSupabaseMarketplaceState() {
     if (session.storyAuthorId) userIds.add(storyId(session.storyAuthorId));
   });
 
+  getAllStories().forEach(story => {
+    const authorId = story.author_id || story.owner_id || null;
+    if (authorId) userIds.add(storyId(authorId));
+  });
+
   await loadSupabaseProfilesForUserIds([...userIds]);
 }
 
@@ -608,6 +648,7 @@ function go(page, options = {}) {
     window.scrollTo(0, 0);
   }
 
+  if (targetPage === "home") renderHomeMarketplace();
   if (targetPage === "catalogo") renderCatalog();
   if (targetPage === "sessioni") renderOpenSessions();
 
@@ -1318,6 +1359,7 @@ function card(story) {
     : `<span class="story-price-paid">${story.price}€</span>`;
 
   const genreClass = getGenreClass(story.genre);
+  const languageLabel = getStoryLanguageLabel(story);
   const coverHtml = story.cover
     ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
          <div class="story-cover-title image-cover-title">
@@ -1340,6 +1382,7 @@ function card(story) {
         <div>
           <span class="tag ${genreClass}">${story.genre}</span>
           <span class="tag gold">${story.type}</span>
+          <span class="tag story-language-badge">${escapeHtml(languageLabel)}</span>
         </div>
 
         <h2>${story.title}</h2>
@@ -1349,7 +1392,7 @@ function card(story) {
         </button>
 
         <div class="story-card-meta">
-          <span>${story.players} giocatori</span>
+          <span>${story.players} ${t("storyPlayersShort", "giocatori")}</span>
           <strong>${priceLabel}</strong>
         </div>
       </div>
@@ -1357,11 +1400,207 @@ function card(story) {
   `;
 }
 
+function getStoryActivityStats(story) {
+  const id = storyId(story?.id);
+  if (!id) {
+    return {
+      acceptedBookings: 0,
+      completedBookings: 0,
+      activeBookings: 0,
+      openSessions: 0,
+      joinedPlayers: 0,
+      recentBoost: 0,
+      score: 0
+    };
+  }
+
+  const bookings = getBookings().filter(booking => storyIdsMatch(booking.storyId, id));
+  const acceptedBookings = bookings.filter(booking => isBookingAccepted(booking.status)).length;
+  const completedBookings = bookings.filter(booking => isBookingCompleted(booking.status)).length;
+  const activeBookings = bookings.filter(booking => !isBookingInactive(booking.status)).length;
+
+  const sessions = supabasePublicSessionsLoaded
+    ? supabasePublicSessionsCache.filter(session => storyIdsMatch(session.storyId, id))
+    : [];
+
+  const openSessions = sessions.filter(session => {
+    const status = String(session.status || "").toLowerCase();
+    return !["cancelled", "closed", "annullata", "chiusa"].includes(status);
+  }).length;
+
+  const joinedPlayers = sessions.reduce((sum, session) => sum + Number(session.joined || 0), 0);
+
+  const createdAt = story?.created_at ? new Date(story.created_at) : null;
+  const ageDays = createdAt && !Number.isNaN(createdAt.getTime())
+    ? (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+    : null;
+
+  const recentBoost = ageDays === null
+    ? 1
+    : ageDays <= 7
+      ? 6
+      : ageDays <= 30
+        ? 3
+        : 0;
+
+  const score =
+    completedBookings * 8 +
+    acceptedBookings * 5 +
+    activeBookings * 3 +
+    joinedPlayers * 4 +
+    openSessions * 3 +
+    recentBoost;
+
+  return {
+    acceptedBookings,
+    completedBookings,
+    activeBookings,
+    openSessions,
+    joinedPlayers,
+    recentBoost,
+    score
+  };
+}
+
+function getFeaturedStories(limit = 3) {
+  return getAllStories()
+    .map((story, index) => ({
+      story,
+      index,
+      stats: getStoryActivityStats(story)
+    }))
+    .sort((a, b) => {
+      if (b.stats.score !== a.stats.score) return b.stats.score - a.stats.score;
+
+      const dateA = a.story.created_at ? new Date(a.story.created_at).getTime() : 0;
+      const dateB = b.story.created_at ? new Date(b.story.created_at).getTime() : 0;
+      if (dateB !== dateA) return dateB - dateA;
+
+      return a.index - b.index;
+    })
+    .slice(0, limit)
+    .map(item => item.story);
+}
+
+function getTrendingMasterCards(limit = 3) {
+  const groups = new Map();
+
+  getAllStories().forEach(story => {
+    const authorId = storyId(story.author_id || story.owner_id || story.masterId || story.master || story.id);
+    if (!authorId) return;
+
+    if (!groups.has(authorId)) {
+      const profile = supabaseProfilesCache[authorId] || {};
+      groups.set(authorId, {
+        id: authorId,
+        name: profile.name || story.master || t("trendingMasterFallback", "Master Lorecast"),
+        avatarUrl: profile.avatar_url || "",
+        stories: [],
+        genres: new Set(),
+        languages: new Set(),
+        score: 0,
+        acceptedBookings: 0,
+        completedBookings: 0,
+        joinedPlayers: 0,
+        openSessions: 0
+      });
+    }
+
+    const group = groups.get(authorId);
+    const stats = getStoryActivityStats(story);
+
+    group.name = supabaseProfilesCache[authorId]?.name || story.master || group.name;
+    group.avatarUrl = supabaseProfilesCache[authorId]?.avatar_url || group.avatarUrl;
+    group.stories.push(story);
+    if (story.genre) group.genres.add(story.genre);
+    group.languages.add(getStoryLanguageCode(story));
+    group.acceptedBookings += stats.acceptedBookings;
+    group.completedBookings += stats.completedBookings;
+    group.joinedPlayers += stats.joinedPlayers;
+    group.openSessions += stats.openSessions;
+    group.score += stats.score + 3;
+  });
+
+  return [...groups.values()]
+    .filter(master => master.stories.length)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.stories.length !== a.stories.length) return b.stories.length - a.stories.length;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
+function renderTrendingMasters() {
+  const container = document.getElementById("trendingMasters");
+  if (!container) return;
+
+  const masters = getTrendingMasterCards(3);
+
+  if (!masters.length) {
+    container.innerHTML = `<p>${t("homeNoTrendingMasters", "Nessun Master in evidenza al momento.")}</p>`;
+    return;
+  }
+
+  container.innerHTML = masters.map(master => {
+    const firstStory = master.stories[0];
+    const firstStoryArg = storyJsArg(firstStory.id);
+    const initials = getPublicDisplayName(master.name, "M").slice(0, 1).toUpperCase();
+    const storyCountLabel = master.stories.length === 1
+      ? t("homeMasterStoriesOne", "1 storia")
+      : tf("homeMasterStoriesMany", { count: master.stories.length }, "{count} storie");
+    const activityCount = master.completedBookings + master.acceptedBookings + master.joinedPlayers;
+    const activityLabel = activityCount > 0
+      ? tf("homeMasterActivity", { count: activityCount }, "{count} attività")
+      : t("homeMasterNew", "Nuovo in evidenza");
+    const genres = [...master.genres].slice(0, 2);
+    const languages = [...master.languages].slice(0, 3).map(code => getStoryLanguageLabel(code));
+
+    return `
+      <article class="trending-master-card">
+        <div class="trending-master-top">
+          <div class="trending-master-avatar">
+            ${master.avatarUrl
+              ? `<img src="${escapeHtmlAttribute(master.avatarUrl)}" alt="${escapeHtmlAttribute(master.name)}" />`
+              : `<span>${escapeHtml(initials)}</span>`}
+          </div>
+          <div class="trending-master-title">
+            <h3>${escapeHtml(getPublicDisplayName(master.name, t("trendingMasterFallback", "Master Lorecast")))}</h3>
+            <p>${escapeHtml(activityLabel)}</p>
+          </div>
+        </div>
+
+        <div class="trending-master-stats">
+          <span><strong>${master.stories.length}</strong>${escapeHtml(storyCountLabel.replace(String(master.stories.length), "").trim() || t("homeMasterStoriesShort", "storie"))}</span>
+          <span><strong>${master.openSessions}</strong>${escapeHtml(t("homeMasterOpenSessionsShort", "aperte"))}</span>
+        </div>
+
+        <div class="trending-master-tags">
+          ${genres.map(genre => `<span class="tag ${getGenreClass(genre)}">${escapeHtml(genre)}</span>`).join("")}
+          ${languages.map(language => `<span class="tag story-language-badge">${escapeHtml(language)}</span>`).join("")}
+        </div>
+
+        <button class="light" type="button" onclick='openStoryAuthorProfile(${firstStoryArg})'>
+          ${escapeHtml(t("homeOpenMasterProfile", "Vedi profilo"))}
+        </button>
+      </article>
+    `;
+  }).join("");
+}
+
 function renderFeatured() {
   const container = document.getElementById("featured");
   if (!container) return;
 
-  container.innerHTML = getAllStories().slice(0, 3).map(card).join("");
+  const featuredStories = getFeaturedStories(3);
+  container.innerHTML = featuredStories.length
+    ? featuredStories.map(card).join("")
+    : `<p>${t("catalogNoResults", "Nessuna storia trovata.")}</p>`;
+}
+
+function renderHomeMarketplace() {
+  renderFeatured();
+  renderTrendingMasters();
 }
 
 async function renderCatalog() {
@@ -1375,6 +1614,7 @@ async function renderCatalog() {
   const genre = document.getElementById("genre")?.value || "";
   const type = document.getElementById("type")?.value || "";
   const price = document.getElementById("price")?.value || "";
+  const storyLanguage = document.getElementById("storyLanguageFilter")?.value || "";
 
   const results = getAllStories().filter(story => {
     const matchesSearch =
@@ -1385,13 +1625,14 @@ async function renderCatalog() {
 
     const matchesGenre = !genre || story.genre === genre;
     const matchesType = !type || story.type === type;
+    const matchesLanguage = !storyLanguage || getStoryLanguageCode(story) === storyLanguage;
     const matchesPrice = !price
       ? true
       : price === "free"
         ? story.isFree || Number(story.price) === 0
         : Number(story.price) <= Number(price);
 
-    return matchesSearch && matchesGenre && matchesType && matchesPrice;
+    return matchesSearch && matchesGenre && matchesType && matchesLanguage && matchesPrice;
   });
 
   count.textContent = results.length === 1
@@ -1428,6 +1669,7 @@ function openStory(id, options = {}) {
   setHtml("detailTags", `
     <span class="tag ${getGenreClass(story.genre)}">${story.genre}</span>
     <span class="tag gold">${story.type}</span>
+    <span class="tag story-language-badge">${escapeHtml(getStoryLanguageLabel(story))}</span>
   `);
 
   setText("detailTitle", story.title);
@@ -1437,6 +1679,7 @@ function openStory(id, options = {}) {
   setText("detailPlayers", story.players);
   setText("detailLevel", story.level);
   setText("detailMode", story.mode);
+  setText("detailLanguage", getStoryLanguageLabel(story));
   setHtml("detailMaster", `
     <button type="button" class="inline-author-link" onclick='openStoryAuthorProfile(${storyJsArg(story.id)})'>
       ${escapeHtml(story.master || currentMaster?.name || "Master non indicato")}
@@ -1801,11 +2044,13 @@ function resetFilters() {
   const genre = document.getElementById("genre");
   const type = document.getElementById("type");
   const price = document.getElementById("price");
+  const storyLanguage = document.getElementById("storyLanguageFilter");
 
   if (q) q.value = "";
   if (genre) genre.value = "";
   if (type) type.value = "";
   if (price) price.value = "";
+  if (storyLanguage) storyLanguage.value = "";
 
   renderCatalog();
 }
@@ -3915,6 +4160,7 @@ async function createStory() {
   const genre = document.getElementById("newStoryGenre")?.value || "";
   const type = document.getElementById("newStoryType")?.value || "";
   const priceMode = document.getElementById("newStoryPriceMode")?.value || "";
+  const storyLanguage = document.getElementById("newStoryLanguage")?.value || "";
   const priceValue = document.getElementById("newStoryPrice")?.value || "";
   const duration = document.getElementById("newStoryDuration")?.value.trim() || "";
   const players = document.getElementById("newStoryPlayers")?.value.trim() || "";
@@ -3930,6 +4176,7 @@ async function createStory() {
   if (!genre) errors.push(["newStoryGenre", "Seleziona un genere."]);
   if (!type) errors.push(["newStoryType", "Seleziona il tipo di storia."]);
   if (!priceMode) errors.push(["newStoryPriceMode", "Scegli se la storia è gratuita o a pagamento."]);
+  if (!storyLanguage) errors.push(["newStoryLanguage", "Seleziona la lingua della storia."]);
 
   if (priceMode === "paid" && (!priceValue || Number(priceValue) <= 0)) {
     errors.push(["newStoryPrice", "Inserisci un prezzo valido."]);
@@ -3970,6 +4217,7 @@ async function createStory() {
     title,
     genre,
     type,
+    story_language: storyLanguage,
     price: priceMode === "free" ? 0 : Number(priceValue),
     is_free: priceMode === "free",
     duration,
@@ -4050,6 +4298,9 @@ function clearStoryForm() {
       field.value = "";
     });
 
+  const languageField = document.getElementById("newStoryLanguage");
+  if (languageField) languageField.value = getDefaultStoryLanguage();
+
   const materialsBuilder = document.getElementById("materialsBuilder");
   if (materialsBuilder) materialsBuilder.innerHTML = "";
 }
@@ -4112,6 +4363,7 @@ function populateStoryFormForEdit(story) {
   setValue("newStoryGenre", story.genre);
   setValue("newStoryType", story.type);
   setValue("newStoryPriceMode", story.isFree || Number(story.price) === 0 ? "free" : "paid");
+  setValue("newStoryLanguage", getStoryLanguageCode(story));
   setValue("newStoryPrice", story.isFree ? "" : story.price);
   setValue("newStoryDuration", story.duration);
   setValue("newStoryPlayers", story.players);
@@ -5306,8 +5558,18 @@ async function refreshActivePageForLanguage() {
   updateHeaderUser();
   renderNotificationsPreview();
 
+  if (activePage === "home") {
+    renderHomeMarketplace();
+    return;
+  }
+
   if (activePage === "catalogo") {
     await renderCatalog();
+    return;
+  }
+
+  if (activePage === "scheda" && currentStory) {
+    openStory(currentStory.id, { replaceHistory: true });
     return;
   }
 

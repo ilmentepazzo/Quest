@@ -18,7 +18,31 @@
     </div>
   </div>
 
-  <section class="home-section home-reviews-section">
+  <section class="home-section home-featured-section">
+    <div class="section-heading-row compact-heading">
+      <div>
+        <span class="eyebrow" data-i18n="homeFeaturedEyebrow">In evidenza</span>
+        <h2 data-i18n="homeFeaturedTitle">Storie in evidenza della settimana</h2>
+        <p data-i18n="homeFeaturedIntro">Una selezione dinamica basata su attività, sessioni aperte e nuove pubblicazioni.</p>
+      </div>
+      <button class="light" onclick="go('catalogo')" data-i18n="homeViewCatalog">Vedi catalogo</button>
+    </div>
+    <div class="grid" id="featured"></div>
+  </section>
+
+  <section class="home-section home-trending-masters-section">
+    <div class="section-heading-row compact-heading">
+      <div>
+        <span class="eyebrow" data-i18n="homeTrendingMastersEyebrow">Master</span>
+        <h2 data-i18n="homeTrendingMastersTitle">Master in voga</h2>
+        <p data-i18n="homeTrendingMastersIntro">Autori e Master con storie attive, prenotazioni e sessioni pubbliche recenti.</p>
+      </div>
+      <button class="light" onclick="go('catalogo')" data-i18n="homeFindStories">Trova storie</button>
+    </div>
+    <div id="trendingMasters" class="trending-masters-grid"></div>
+  </section>
+
+  <section class="home-section home-reviews-section home-guest-only">
     <div class="section-heading-row compact-heading">
       <div>
         <span class="eyebrow" data-i18n="homeCommunity">Community</span>
@@ -47,16 +71,5 @@
         <div><strong>Elena P.</strong><span>Ultimo Brindisi</span></div>
       </article>
     </div>
-  </section>
-
-  <section class="home-section">
-    <div class="section-heading-row compact-heading">
-      <div>
-        <span class="eyebrow" data-i18n="homeCatalogEyebrow">Catalogo</span>
-        <h2 data-i18n="homeFeaturedTitle">Storie in evidenza</h2>
-      </div>
-      <button class="light" onclick="go('catalogo')" data-i18n="homeViewCatalog">Vedi catalogo</button>
-    </div>
-    <div class="grid" id="featured"></div>
   </section>
 </section>

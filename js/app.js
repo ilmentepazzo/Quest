@@ -858,27 +858,40 @@ window.loginWithGoogle = async function () {
   window.location.href = data.url;
 };
 
-window.logoutUser = async function () {
-  await supabaseClient.auth.signOut({ scope: "global" });
+function clearAuthStorageForLogout(storage) {
+  if (!storage) return;
 
-  Object.keys(localStorage).forEach(key => {
+  Object.keys(storage).forEach(key => {
     if (
       key.startsWith("sb-") ||
       key.includes("supabase") ||
       key === "questhubUserProfile" ||
-      key === "questhubCurrentStoryId"
+      key === "questhubCurrentStoryId" ||
+      key === "questhubCurrentPage"
     ) {
-      localStorage.removeItem(key);
+      storage.removeItem(key);
     }
   });
+}
+
+window.logoutUser = function () {
+  clearAuthStorageForLogout(localStorage);
+  clearAuthStorageForLogout(sessionStorage);
 
   setHomeAsNextRoute();
+  closeNotificationsDropdown();
+  closeUserMenu();
+  updateHeaderUser();
+  updateNotificationBadge();
+  go("home", { replaceHistory: true });
 
-  showToast("Logout effettuato.", "success");
+  showToast(t("logoutSuccess", "Logout effettuato."), "success");
 
-  setTimeout(() => {
-    window.location.href = `${window.location.origin}?logout=1#home`;
-  }, 500);
+  // Esegui il logout Supabase in background: l'interfaccia non deve restare bloccata
+  // se la rete è lenta o se il provider auth impiega qualche secondo a rispondere.
+  supabaseClient.auth.signOut({ scope: "local" }).catch(error => {
+    console.warn("Logout Supabase non completato immediatamente:", error.message);
+  });
 };
 
 async function renderAuthState() {

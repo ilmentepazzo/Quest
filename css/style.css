@@ -4827,3 +4827,277 @@ button.is-disabled {
     justify-items: start;
   }
 }
+
+/* UPDATE 62 - recensioni reali post-sessione */
+.review-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.review-modal-box {
+  width: min(100%, 560px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 26px;
+  border-radius: 30px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-strong);
+}
+
+.review-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.review-modal-header h2 {
+  margin-bottom: 6px;
+}
+
+.review-modal-header p:not(.eyebrow) {
+  margin: 0;
+}
+
+.review-modal-box label {
+  display: block;
+  margin-top: 14px;
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.review-modal-box textarea {
+  min-height: 130px;
+}
+
+.review-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.profile-info-chip.rating-chip {
+  background: #fffbeb;
+  color: var(--primary-dark);
+}
+
+.master-completed-bookings {
+  margin-top: 18px;
+}
+
+.public-master-review-card small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .review-modal {
+    padding: 14px;
+  }
+
+  .review-modal-box {
+    padding: 20px;
+  }
+
+  .review-modal-header,
+  .review-modal-actions {
+    flex-direction: column;
+  }
+
+  .review-modal-actions button {
+    width: 100%;
+  }
+}
+
+/* UPDATE 62B - Recensioni visibili anche nella scheda storia */
+.story-reviews-card {
+  border-color: rgba(124, 58, 237, 0.14);
+}
+
+.story-reviews-summary {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.story-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.story-review-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-soft);
+}
+
+.story-review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.story-review-card-head strong {
+  color: var(--primary);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.story-review-card-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.story-review-card p {
+  margin: 0 0 6px;
+}
+
+.story-review-card small {
+  color: var(--muted);
+}
+
+/* UPDATE 63 - Rating e recensioni più visibili nel marketplace */
+
+.story-card-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 10px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.story-card-rating span {
+  color: var(--primary);
+  letter-spacing: 0.4px;
+}
+
+.story-card-rating strong {
+  color: var(--text);
+}
+
+.story-card-rating small {
+  color: var(--primary-dark);
+  font-weight: 800;
+}
+
+.story-card-rating.is-empty {
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.story-card-rating.is-empty span,
+.story-card-rating.is-empty small {
+  color: var(--muted);
+}
+
+.story-detail-rating-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 16px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.story-detail-rating-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary-dark);
+}
+
+.story-detail-rating-main span,
+.story-detail-rating-summary > span {
+  color: var(--primary);
+  font-weight: 900;
+  letter-spacing: 0.6px;
+}
+
+.story-detail-rating-main strong,
+.story-detail-rating-copy strong,
+.story-detail-rating-summary > strong {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.story-detail-rating-copy {
+  display: grid;
+  gap: 1px;
+}
+
+.story-detail-rating-copy small,
+.story-detail-rating-summary > small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.story-detail-rating-summary.is-empty {
+  background: var(--surface-soft);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.story-detail-rating-summary.is-empty span,
+.story-detail-rating-summary.is-empty strong,
+.story-detail-rating-summary.is-empty small {
+  color: var(--muted);
+}
+
+.story-reviews-empty-state {
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--surface-soft);
+  border: 1px dashed var(--border-strong);
+}
+
+.story-reviews-empty-state strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.story-reviews-empty-state p {
+  margin: 0;
+}
+
+.story-review-card {
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.story-review-card:hover {
+  transform: translateY(-1px);
+  border-color: #fde68a;
+}
+
+@media (max-width: 700px) {
+  .story-detail-rating-summary {
+    display: grid;
+    align-items: start;
+  }
+}

@@ -16,6 +16,8 @@ let supabasePublicSessionsLoaded = false;
 let supabaseSessionParticipantsCache = [];
 let supabaseSessionParticipantsLoaded = false;
 let supabaseProfilesCache = {};
+let supabaseReviewsCache = [];
+let supabaseReviewsLoaded = false;
 let editingStoryId = null;
 let currentMasterAreaView = "availability";
 let currentBookingMessagesBookingId = null;
@@ -434,12 +436,53 @@ function normalizeSessionParticipant(row) {
   };
 }
 
+function normalizeReview(row) {
+  if (!row) return null;
+
+  return {
+    id: storyId(row.id || ""),
+    bookingId: storyId(row.booking_id || row.bookingId || ""),
+    storyId: storyId(row.story_id || row.storyId || ""),
+    masterId: storyId(row.master_id || row.masterId || ""),
+    user_id: row.user_id || row.userId || null,
+    rating: Math.max(1, Math.min(5, Number(row.rating || 0))),
+    text: row.comment || row.text || "",
+    author: row.author || "",
+    created_at: row.created_at || row.createdAt || null,
+    source: row.source || "supabase"
+  };
+}
+
+async function loadSupabaseReviews() {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const { data, error } = await supabaseClient
+    .from("reviews")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const message = String(error.message || "");
+    if (!message.toLowerCase().includes("does not exist") && !message.toLowerCase().includes("schema cache")) {
+      console.warn("Impossibile caricare recensioni:", error.message);
+    }
+    supabaseReviewsCache = [];
+    supabaseReviewsLoaded = false;
+    return [];
+  }
+
+  supabaseReviewsCache = (data || []).map(normalizeReview).filter(Boolean);
+  supabaseReviewsLoaded = true;
+  return supabaseReviewsCache;
+}
+
 async function loadSupabaseMarketplaceState() {
   await Promise.all([
     loadSupabaseAvailability(),
     loadSupabaseBookings(),
     loadSupabasePublicSessions(),
-    loadSupabaseNotifications()
+    loadSupabaseNotifications(),
+    loadSupabaseReviews()
   ]);
 
   const userIds = new Set();
@@ -461,6 +504,11 @@ async function loadSupabaseMarketplaceState() {
   getAllStories().forEach(story => {
     const authorId = story.author_id || story.owner_id || null;
     if (authorId) userIds.add(storyId(authorId));
+  });
+
+  supabaseReviewsCache.forEach(review => {
+    if (review.user_id) userIds.add(storyId(review.user_id));
+    if (review.masterId) userIds.add(storyId(review.masterId));
   });
 
   await loadSupabaseProfilesForUserIds([...userIds]);
@@ -991,6 +1039,7 @@ async function renderUserProfile() {
   const createdStories = supabaseStoriesCache.filter(story => story.author_id && storyId(story.author_id) === storyId(userId));
   await loadSupabaseBookings();
   await loadSupabasePublicSessions();
+  await loadSupabaseReviews();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
@@ -1053,22 +1102,100 @@ function compactStoryCover(story) {
 }
 
 function getStoryReviewsStore() {
-  return readJsonStorage("questhubStoryReviews", []);
+  const remoteReviews = supabaseReviewsLoaded ? supabaseReviewsCache : [];
+  const localReviews = readJsonStorage("questhubStoryReviews", [])
+    .map(review => normalizeReview({ ...review, source: "local" }))
+    .filter(Boolean);
+
+  const seen = new Set();
+  return [...remoteReviews, ...localReviews].filter(review => {
+    const key = review.id || review.bookingId || `${review.storyId}-${review.user_id}-${review.created_at}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getReviewAuthorName(review) {
+  const id = storyId(review?.user_id || "");
+  if (id && supabaseProfilesCache[id]?.name) return supabaseProfilesCache[id].name;
+  return review?.author || t("publicMasterGenericPlayer", "Giocatore Lorecast");
+}
+
+function getReviewDateLabel(review) {
+  return review?.created_at ? formatLocalizedDateTime(review.created_at) : (review?.date || "");
+}
+
+function getRatingStarsText(average) {
+  const value = Number(average || 0);
+  if (!value || Number.isNaN(value)) return "☆☆☆☆☆";
+
+  const rounded = Math.max(0, Math.min(5, Math.round(value)));
+  return `${"★".repeat(rounded)}${"☆".repeat(5 - rounded)}`;
+}
+
+function getReviewCountLabel(count) {
+  const total = Number(count || 0);
+  if (total === 1) return t("storyReviewCountOne", "1 recensione");
+  return tf("storyReviewCountMany", { count: total }, `${total} recensioni`);
+}
+
+function getReviewsForStory(storyIdValue) {
+  const id = storyId(storyIdValue);
+  if (!id) return [];
+
+  return getStoryReviewsStore()
+    .filter(review => storyIdsMatch(review.storyId, id))
+    .sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
 }
 
 function getStoryReviewSummary(storyIdValue) {
-  const reviews = getStoryReviewsStore().filter(review => storyIdsMatch(review.storyId, storyIdValue));
+  const reviews = getReviewsForStory(storyIdValue);
 
   if (!reviews.length) {
-    return { count: 0, average: null, label: t("profileNoReviews", "Nessuna recensione") };
+    return {
+      count: 0,
+      average: null,
+      averageLabel: "0.0",
+      starsText: "☆☆☆☆☆",
+      countLabel: t("storyNoReviewsShort", "Nessuna recensione"),
+      label: t("profileNoReviews", "Nessuna recensione")
+    };
   }
 
   const average = reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length;
+  const averageLabel = average.toFixed(1);
+  const countLabel = getReviewCountLabel(reviews.length);
+
   return {
     count: reviews.length,
     average,
-    label: `${average.toFixed(1)} ★ · ${reviews.length} ${reviews.length === 1 ? t("profileReviewSingular", "recensione") : t("profileReviewPlural", "recensioni")}`
+    averageLabel,
+    starsText: getRatingStarsText(average),
+    countLabel,
+    label: `${averageLabel} ★ · ${countLabel}`
   };
+}
+
+function renderStoryCardRating(story) {
+  const summary = getStoryReviewSummary(story?.id);
+
+  if (!summary.count) {
+    return `
+      <div class="story-card-rating is-empty" aria-label="${escapeHtmlAttribute(t("storyNoReviewsShort", "Nessuna recensione"))}">
+        <span aria-hidden="true">☆☆☆☆☆</span>
+        <small>${escapeHtml(t("storyNoReviewsShort", "Nessuna recensione"))}</small>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="story-card-rating" aria-label="${escapeHtmlAttribute(tf("storyRatingAria", { rating: summary.averageLabel, count: summary.count }, `${summary.averageLabel} su 5, ${summary.count} recensioni`))}">
+      <span aria-hidden="true">${summary.starsText}</span>
+      <strong>${summary.averageLabel}</strong>
+      <small>${escapeHtml(summary.countLabel)}</small>
+    </div>
+  `;
 }
 
 function getStoryBookingSummary(storyIdValue) {
@@ -1180,6 +1307,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 
     const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
+    const reviewAction = type === "booking" ? renderBookingReviewAction(item, "light compact-action") : "";
 
     return `
       <article class="profile-compact-item ${unreadMessages > 0 ? "has-unread-messages" : ""}">
@@ -1196,6 +1324,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
           ${reviewChip}
         </div>
         ${messageAction}
+        ${reviewAction}
         <button class="light compact-action" onclick='openStory(${storyArg})'>${t("commonOpen", "Apri")}</button>
       </article>
     `;
@@ -1426,6 +1555,7 @@ function card(story) {
         </div>
 
         <h2>${story.title}</h2>
+        ${renderStoryCardRating(story)}
         <p>${story.desc}</p>
         <button type="button" class="story-card-author" onclick='event.stopPropagation(); openStoryAuthorProfile(${storyArg})'>
           ${t("storyBy", "di")} ${escapeHtml(authorName)}
@@ -1759,6 +1889,7 @@ function openStory(id, options = {}) {
   setText("detailLevel", story.level);
   setText("detailMode", story.mode);
   setText("detailLanguage", getStoryLanguageLabel(story));
+  renderDetailRatingSummary(story);
   setHtml("detailMaster", `
     <button type="button" class="inline-author-link" onclick='openStoryAuthorProfile(${storyJsArg(story.id)})'>
       ${escapeHtml(story.master || currentMaster?.name || "Master non indicato")}
@@ -1779,6 +1910,7 @@ function openStory(id, options = {}) {
 
   renderStoryMedia(story);
   renderStoryMaterials(story);
+  renderStoryReviews(story);
   renderJoinSession(story);
   renderStoryBookingMode(story);
 
@@ -1974,6 +2106,95 @@ function renderStoryMaterials(story) {
   container.innerHTML = html;
 }
 
+function renderDetailRatingSummary(story = currentStory) {
+  const container = document.getElementById("detailRatingSummary");
+  if (!container) return;
+
+  const summary = getStoryReviewSummary(story?.id);
+
+  if (!summary.count) {
+    container.className = "story-detail-rating-summary is-empty";
+    container.innerHTML = `
+      <span aria-hidden="true">☆☆☆☆☆</span>
+      <strong>${escapeHtml(t("storyDetailNoReviews", "Ancora nessuna recensione"))}</strong>
+      <small>${escapeHtml(t("storyDetailNoReviewsHint", "Le recensioni appariranno dopo le prime sessioni completate."))}</small>
+    `;
+    return;
+  }
+
+  container.className = "story-detail-rating-summary";
+  container.innerHTML = `
+    <div class="story-detail-rating-main">
+      <span aria-hidden="true">${summary.starsText}</span>
+      <strong>${summary.averageLabel}</strong>
+    </div>
+    <div class="story-detail-rating-copy">
+      <strong>${escapeHtml(summary.countLabel)}</strong>
+      <small>${escapeHtml(t("storyDetailReviewsTrust", "Feedback verificato da sessioni completate"))}</small>
+    </div>
+  `;
+}
+
+function renderStoryReviewsEmptyState() {
+  return `
+    <div class="story-reviews-empty-state">
+      <strong>${escapeHtml(t("storyReviewsEmptyTitle", "Ancora nessuna recensione"))}</strong>
+      <p>${escapeHtml(t("storyReviewsEmptyText", "Dopo una sessione completata, i giocatori potranno lasciare una recensione verificata."))}</p>
+    </div>
+  `;
+}
+
+function renderStoryReviews(story = currentStory) {
+  const container = document.getElementById("storyReviewsList");
+  const summaryEl = document.getElementById("storyReviewsSummary");
+  if (!container) return;
+
+  const storyIdValue = storyId(story?.id || "");
+
+  if (!storyIdValue) {
+    container.innerHTML = renderStoryReviewsEmptyState();
+    if (summaryEl) summaryEl.textContent = t("storyReviewsSummaryNone", "Nessuna recensione ancora.");
+    return;
+  }
+
+  if (!supabaseReviewsLoaded && typeof supabaseClient !== "undefined") {
+    container.innerHTML = `<p>${escapeHtml(t("storyReviewsLoading", "Caricamento recensioni..."))}</p>`;
+    loadSupabaseReviews().then(() => renderStoryReviews(story));
+    return;
+  }
+
+  const reviews = getReviewsForStory(storyIdValue);
+  const summary = getStoryReviewSummary(storyIdValue);
+
+  if (summaryEl) {
+    summaryEl.textContent = reviews.length
+      ? tf("storyReviewsSummaryMany", { count: reviews.length, rating: summary.average.toFixed(1) }, `${summary.average.toFixed(1)} ★ · ${reviews.length} recensioni`)
+      : t("storyReviewsSummaryNone", "Nessuna recensione ancora.");
+  }
+
+  if (!reviews.length) {
+    container.innerHTML = renderStoryReviewsEmptyState();
+    return;
+  }
+
+  container.innerHTML = reviews.slice(0, 6).map(review => {
+    const rating = Math.round(Number(review.rating || 0));
+    const author = getReviewAuthorName(review);
+    const date = getReviewDateLabel(review);
+
+    return `
+      <article class="story-review-card">
+        <div class="story-review-card-head">
+          <strong>${"★".repeat(rating)}${"☆".repeat(Math.max(0, 5 - rating))}</strong>
+          <span>${escapeHtml(author)}</span>
+        </div>
+        <p>${escapeHtml(review.text || "")}</p>
+        ${date ? `<small>${escapeHtml(date)}</small>` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
 function unlockCurrentStory() {
   if (!currentStory) return;
 
@@ -2003,10 +2224,10 @@ function getPublicMasterReviews(stories = []) {
     seen.add(reviewKey);
 
     reviews.push({
-      author: review.author || t("publicMasterGenericPlayer", "Giocatore Lorecast"),
+      author: getReviewAuthorName(review),
       rating: Number(review.rating || 0),
       text: review.text || "",
-      date: review.date || ""
+      date: getReviewDateLabel(review)
     });
   });
 
@@ -2151,6 +2372,7 @@ function renderPublicMasterReviews(stories = []) {
         <span>${escapeHtml(review.author || t("publicMasterGenericPlayer", "Giocatore Lorecast"))}</span>
       </div>
       <p>${escapeHtml(review.text || "")}</p>
+      ${review.date ? `<small>${escapeHtml(review.date)}</small>` : ""}
     </article>
   `).join("");
 }
@@ -3494,6 +3716,10 @@ function renderDashboardBookings() {
     .filter(booking => isBookingAccepted(booking.status))
     .sort((a, b) => `${a.date || ""} ${a.startTime || a.time || ""}`.localeCompare(`${b.date || ""} ${b.startTime || b.time || ""}`));
 
+  const completedBookings = masterBookings
+    .filter(booking => isBookingCompleted(booking.status))
+    .sort((a, b) => `${b.date || ""} ${b.startTime || b.time || ""}`.localeCompare(`${a.date || ""} ${a.startTime || a.time || ""}`));
+
   const confirmedUnreadCount = getTotalUnreadBookingMessagesForBookings(confirmedBookings);
 
   count.textContent = pendingBookings.length === 1
@@ -3579,6 +3805,40 @@ function renderDashboardBookings() {
                 </div>
                 <div class="master-confirmed-actions">
                   ${renderBookingMessageAction(booking, "light")}
+                  <button class="primary" onclick='completeBooking(${JSON.stringify(storyId(booking.id))})'>${t("bookingCompleteButton", "Segna completata")}</button>
+                  <button class="light" onclick='openStory(${storyArg})'>${t("storySingular", "Storia")}</button>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `
+    : "";
+
+  const completedHtml = completedBookings.length
+    ? `
+      <div class="master-confirmed-bookings master-completed-bookings">
+        <div class="master-subsection-head">
+          <h3>${t("masterCompletedBookings", "Sessioni completate")}</h3>
+          <span class="pill-counter">${tf("masterCompletedCount", { count: completedBookings.length }, `${completedBookings.length} completate`)}</span>
+        </div>
+        <div class="master-confirmed-list">
+          ${completedBookings.slice(0, 8).map(booking => {
+            const storyArg = JSON.stringify(storyId(booking.storyId));
+            const review = getReviewForBooking(booking.id);
+            return `
+              <article class="master-confirmed-booking-row">
+                <div class="master-confirmed-booking-main">
+                  <strong>${escapeHtml(booking.story)}</strong>
+                  <span>${formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime)}</span>
+                  <small>${escapeHtml(getUserDisplayName(booking.user_id))} · ${review ? `${t("reviewAlreadySent", "Recensita")} · ${"★".repeat(Number(review.rating || 0))}` : t("reviewWaitingForPlayer", "In attesa recensione")}</small>
+                </div>
+                <div class="master-confirmed-statuses">
+                  <span class="status accepted">${t("bookingStatusCompleted", "Completata")}</span>
+                  ${renderBookingPaymentChip(booking)}
+                </div>
+                <div class="master-confirmed-actions">
                   <button class="light" onclick='openStory(${storyArg})'>${t("storySingular", "Storia")}</button>
                 </div>
               </article>
@@ -3594,6 +3854,7 @@ function renderDashboardBookings() {
       ${pendingHtml}
     </div>
     ${confirmedHtml}
+    ${completedHtml}
   `;
 }
 
@@ -5515,16 +5776,22 @@ async function createNotificationForUser(userId, message, type = "info", options
 
   if (typeof supabaseClient === "undefined") return null;
 
+  const notificationPayload = {
+    user_id: userId,
+    message,
+    type,
+    read: false,
+    story_id: options.storyId ? storyId(options.storyId) : null,
+    page: options.page || null
+  };
+
+  if (options.bookingId) {
+    notificationPayload.booking_id = storyId(options.bookingId);
+  }
+
   const { data, error } = await supabaseClient
     .from("notifications")
-    .insert({
-      user_id: userId,
-      message,
-      type,
-      read: false,
-      story_id: options.storyId ? storyId(options.storyId) : null,
-      page: options.page || null
-    })
+    .insert(notificationPayload)
     .select()
     .single();
 
@@ -5617,6 +5884,14 @@ function getLocalizedNotificationMessage(notification) {
     return tf("notificationMessageMaterialsUnlocked", {
       storyTitle: storyTitle || t("storyFallback", "una storia")
     }, rawMessage);
+  }
+
+  if (/sessione per [“"].+[”"] è stata completata/i.test(rawMessage)) {
+    return tf("notificationMessageBookingCompleted", { storyTitle: storyTitle || t("storyFallback", "una storia") }, rawMessage);
+  }
+
+  if (/^Nuova recensione per /i.test(rawMessage)) {
+    return tf("notificationMessageReviewReceived", { storyTitle: storyTitle || t("storyFallback", "una storia") }, rawMessage);
   }
 
   if (/^Modalità Master attivata/i.test(rawMessage)) {
@@ -6179,6 +6454,22 @@ function scrollToProfileReviews() {
 }
 
 function getProfileReviews() {
+  const userId = getCurrentUserId();
+  const authoredStoryIds = new Set(getAllStories()
+    .filter(story => userId && storyIdsMatch(story.author_id || story.owner_id || story.masterId, userId))
+    .map(story => storyId(story.id)));
+
+  const realReviews = getStoryReviewsStore()
+    .filter(review => authoredStoryIds.has(storyId(review.storyId)) || (userId && storyIdsMatch(review.masterId, userId)))
+    .map(review => ({
+      ...review,
+      author: getReviewAuthorName(review),
+      date: getReviewDateLabel(review),
+      text: review.text || ""
+    }));
+
+  if (realReviews.length || supabaseReviewsLoaded) return realReviews;
+
   return [
     {
       author: "Marco",
@@ -6194,28 +6485,233 @@ function getProfileReviews() {
       author: "Davide",
       rating: 4,
       text: "Bella esperienza, storia interessante e ben organizzata."
-    },
-    {
-      author: "Giulia",
-      rating: 5,
-      text: "La storia è stata gestita con grande cura e tutti hanno avuto spazio."
-    },
-    {
-      author: "Nico",
-      rating: 4,
-      text: "Molto bella la parte investigativa, qualche passaggio poteva essere più rapido."
-    },
-    {
-      author: "Sara",
-      rating: 3,
-      text: "Buona sessione, atmosfera riuscita, ma avrei preferito più interazione."
-    },
-    {
-      author: "Luca",
-      rating: 5,
-      text: "Master preparato e finale memorabile."
     }
   ];
+}
+
+function getReviewForBooking(bookingIdValue) {
+  const id = storyId(bookingIdValue);
+  if (!id) return null;
+  return getStoryReviewsStore().find(review => storyIdsMatch(review.bookingId, id)) || null;
+}
+
+function canReviewBooking(booking) {
+  const userId = getCurrentUserId();
+  return Boolean(
+    booking &&
+    booking.source !== "public_session" &&
+    isBookingCompleted(booking.status) &&
+    booking.user_id &&
+    storyIdsMatch(booking.user_id, userId) &&
+    !getReviewForBooking(booking.id)
+  );
+}
+
+function renderBookingReviewAction(booking, className = "light compact-action") {
+  if (!booking || booking.source === "public_session" || !isBookingCompleted(booking.status)) return "";
+
+  const existingReview = getReviewForBooking(booking.id);
+  if (existingReview) {
+    return `<span class="profile-info-chip rating-chip">${t("reviewAlreadySent", "Recensita")} · ${"★".repeat(Number(existingReview.rating || 0))}</span>`;
+  }
+
+  if (!canReviewBooking(booking)) return "";
+
+  return `<button class="${className}" type="button" onclick='openReviewModal(${JSON.stringify(storyId(booking.id))})'>${t("reviewLeaveButton", "Lascia recensione")}</button>`;
+}
+
+function closeReviewModal() {
+  const modal = document.getElementById("bookingReviewModal");
+  if (modal) modal.remove();
+}
+
+function openReviewModal(bookingIdValue) {
+  const bookingId = storyId(bookingIdValue);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+
+  if (!canReviewBooking(booking)) {
+    const existingReview = getReviewForBooking(bookingId);
+    showToast(existingReview ? t("reviewAlreadySentToast", "Hai già recensito questa sessione.") : t("reviewNotAvailableToast", "Puoi recensire solo sessioni completate."), "warning");
+    return;
+  }
+
+  closeReviewModal();
+
+  const modal = document.createElement("div");
+  modal.id = "bookingReviewModal";
+  modal.className = "review-modal open";
+  modal.innerHTML = `
+    <div class="review-modal-box" role="dialog" aria-modal="true" aria-labelledby="bookingReviewTitle">
+      <div class="review-modal-header">
+        <div>
+          <p class="eyebrow">${escapeHtml(t("reviewModalEyebrow", "Recensione sessione"))}</p>
+          <h2 id="bookingReviewTitle">${escapeHtml(t("reviewModalTitle", "Com’è andata la sessione?"))}</h2>
+          <p>${escapeHtml(booking.story || t("storyFallback", "una storia"))} · ${escapeHtml(formatBookingDateTime(booking.date, booking.startTime || booking.time, booking.endTime))}</p>
+        </div>
+        <button class="icon-button light" type="button" onclick="closeReviewModal()" aria-label="${escapeHtmlAttribute(t("commonCloseModal", "Chiudi modale"))}">×</button>
+      </div>
+
+      <label for="bookingReviewRating">${escapeHtml(t("reviewRatingLabel", "Valutazione"))}</label>
+      <select id="bookingReviewRating">
+        <option value="5">★★★★★ · 5</option>
+        <option value="4">★★★★☆ · 4</option>
+        <option value="3">★★★☆☆ · 3</option>
+        <option value="2">★★☆☆☆ · 2</option>
+        <option value="1">★☆☆☆☆ · 1</option>
+      </select>
+
+      <label for="bookingReviewComment">${escapeHtml(t("reviewCommentLabel", "Commento"))}</label>
+      <textarea id="bookingReviewComment" maxlength="600" placeholder="${escapeHtmlAttribute(t("reviewCommentPlaceholder", "Racconta com’è stata l’esperienza. Evita dati personali o accordi esterni."))}"></textarea>
+      <p class="form-help">${escapeHtml(t("reviewCommentHelp", "Massimo 600 caratteri. La recensione sarà visibile sul profilo pubblico del Master."))}</p>
+
+      <div class="review-modal-actions">
+        <button class="light" type="button" onclick="closeReviewModal()">${escapeHtml(t("commonCancel", "Annulla"))}</button>
+        <button class="primary" type="button" onclick='submitBookingReview(${JSON.stringify(bookingId)})'>${escapeHtml(t("reviewSubmitButton", "Pubblica recensione"))}</button>
+      </div>
+    </div>
+  `;
+
+  modal.addEventListener("click", event => {
+    if (event.target === modal) closeReviewModal();
+  });
+
+  document.body.appendChild(modal);
+}
+
+async function submitBookingReview(bookingIdValue) {
+  const bookingId = storyId(bookingIdValue);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+
+  if (!canReviewBooking(booking)) {
+    showToast(t("reviewNotAvailableToast", "Puoi recensire solo sessioni completate."), "warning");
+    closeReviewModal();
+    return;
+  }
+
+  const rating = Number(document.getElementById("bookingReviewRating")?.value || 0);
+  const comment = String(document.getElementById("bookingReviewComment")?.value || "").trim();
+
+  if (!rating || rating < 1 || rating > 5) {
+    showToast(t("reviewRatingRequired", "Scegli una valutazione da 1 a 5 stelle."), "warning");
+    return;
+  }
+
+  if (comment.length < 10) {
+    showToast(t("reviewCommentRequired", "Scrivi un breve commento di almeno 10 caratteri."), "warning");
+    return;
+  }
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, booking.storyId));
+  const masterId = storyId(booking.masterId || story?.author_id || story?.owner_id || story?.masterId || "");
+  const payload = {
+    booking_id: bookingId,
+    story_id: storyId(booking.storyId),
+    master_id: masterId,
+    user_id: getCurrentUserId(),
+    rating,
+    comment
+  };
+
+  if (typeof supabaseClient !== "undefined" && booking.source === "supabase") {
+    const { data, error } = await supabaseClient
+      .from("reviews")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      const message = String(error.message || "");
+      showToast(message.includes("duplicate") || message.includes("unique") ? t("reviewAlreadySentToast", "Hai già recensito questa sessione.") : `${t("reviewSaveError", "Errore salvataggio recensione")}: ${error.message}`, "error");
+      return;
+    }
+
+    const normalized = normalizeReview(data);
+    if (normalized) supabaseReviewsCache = [normalized, ...supabaseReviewsCache.filter(review => !storyIdsMatch(review.id, normalized.id))];
+    supabaseReviewsLoaded = true;
+  } else {
+    const localReviews = readJsonStorage("questhubStoryReviews", []);
+    localReviews.unshift({
+      id: `local-review-${Date.now()}`,
+      bookingId,
+      storyId: storyId(booking.storyId),
+      masterId,
+      user_id: getCurrentUserId(),
+      author: getPublicDisplayName(getUserProfile(), t("publicMasterGenericPlayer", "Giocatore Lorecast")),
+      rating,
+      text: comment,
+      createdAt: new Date().toISOString(),
+      source: "local"
+    });
+    writeJsonStorage("questhubStoryReviews", localReviews);
+  }
+
+  closeReviewModal();
+  showToast(t("reviewPublishedToast", "Recensione pubblicata."), "success");
+  await loadSupabaseReviews();
+  await loadSupabaseMarketplaceState();
+  renderUserProfile();
+  renderStoryReviews(currentStory);
+  renderHomeMarketplace();
+}
+
+async function completeBooking(id) {
+  const bookingId = storyId(id);
+  let changedBooking = getBookings().find(booking => storyIdsMatch(booking.id, bookingId));
+
+  if (!changedBooking) {
+    showToast(t("bookingNotFound", "Prenotazione non trovata."), "warning");
+    return;
+  }
+
+  if (!isBookingAccepted(changedBooking.status)) {
+    showToast(t("bookingCompleteOnlyAccepted", "Puoi completare solo prenotazioni accettate."), "warning");
+    return;
+  }
+
+  if (!window.confirm(t("bookingCompleteConfirm", "Segnare questa prenotazione come completata? Il giocatore potrà lasciare una recensione."))) return;
+
+  if (typeof supabaseClient !== "undefined" && changedBooking.source === "supabase") {
+    const { data, error } = await supabaseClient
+      .from("bookings")
+      .update({ status: "Completata" })
+      .eq("id", bookingId)
+      .in("status", ["Accettata", "accettata", "accepted", "Accepted"])
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      showToast(`${t("bookingCompleteError", "Errore completamento prenotazione")}: ${error.message}`, "error");
+      return;
+    }
+
+    if (!data) {
+      showToast(t("bookingCompleteAlreadyChanged", "La prenotazione è già stata aggiornata."), "warning");
+    } else {
+      changedBooking = normalizeBooking(data);
+      supabaseBookingsCache = supabaseBookingsCache.map(booking => storyIdsMatch(booking.id, bookingId) ? changedBooking : booking);
+    }
+  } else {
+    const bookings = getBookings();
+    const updatedBookings = bookings.map(booking => storyIdsMatch(booking.id, bookingId) ? { ...booking, status: "Completata" } : booking);
+    localStorage.setItem("questhubBookings", JSON.stringify(updatedBookings));
+  }
+
+  // La notifica al giocatore viene garantita dal trigger SQL update62b.
+  // Il fallback frontend resta utile solo se le policy Supabase lo consentono.
+  await createNotificationForUser(
+    changedBooking.user_id,
+    `La sessione per "${changedBooking.story}" è stata completata. Puoi lasciare una recensione.`,
+    "booking_completed",
+    { storyId: changedBooking.storyId, page: "profilo", bookingId }
+  );
+
+  await loadSupabaseBookings();
+  await loadSupabaseNotifications();
+  renderDashboardBookings();
+  renderDashboardStats();
+  renderUserProfile();
+  renderHomeMarketplace();
+  showToast(t("bookingCompletedToast", "Prenotazione completata. Il giocatore può lasciare una recensione."), "success");
 }
 
 function setReviewFilter(rating) {

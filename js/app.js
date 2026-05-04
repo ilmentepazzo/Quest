@@ -5381,6 +5381,39 @@ function renderMasterAvailability() {
     : "<p>Non hai ancora impostato disponibilità per le tue storie.</p>";
 }
 
+function doTimeRangesOverlap(startA, endA, startB, endB) {
+  return timeToMinutes(startA) < timeToMinutes(endB) && timeToMinutes(endA) > timeToMinutes(startB);
+}
+
+function getCurrentMasterAvailabilityRules() {
+  const userId = getCurrentUserId();
+  if (!userId) return [];
+
+  const ownedStoryIds = new Set(getOwnedMasterStories().map(story => storyId(story.id)));
+
+  return getMasterAvailabilityRules().filter(rule => {
+    if (!rule?.availabilityDate || !rule.startTime || !rule.endTime) return false;
+    return storyIdsMatch(rule.masterId, userId) || (rule.storyId && ownedStoryIds.has(storyId(rule.storyId)));
+  });
+}
+
+function findMasterAvailabilityConflict({ date, startTime, endTime, excludeId = "" }) {
+  if (!date || !startTime || !endTime) return null;
+
+  return getCurrentMasterAvailabilityRules().find(rule => {
+    if (excludeId && storyIdsMatch(rule.id, excludeId)) return false;
+    if (rule.availabilityDate !== date) return false;
+    return doTimeRangesOverlap(startTime, endTime, rule.startTime, rule.endTime);
+  }) || null;
+}
+
+function getMasterAvailabilityConflictText(rule) {
+  if (!rule) return "";
+  const title = getStoryTitleById(rule.storyId || "");
+  const time = `${rule.startTime || ""}${rule.endTime ? `–${rule.endTime}` : ""}`;
+  return [title, time].filter(Boolean).join(" · ");
+}
+
 function getMasterAvailabilityCandidateSlots(story, day) {
   const duration = getStoryDurationMinutes(story);
   const dateIso = formatISODate(day);
@@ -5398,7 +5431,17 @@ function getMasterAvailabilityCandidateSlots(story, day) {
     const startTime = minutesToTime(start);
     const endTime = minutesToTime(end);
     const active = existing.some(rule => rule.startTime === startTime && rule.endTime === endTime);
-    return { date: dateIso, startTime, endTime, active };
+    const conflict = findMasterAvailabilityConflict({ date: dateIso, startTime, endTime });
+    const blocked = Boolean(conflict && !active);
+
+    return {
+      date: dateIso,
+      startTime,
+      endTime,
+      active,
+      blocked,
+      conflictText: getMasterAvailabilityConflictText(conflict)
+    };
   });
 }
 
@@ -5433,6 +5476,16 @@ function renderMasterAvailabilityPicker() {
       if (slot.active) {
         return `<div class="booking-slot-cell occupied availability-already-set"><span>${slot.startTime}</span><small>${slot.endTime}</small></div>`;
       }
+
+      if (slot.blocked) {
+        return `
+          <div class="booking-slot-cell occupied availability-conflict" title="${escapeHtmlAttribute(slot.conflictText || "Slot occupato")}">
+            <span>${slot.startTime}</span>
+            <small>${escapeHtml(slot.conflictText || t("availabilityBusy", "Occupato"))}</small>
+          </div>
+        `;
+      }
+
       return `
         <button type="button" class="booking-slot-cell available" onclick="addMasterAvailability('${slot.date}', '${slot.startTime}', '${slot.endTime}')">
           <span>${slot.startTime}</span>
@@ -5473,6 +5526,20 @@ async function addMasterAvailability(dateValue, startTime, endTime) {
 
   if (!dateValue || !startTime || !endTime) {
     showToast("Seleziona uno slot dal calendario.", "warning");
+    return;
+  }
+
+  const conflict = findMasterAvailabilityConflict({ date: dateValue, startTime, endTime });
+  if (conflict) {
+    showToast(
+      tf(
+        "availabilityConflictToast",
+        { story: getStoryTitleById(conflict.storyId || ""), start: conflict.startTime, end: conflict.endTime },
+        `Hai già uno slot su un'altra storia nello stesso orario.`
+      ),
+      "warning"
+    );
+    renderMasterAvailabilityPicker();
     return;
   }
 
@@ -5532,23 +5599,25 @@ async function repeatMasterAvailability(id) {
     candidateDates.push(formatISODate(addDays(base, i * 7)));
   }
 
-  const existingKeys = new Set(getMasterAvailabilityRules().map(rule =>
-    `${storyId(rule.storyId)}|${rule.availabilityDate}|${rule.startTime}|${rule.endTime}`
-  ));
+  const freeDates = candidateDates.filter(date => !findMasterAvailabilityConflict({
+    date,
+    startTime: existingRule.startTime,
+    endTime: existingRule.endTime
+  }));
 
-  const rows = candidateDates
-    .filter(date => !existingKeys.has(`${storyId(existingRule.storyId)}|${date}|${existingRule.startTime}|${existingRule.endTime}`))
-    .map(date => ({
-      story_id: storyId(existingRule.storyId),
-      master_id: userId,
-      availability_date: date,
-      weekday: new Date(`${date}T12:00:00`).getDay(),
-      start_time: existingRule.startTime,
-      end_time: existingRule.endTime
-    }));
+  const skippedDates = candidateDates.length - freeDates.length;
+
+  const rows = freeDates.map(date => ({
+    story_id: storyId(existingRule.storyId),
+    master_id: userId,
+    availability_date: date,
+    weekday: new Date(`${date}T12:00:00`).getDay(),
+    start_time: existingRule.startTime,
+    end_time: existingRule.endTime
+  }));
 
   if (!rows.length) {
-    showToast("Gli slot delle prossime settimane erano già presenti.", "info");
+    showToast(t("availabilityRepeatNoFreeSlots", "Le prossime settimane sono già occupate da altre disponibilità."), "info");
     return;
   }
 
@@ -5570,7 +5639,12 @@ async function repeatMasterAvailability(id) {
 
   renderMasterAvailability();
   if (currentStory) renderBookingCalendar(currentStory);
-  showToast(`Disponibilità ripetuta per ${rows.length} settimane.`, "success");
+  showToast(
+    skippedDates
+      ? tf("availabilityRepeatPartial", { added: rows.length, skipped: skippedDates }, `Disponibilità ripetuta per ${rows.length} settimane. Alcuni slot occupati sono stati saltati.`)
+      : tf("availabilityRepeatSuccess", { count: rows.length }, `Disponibilità ripetuta per ${rows.length} settimane.`),
+    "success"
+  );
 }
 
 async function notifyParticipantsForCancelledSession(session, storyTitle) {

@@ -5101,3 +5101,19 @@ button.is-disabled {
     align-items: start;
   }
 }
+
+/* UPDATE 64 - Blocca sovrapposizioni disponibilità Master tra storie diverse */
+.availability-conflict {
+  background: #f3f4f6 !important;
+  color: #4b5563 !important;
+  border-color: #d1d5db !important;
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
+.availability-conflict small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -552,7 +552,12 @@ window.translations = {
     "storyReviewsEmptyTitle": "Ancora nessuna recensione",
     "storyReviewsEmptyText": "Dopo una sessione completata, i giocatori potranno lasciare una recensione verificata.",
     "storyReviewsEmpty": "Non ci sono ancora recensioni per questa storia.",
-    "storyReviewsLoading": "Caricamento recensioni..."
+    "storyReviewsLoading": "Caricamento recensioni...",
+    "availabilityBusy": "Occupato",
+    "availabilityConflictToast": "Hai già uno slot su “{story}” nello stesso orario ({start}–{end}).",
+    "availabilityRepeatNoFreeSlots": "Le prossime settimane sono già occupate da altre disponibilità.",
+    "availabilityRepeatSuccess": "Disponibilità ripetuta per {count} settimane.",
+    "availabilityRepeatPartial": "Disponibilità ripetuta per {added} settimane. {skipped} slot occupati sono stati saltati."
   },
   "en": {
     "navStories": "Stories",
@@ -1107,7 +1112,12 @@ window.translations = {
     "storyReviewsEmptyTitle": "No reviews yet",
     "storyReviewsEmptyText": "After a completed session, players will be able to leave a verified review.",
     "storyReviewsEmpty": "There are no reviews for this story yet.",
-    "storyReviewsLoading": "Loading reviews..."
+    "storyReviewsLoading": "Loading reviews...",
+    "availabilityBusy": "Busy",
+    "availabilityConflictToast": "You already have a slot for “{story}” at the same time ({start}–{end}).",
+    "availabilityRepeatNoFreeSlots": "The next weeks are already blocked by other availability.",
+    "availabilityRepeatSuccess": "Availability repeated for {count} weeks.",
+    "availabilityRepeatPartial": "Availability repeated for {added} weeks. {skipped} busy slots were skipped."
   },
   "es": {
     "navStories": "Historias",
@@ -1662,7 +1672,12 @@ window.translations = {
     "storyReviewsEmptyTitle": "Aún no hay reseñas",
     "storyReviewsEmptyText": "Después de una sesión completada, los jugadores podrán dejar una reseña verificada.",
     "storyReviewsEmpty": "Todavía no hay reseñas para esta historia.",
-    "storyReviewsLoading": "Cargando reseñas..."
+    "storyReviewsLoading": "Cargando reseñas...",
+    "availabilityBusy": "Ocupado",
+    "availabilityConflictToast": "Ya tienes un horario para “{story}” a la misma hora ({start}–{end}).",
+    "availabilityRepeatNoFreeSlots": "Las próximas semanas ya están ocupadas por otras disponibilidades.",
+    "availabilityRepeatSuccess": "Disponibilidad repetida durante {count} semanas.",
+    "availabilityRepeatPartial": "Disponibilidad repetida durante {added} semanas. Se omitieron {skipped} horarios ocupados."
   },
   "fr": {
     "navStories": "Histoires",
@@ -2217,6 +2232,11 @@ window.translations = {
     "storyReviewsEmptyTitle": "Aucun avis pour le moment",
     "storyReviewsEmptyText": "Après une session terminée, les joueurs pourront laisser un avis vérifié.",
     "storyReviewsEmpty": "Il n’y a pas encore d’avis pour cette histoire.",
-    "storyReviewsLoading": "Chargement des avis..."
+    "storyReviewsLoading": "Chargement des avis...",
+    "availabilityBusy": "Occupé",
+    "availabilityConflictToast": "Tu as déjà un créneau pour « {story} » au même horaire ({start}–{end}).",
+    "availabilityRepeatNoFreeSlots": "Les prochaines semaines sont déjà occupées par d’autres disponibilités.",
+    "availabilityRepeatSuccess": "Disponibilité répétée pendant {count} semaines.",
+    "availabilityRepeatPartial": "Disponibilité répétée pendant {added} semaines. {skipped} créneaux occupés ont été ignorés."
   }
 };

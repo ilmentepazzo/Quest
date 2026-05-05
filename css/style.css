@@ -2485,7 +2485,9 @@ p {
   border-radius: 22px;
 }
 
-.join-session-confirmation > div:last-child {
+.join-session-confirmation > div:last-child,
+.join-session-owner-confirmation > div:last-child,
+.join-session-status-box > div:last-child {
   min-width: 0;
 }
 
@@ -3042,6 +3044,17 @@ body::after {
   border: 1px solid #bfdbfe;
   background: #eff6ff;
   color: #1e3a8a;
+}
+
+.join-session-confirmation,
+.join-session-owner-confirmation {
+  grid-template-columns: 1fr;
+  justify-items: start;
+}
+
+.join-session-confirmation .join-session-check,
+.join-session-owner-confirmation .join-session-check {
+  justify-self: start;
 }
 
 .muted-small {
@@ -5484,6 +5497,48 @@ button.is-disabled {
 .join-session-owner-confirmation .session-participants-panel-header,
 .join-session-status-box .session-participants-panel-header {
   gap: 6px;
+}
+
+.session-participants-panel.compact {
+  gap: 10px;
+  padding: 12px;
+}
+
+.session-participants-panel.compact .session-participants-panel-header {
+  gap: 6px;
+}
+
+.session-participants-panel.compact .session-participants-availability {
+  white-space: normal;
+}
+
+.session-participants-panel.compact .session-participant-row.with-avatar {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.session-participants-panel.compact .session-participant-row.with-avatar .session-participant-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
+}
+
+.session-participants-panel.compact .session-participant-main strong,
+.session-participants-panel.compact .session-participant-main small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.session-participants-panel.compact .session-participant-main small {
+  font-size: 11px;
+}
+
+.session-participants-panel.compact .session-participant-tag {
+  grid-column: 2;
+  justify-self: start;
+  white-space: normal;
 }
 
 @media (max-width: 680px) {

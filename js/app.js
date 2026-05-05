@@ -4373,9 +4373,10 @@ function renderSessionParticipantRows(session, story, options = {}) {
 function renderSessionParticipantsPanel(session, story, options = {}) {
   const joined = getSessionJoinedCount(session);
   const max = Number(session?.maxPlayers || 0);
+  const compactClass = options.compact ? " compact" : "";
 
   return `
-    <div class="session-participants-panel">
+    <div class="session-participants-panel${compactClass}">
       <div class="session-participants-panel-header">
         <div>
           <strong>${escapeHtml(t("sessionParticipants", "Partecipanti"))}</strong>
@@ -4444,7 +4445,7 @@ function renderJoinSession(story) {
           <p>${tf("publicSessionPlayersJoined", { joined: ownerSession.joined, max: ownerSession.maxPlayers }, `${ownerSession.joined} / ${ownerSession.maxPlayers} giocatori iscritti`)}</p>
           <p>${formatBookingDateTime(ownerSession.sessionDate, ownerSession.startTime, ownerSession.endTime)}</p>
           <p class="muted-small">${t("publicSessionMasterNotCounted", "Tu sei il Master: non vieni contato tra i giocatori.")}</p>
-          ${renderSessionParticipantsPanel(ownerSession, story, { includeHost: true })}
+          ${renderSessionParticipantsPanel(ownerSession, story, { includeHost: true, compact: true })}
         </div>
       </div>
     `;
@@ -4459,7 +4460,7 @@ function renderJoinSession(story) {
           <strong>${t("publicSessionYouJoined", "Ti sei unito a questa sessione pubblica")}</strong>
           <p>${tf("publicSessionPlayersJoined", { joined: joinedSession.joined, max: joinedSession.maxPlayers }, `${joinedSession.joined} / ${joinedSession.maxPlayers} giocatori iscritti`)}</p>
           <p>${formatBookingDateTime(joinedSession.sessionDate, joinedSession.startTime, joinedSession.endTime)}</p>
-          ${renderSessionParticipantsPanel(joinedSession, story, { includeHost: true })}
+          ${renderSessionParticipantsPanel(joinedSession, story, { includeHost: true, compact: true })}
         </div>
       </div>
     `;
@@ -4490,7 +4491,7 @@ function renderJoinSession(story) {
       <p><strong>${session.joined} / ${session.maxPlayers}</strong> ${t("publicSessionPlayers", "giocatori iscritti")}</p>
       <p>${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</p>
       <p><strong>${ready ? t("sessionStatusReady", "Sessione pronta a partire") : t("sessionStatusWaitingMore", "In attesa di altri giocatori")}</strong></p>
-      ${renderSessionParticipantsPanel(session, story, { includeHost: true })}
+      ${renderSessionParticipantsPanel(session, story, { includeHost: true, compact: true })}
     </div>
   `;
 }

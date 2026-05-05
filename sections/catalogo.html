@@ -23,6 +23,13 @@
         <option value="Self-play" data-i18n="typeSelfPlay">Self-play</option>
       </select>
 
+
+      <select id="experienceFormatFilter" onchange="renderCatalog()">
+        <option value="" data-i18n="experienceFormatAny">Tutti i formati</option>
+        <option value="one_shot_gdr" data-i18n="experienceFormatOneShotGdr">One-shot GDR</option>
+        <option value="campagna_gdr" data-i18n="experienceFormatCampaignGdr">Campagna GDR</option>
+      </select>
+
       <select id="price" onchange="renderCatalog()">
         <option value="" data-i18n="priceAny">Qualsiasi prezzo</option>
         <option value="free" data-i18n="priceFree">Gratis</option>

@@ -211,8 +211,7 @@ function getDefaultStoryLanguage() {
 
 const EXPERIENCE_FORMAT_KEYS = {
   one_shot_gdr: "experienceFormatOneShotGdr",
-  campagna_gdr: "experienceFormatCampaignGdr",
-  cena_con_delitto: "experienceFormatMurderDinner"
+  campagna_gdr: "experienceFormatCampaignGdr"
 };
 
 function normalizeExperienceFormat(value, fallback = "one_shot_gdr") {
@@ -226,10 +225,8 @@ function normalizeExperienceFormat(value, fallback = "one_shot_gdr") {
 }
 
 function inferExperienceFormat(story) {
-  const genre = String(story?.genre || "").toLowerCase();
   const type = String(story?.type || "").toLowerCase();
 
-  if (genre.includes("cena")) return "cena_con_delitto";
   if (type.includes("campagna")) return "campagna_gdr";
 
   return "one_shot_gdr";
@@ -250,8 +247,7 @@ function getExperienceFormatLabel(storyOrCode) {
   const code = getExperienceFormatCode(storyOrCode);
   const fallbacks = {
     one_shot_gdr: "One-shot GDR",
-    campagna_gdr: "Campagna GDR",
-    cena_con_delitto: "Cena con delitto"
+    campagna_gdr: "Campagna GDR"
   };
 
   return t(EXPERIENCE_FORMAT_KEYS[code], fallbacks[code] || fallbacks.one_shot_gdr);
@@ -1878,6 +1874,7 @@ async function renderCatalog() {
   const type = document.getElementById("type")?.value || "";
   const price = document.getElementById("price")?.value || "";
   const storyLanguage = document.getElementById("storyLanguageFilter")?.value || "";
+  const experienceFormat = document.getElementById("experienceFormatFilter")?.value || "";
 
   const results = getAllStories().filter(story => {
     const matchesSearch =
@@ -1889,6 +1886,7 @@ async function renderCatalog() {
 
     const matchesGenre = !genre || story.genre === genre;
     const matchesType = !type || story.type === type;
+    const matchesExperienceFormat = !experienceFormat || getExperienceFormatCode(story) === experienceFormat;
     const matchesLanguage = !storyLanguage || getStoryLanguageCode(story) === storyLanguage;
     const matchesPrice = !price
       ? true
@@ -1896,7 +1894,7 @@ async function renderCatalog() {
         ? story.isFree || Number(story.price) === 0
         : Number(story.price) <= Number(price);
 
-    return matchesSearch && matchesGenre && matchesType && matchesLanguage && matchesPrice;
+    return matchesSearch && matchesGenre && matchesType && matchesExperienceFormat && matchesLanguage && matchesPrice;
   });
 
   count.textContent = results.length === 1
@@ -2567,12 +2565,14 @@ function resetFilters() {
   const type = document.getElementById("type");
   const price = document.getElementById("price");
   const storyLanguage = document.getElementById("storyLanguageFilter");
+  const experienceFormat = document.getElementById("experienceFormatFilter");
 
   if (q) q.value = "";
   if (genre) genre.value = "";
   if (type) type.value = "";
   if (price) price.value = "";
   if (storyLanguage) storyLanguage.value = "";
+  if (experienceFormat) experienceFormat.value = "";
 
   renderCatalog();
 }

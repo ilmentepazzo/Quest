@@ -5294,3 +5294,169 @@ button.is-disabled {
     text-align: left;
   }
 }
+
+/* UPDATE 68 - partecipanti visibili nelle sessioni pubbliche */
+.session-participants-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 12px 0 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.88);
+}
+
+.session-participants-preview.is-empty {
+  color: #64748b;
+}
+
+.session-participants-avatars {
+  display: flex;
+  align-items: center;
+  min-width: max-content;
+}
+
+.session-participant-avatar {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  margin-left: -8px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 950;
+  overflow: hidden;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+}
+
+.session-participant-avatar:first-child {
+  margin-left: 0;
+}
+
+.session-participant-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.session-participant-avatar.muted {
+  background: #e5e7eb;
+  color: #475569;
+}
+
+.session-participant-avatar.more {
+  background: #111827;
+  color: #fff;
+}
+
+.session-participants-preview-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-participants-preview-copy strong {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.session-participants-preview-copy small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.session-participants-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.session-participants-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.session-participants-panel-header div {
+  display: grid;
+  gap: 2px;
+}
+
+.session-participants-panel-header strong {
+  color: #111827;
+}
+
+.session-participants-panel-header small,
+.session-participants-panel-header span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.session-participants-list.enhanced {
+  gap: 0;
+  margin-top: 0;
+}
+
+.session-participant-row.with-avatar {
+  justify-content: flex-start;
+  padding: 10px 0;
+}
+
+.session-participant-row.with-avatar .session-participant-avatar {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+
+.session-participant-row.with-avatar.is-host {
+  border-top: 0;
+}
+
+.session-participant-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-participant-main strong {
+  color: #111827;
+  line-height: 1.2;
+}
+
+.session-participant-main small {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.join-session-confirmation .session-participants-panel,
+.join-session-owner-confirmation .session-participants-panel,
+.join-session-status-box .session-participants-panel {
+  margin-top: 12px;
+}
+
+@media (max-width: 680px) {
+  .session-participants-preview,
+  .session-participants-panel-header {
+    align-items: flex-start;
+  }
+
+  .session-participants-preview {
+    flex-direction: column;
+  }
+
+  .session-participants-panel-header {
+    flex-direction: column;
+  }
+}

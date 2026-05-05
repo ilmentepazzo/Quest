@@ -673,7 +673,39 @@ async function loadSupabasePublicSessions() {
   supabaseSessionParticipantsCache = (participants || []).map(normalizeSessionParticipant).filter(Boolean);
   supabasePublicSessionsLoaded = true;
   supabaseSessionParticipantsLoaded = !participantsError;
+
+  const participantUserIds = supabaseSessionParticipantsCache
+    .map(participant => participant.user_id)
+    .filter(Boolean);
+  await loadSupabaseProfilesForUserIds(participantUserIds);
+
   return supabasePublicSessionsCache;
+}
+
+async function loadSupabaseSessionParticipants() {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const { data, error } = await supabaseClient
+    .from("session_participants")
+    .select("*")
+    .eq("status", "joined")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Impossibile caricare partecipanti sessioni:", error.message);
+    supabaseSessionParticipantsLoaded = false;
+    return [];
+  }
+
+  supabaseSessionParticipantsCache = (data || []).map(normalizeSessionParticipant).filter(Boolean);
+  supabaseSessionParticipantsLoaded = true;
+
+  const participantUserIds = supabaseSessionParticipantsCache
+    .map(participant => participant.user_id)
+    .filter(Boolean);
+  await loadSupabaseProfilesForUserIds(participantUserIds);
+
+  return supabaseSessionParticipantsCache;
 }
 
 function getStoryAuthorId(story) {
@@ -4206,6 +4238,152 @@ function getFirstOpenSessionForStory(storyIdValue) {
   return getOpenSessionsForStory(storyIdValue)[0] || null;
 }
 
+function getDisplayInitials(name = "") {
+  const words = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) return "LC";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0].charAt(0)}${words[1].charAt(0)}`.toUpperCase();
+}
+
+function getUserAvatarUrl(userId) {
+  const id = storyId(userId);
+  if (!id) return "";
+
+  if (storyIdsMatch(id, getCurrentUserId())) {
+    return getUserProfile().avatar_url || "";
+  }
+
+  return supabaseProfilesCache[id]?.avatar_url || "";
+}
+
+function renderParticipantAvatar(userId, fallbackName = "") {
+  const name = getUserDisplayName(userId, fallbackName || t("sessionParticipantFallbackGeneric", "Giocatore"));
+  const avatarUrl = getUserAvatarUrl(userId);
+
+  return `
+    <span class="session-participant-avatar" title="${escapeHtmlAttribute(name)}">
+      ${avatarUrl
+        ? `<img src="${escapeHtmlAttribute(avatarUrl)}" alt="${escapeHtmlAttribute(name)}" />`
+        : `<span>${escapeHtml(getDisplayInitials(name))}</span>`}
+    </span>
+  `;
+}
+
+function getSessionJoinedCount(session) {
+  const explicitCount = Number(session?.joined || 0);
+  if (explicitCount > 0) return explicitCount;
+
+  return getParticipantsForSession(session?.id).reduce((sum, participant) => {
+    return sum + Number(participant.seats || 1);
+  }, 0);
+}
+
+function getSessionSeatsLeft(session) {
+  return Math.max(0, Number(session?.maxPlayers || 0) - getSessionJoinedCount(session));
+}
+
+function getSessionParticipantSummaryText(session) {
+  const joined = getSessionJoinedCount(session);
+  const max = Number(session?.maxPlayers || 0);
+  return tf("publicSessionPlayersJoined", { joined, max }, `${joined} / ${max} giocatori iscritti`);
+}
+
+function getSessionSeatsLeftText(session) {
+  const seatsLeft = getSessionSeatsLeft(session);
+  if (seatsLeft <= 0) return t("sessionParticipantsFull", "Sessione completa");
+  return tf("sessionParticipantsSeatsLeft", { count: seatsLeft }, `${seatsLeft} posti rimasti`);
+}
+
+function renderSessionParticipantsPreview(session, options = {}) {
+  const participants = getParticipantsForSession(session?.id);
+  const visibleParticipants = participants.slice(0, 4);
+  const joined = getSessionJoinedCount(session);
+  const hiddenCount = Math.max(0, participants.length - visibleParticipants.length);
+  const emptyLabel = options.emptyLabel || t("sessionParticipantsPreviewEmpty", "I partecipanti appariranno qui quando qualcuno si iscrive.");
+
+  return `
+    <div class="session-participants-preview ${joined ? "" : "is-empty"}">
+      <div class="session-participants-avatars" aria-hidden="true">
+        ${visibleParticipants.length
+          ? visibleParticipants.map((participant, index) => renderParticipantAvatar(
+              participant.user_id,
+              tf("sessionParticipantFallback", { index: index + 1 }, `Giocatore ${index + 1}`)
+            )).join("")
+          : `<span class="session-participant-avatar muted"><span>👥</span></span>`}
+        ${hiddenCount > 0 ? `<span class="session-participant-avatar more">+${hiddenCount}</span>` : ""}
+      </div>
+      <div class="session-participants-preview-copy">
+        <strong>${joined ? escapeHtml(getSessionParticipantSummaryText(session)) : escapeHtml(emptyLabel)}</strong>
+        <small>${escapeHtml(getSessionSeatsLeftText(session))}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderSessionParticipantRows(session, story, options = {}) {
+  const participants = getParticipantsForSession(session?.id);
+  const rows = [];
+  const isMasterStory = String(story?.type || "").toLowerCase().includes("master");
+  const hostId = session?.storyAuthorId || (story ? getCurrentStoryMasterId(story) : null) || session?.createdBy || "";
+  const includeHost = options.includeHost !== false && hostId;
+
+  if (includeHost) {
+    const hostFallback = story?.master || t(isMasterStory ? "sessionParticipantMaster" : "sessionParticipantHost", isMasterStory ? "Master" : "Host");
+    rows.push(`
+      <div class="session-participant-row with-avatar is-host">
+        ${renderParticipantAvatar(hostId, hostFallback)}
+        <div class="session-participant-main">
+          <strong>${escapeHtml(getUserDisplayName(hostId, hostFallback))}</strong>
+          <small>${escapeHtml(t(isMasterStory ? "sessionParticipantMaster" : "sessionParticipantHost", isMasterStory ? "Master" : "Host"))}</small>
+        </div>
+      </div>
+    `);
+  }
+
+  participants.forEach((participant, index) => {
+    const fallback = tf("sessionParticipantFallback", { index: index + 1 }, `Giocatore ${index + 1}`);
+    const seats = Number(participant.seats || 1);
+    const isMe = storyIdsMatch(participant.user_id, getCurrentUserId());
+    rows.push(`
+      <div class="session-participant-row with-avatar">
+        ${renderParticipantAvatar(participant.user_id, fallback)}
+        <div class="session-participant-main">
+          <strong>${escapeHtml(isMe ? t("sessionParticipantYou", "Tu") : getUserDisplayName(participant.user_id, fallback))}</strong>
+          <small>${escapeHtml(tf(seats > 1 ? "sessionSeatsPlural" : "sessionSeatsSingular", { count: seats }, `${seats} posto${seats > 1 ? "i" : ""}`))}</small>
+        </div>
+      </div>
+    `);
+  });
+
+  if (!rows.length) {
+    return `<p class="muted-small">${escapeHtml(t("sessionNoPlayersYet", "Non ci sono ancora giocatori iscritti."))}</p>`;
+  }
+
+  return `<div class="session-participants-list enhanced">${rows.join("")}</div>`;
+}
+
+function renderSessionParticipantsPanel(session, story, options = {}) {
+  const joined = getSessionJoinedCount(session);
+  const max = Number(session?.maxPlayers || 0);
+
+  return `
+    <div class="session-participants-panel">
+      <div class="session-participants-panel-header">
+        <div>
+          <strong>${escapeHtml(t("sessionParticipants", "Partecipanti"))}</strong>
+          <small>${escapeHtml(tf("sessionParticipantsRegistered", { joined, max }, `${joined} / ${max} iscritti`))}</small>
+        </div>
+        <span>${escapeHtml(getSessionSeatsLeftText(session))}</span>
+      </div>
+      ${renderSessionParticipantRows(session, story, options)}
+    </div>
+  `;
+}
+
 function renderJoinSession(story) {
   const container = document.getElementById("joinSessionStatus");
   if (!container || !story) return;
@@ -4262,6 +4440,7 @@ function renderJoinSession(story) {
           <p>${tf("publicSessionPlayersJoined", { joined: ownerSession.joined, max: ownerSession.maxPlayers }, `${ownerSession.joined} / ${ownerSession.maxPlayers} giocatori iscritti`)}</p>
           <p>${formatBookingDateTime(ownerSession.sessionDate, ownerSession.startTime, ownerSession.endTime)}</p>
           <p class="muted-small">${t("publicSessionMasterNotCounted", "Tu sei il Master: non vieni contato tra i giocatori.")}</p>
+          ${renderSessionParticipantsPanel(ownerSession, story, { includeHost: true })}
         </div>
       </div>
     `;
@@ -4276,6 +4455,7 @@ function renderJoinSession(story) {
           <strong>${t("publicSessionYouJoined", "Ti sei unito a questa sessione pubblica")}</strong>
           <p>${tf("publicSessionPlayersJoined", { joined: joinedSession.joined, max: joinedSession.maxPlayers }, `${joinedSession.joined} / ${joinedSession.maxPlayers} giocatori iscritti`)}</p>
           <p>${formatBookingDateTime(joinedSession.sessionDate, joinedSession.startTime, joinedSession.endTime)}</p>
+          ${renderSessionParticipantsPanel(joinedSession, story, { includeHost: true })}
         </div>
       </div>
     `;
@@ -4306,6 +4486,7 @@ function renderJoinSession(story) {
       <p><strong>${session.joined} / ${session.maxPlayers}</strong> ${t("publicSessionPlayers", "giocatori iscritti")}</p>
       <p>${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</p>
       <p><strong>${ready ? t("sessionStatusReady", "Sessione pronta a partire") : t("sessionStatusWaitingMore", "In attesa di altri giocatori")}</strong></p>
+      ${renderSessionParticipantsPanel(session, story, { includeHost: true })}
     </div>
   `;
 }
@@ -4382,6 +4563,7 @@ function renderOpenSessions() {
                   <span><strong>${t("sessionSeats", "Posti")}:</strong> ${session.joined} / ${session.maxPlayers}</span>
                   <span><strong>${t("sessionStatusLabel", "Stato")}:</strong> ${status}</span>
                 </div>
+                ${renderSessionParticipantsPreview(session)}
                 ${isJoined ? `<div class="joined-inline-banner"><span>✓</span> ${t("sessionAlreadyJoined", "Sei già iscritto a questa sessione.")}</div>` : ""}
                 <div class="open-session-actions">
                   <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
@@ -5368,16 +5550,7 @@ function renderMasterPublicSessions() {
 
             <details class="session-participants-details">
               <summary>${t("sessionViewParticipants", "Vedi partecipanti")}</summary>
-              ${participants.length
-                ? `<div class="session-participants-list">
-                    ${participants.map((participant, index) => `
-                      <div class="session-participant-row">
-                        <span>${escapeHtml(getUserDisplayName(participant.user_id, `Giocatore ${index + 1}`))}</span>
-                        <small>${tf(Number(participant.seats || 1) > 1 ? "sessionSeatsPlural" : "sessionSeatsSingular", { count: Number(participant.seats || 1) }, `${Number(participant.seats || 1)} posto${Number(participant.seats || 1) > 1 ? "i" : ""}`)}</small>
-                      </div>
-                    `).join("")}
-                  </div>`
-                : `<p class="muted-small">${t("sessionNoPlayersYet", "Non ci sono ancora giocatori iscritti.")}</p>`}
+              ${renderSessionParticipantRows(session, story, { includeHost: false })}
             </details>
 
             ${["open", "complete"].includes(session.status) ? `

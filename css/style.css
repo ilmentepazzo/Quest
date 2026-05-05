@@ -5117,3 +5117,91 @@ button.is-disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+/* UPDATE 64B - Disponibilità Master: stati calendario più chiari */
+#masterAvailabilityPicker .availability-calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#masterAvailabilityPicker .availability-calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#masterAvailabilityPicker .availability-calendar-legend i {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+}
+
+#masterAvailabilityPicker .legend-free {
+  background: #fef3c7;
+}
+
+#masterAvailabilityPicker .legend-start {
+  background: #dcfce7;
+}
+
+#masterAvailabilityPicker .legend-duration {
+  background: #ffe4e6;
+}
+
+#masterAvailabilityPicker .legend-other {
+  background: #e5e7eb;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-start-slot {
+  background: #dcfce7 !important;
+  border: 1px solid rgba(22, 101, 52, 0.26) !important;
+  color: #166534 !important;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-start-slot:hover {
+  background: #bbf7d0 !important;
+  box-shadow: 0 10px 24px rgba(22, 101, 52, 0.12);
+  transform: translateY(-1px);
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-start-slot span,
+#masterAvailabilityPicker .booking-slot-cell.availability-start-slot small {
+  color: #166534 !important;
+  text-decoration: none !important;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-duration-block {
+  background: #ffe4e6 !important;
+  border-color: rgba(244, 63, 94, 0.22) !important;
+  color: #9f1239 !important;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-duration-block span,
+#masterAvailabilityPicker .booking-slot-cell.availability-duration-block small {
+  color: #9f1239 !important;
+  text-decoration: none !important;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-conflict {
+  background: #e5e7eb !important;
+  border-color: #d1d5db !important;
+  color: #4b5563 !important;
+}
+
+#masterAvailabilityPicker .booking-slot-cell.availability-conflict span,
+#masterAvailabilityPicker .booking-slot-cell.availability-conflict small {
+  color: #4b5563 !important;
+  text-decoration: none !important;
+}

@@ -5430,16 +5430,31 @@ function getMasterAvailabilityCandidateSlots(story, day) {
     const end = start + duration;
     const startTime = minutesToTime(start);
     const endTime = minutesToTime(end);
-    const active = existing.some(rule => rule.startTime === startTime && rule.endTime === endTime);
-    const conflict = findMasterAvailabilityConflict({ date: dateIso, startTime, endTime });
-    const blocked = Boolean(conflict && !active);
+
+    const activeRule = existing.find(rule =>
+      rule.startTime === startTime && rule.endTime === endTime
+    ) || null;
+
+    const durationBlockRule = !activeRule
+      ? existing.find(rule => doTimeRangesOverlap(startTime, endTime, rule.startTime, rule.endTime)) || null
+      : null;
+
+    const conflict = !activeRule && !durationBlockRule
+      ? findMasterAvailabilityConflict({ date: dateIso, startTime, endTime })
+      : null;
 
     return {
       date: dateIso,
       startTime,
       endTime,
-      active,
-      blocked,
+      active: Boolean(activeRule),
+      activeRuleId: activeRule?.id || "",
+      activeStartTime: activeRule?.startTime || "",
+      activeEndTime: activeRule?.endTime || "",
+      durationBlocked: Boolean(durationBlockRule),
+      durationBlockStartTime: durationBlockRule?.startTime || "",
+      durationBlockEndTime: durationBlockRule?.endTime || "",
+      blocked: Boolean(conflict),
       conflictText: getMasterAvailabilityConflictText(conflict)
     };
   });
@@ -5473,15 +5488,49 @@ function renderMasterAvailabilityPicker() {
     const cells = slotsByDay.map(({ slots }) => {
       const slot = slots.find(item => item.startTime === time);
       if (!slot) return `<div class="booking-slot-cell empty">-</div>`;
+
       if (slot.active) {
-        return `<div class="booking-slot-cell occupied availability-already-set"><span>${slot.startTime}</span><small>${slot.endTime}</small></div>`;
+        const label = `${slot.activeStartTime || slot.startTime}–${slot.activeEndTime || slot.endTime}`;
+        return `
+          <button
+            type="button"
+            class="booking-slot-cell occupied availability-already-set availability-start-slot"
+            onclick='removeMasterAvailability(${JSON.stringify(storyId(slot.activeRuleId))})'
+            title="${escapeHtmlAttribute(t("availabilityClickRemove", "Clicca per rimuovere questa disponibilità"))}"
+          >
+            <span>${slot.startTime}</span>
+            <small>${escapeHtml(label)} · ${escapeHtml(t("availabilityRemoveShort", "Rimuovi"))}</small>
+          </button>
+        `;
+      }
+
+      if (slot.durationBlocked) {
+        const label = tf(
+          "availabilityBlockedByDuration",
+          { start: slot.durationBlockStartTime, end: slot.durationBlockEndTime },
+          `Bloccato da ${slot.durationBlockStartTime}–${slot.durationBlockEndTime}`
+        );
+
+        return `
+          <div
+            class="booking-slot-cell occupied availability-duration-block"
+            title="${escapeHtmlAttribute(tf(
+              "availabilityBlockedByDurationTitle",
+              { start: slot.durationBlockStartTime, end: slot.durationBlockEndTime },
+              `Occupato dalla disponibilità ${slot.durationBlockStartTime}–${slot.durationBlockEndTime}`
+            ))}"
+          >
+            <span>${slot.startTime}</span>
+            <small>${escapeHtml(label)}</small>
+          </div>
+        `;
       }
 
       if (slot.blocked) {
         return `
-          <div class="booking-slot-cell occupied availability-conflict" title="${escapeHtmlAttribute(slot.conflictText || "Slot occupato")}">
+          <div class="booking-slot-cell occupied availability-conflict" title="${escapeHtmlAttribute(slot.conflictText || t("availabilityOtherStory", "Occupato da altra storia"))}">
             <span>${slot.startTime}</span>
-            <small>${escapeHtml(slot.conflictText || t("availabilityBusy", "Occupato"))}</small>
+            <small>${escapeHtml(slot.conflictText || t("availabilityOtherStory", "Occupato da altra storia"))}</small>
           </div>
         `;
       }
@@ -5499,7 +5548,13 @@ function renderMasterAvailabilityPicker() {
   picker.innerHTML = `
     <div class="master-availability-picker-note">
       <strong>${escapeHtml(selectedStory.title)}</strong>
-      <span>Clicca l’orario di inizio: la fine viene calcolata automaticamente dalla durata della storia.</span>
+      <span>${escapeHtml(t("availabilityPickerHint", "Clicca un orario libero per aggiungerlo. Clicca una disponibilità già impostata per rimuoverla."))}</span>
+    </div>
+    <div class="availability-calendar-legend" aria-label="Legenda disponibilità">
+      <span><i class="legend-free"></i>${escapeHtml(t("availabilityLegendFree", "Libero"))}</span>
+      <span><i class="legend-start"></i>${escapeHtml(t("availabilityLegendStart", "Disponibilità"))}</span>
+      <span><i class="legend-duration"></i>${escapeHtml(t("availabilityLegendBlocked", "Bloccato dalla durata"))}</span>
+      <span><i class="legend-other"></i>${escapeHtml(t("availabilityLegendOther", "Altra storia"))}</span>
     </div>
     <div class="booking-calendar-toolbar">
       <button class="calendar-nav-button" type="button" onclick="shiftMasterAvailabilityCalendar(-3)">‹</button>
@@ -5710,7 +5765,7 @@ async function removeMasterAvailability(id) {
 
   if (!existingRule) return;
 
-  if (!confirm("Vuoi rimuovere questa disponibilità? Le sessioni e prenotazioni collegate saranno annullate e gli utenti riceveranno una notifica.")) {
+  if (!confirm(t("availabilityRemoveConfirm", "Vuoi rimuovere questa disponibilità? Le sessioni e prenotazioni collegate saranno annullate e gli utenti riceveranno una notifica."))) {
     return;
   }
 
@@ -5744,7 +5799,7 @@ async function removeMasterAvailability(id) {
   renderOpenSessions();
   renderBookingCalendar(currentStory);
   updateNotificationBadge();
-  showToast("Disponibilità rimossa. Eventuali sessioni e prenotazioni collegate sono state annullate.", "success");
+  showToast(t("availabilityRemoveSuccess", "Disponibilità rimossa. Eventuali sessioni e prenotazioni collegate sono state annullate."), "success");
 }
 
 

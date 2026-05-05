@@ -331,13 +331,38 @@ function getAllStories() {
   });
 }
 
+function getStoryAuthorId(story) {
+  return storyId(story?.author_id || story?.owner_id || story?.masterId || "");
+}
+
+function getStoryAuthorName(story, fallback = "Autore Lorecast") {
+  const authorId = getStoryAuthorId(story);
+  const profile = authorId ? supabaseProfilesCache[authorId] : null;
+
+  if (authorId && storyIdsMatch(authorId, getCurrentUserId())) {
+    const currentProfile = getUserProfile();
+    return getPublicDisplayName(currentProfile.name || story?.master || fallback, fallback);
+  }
+
+  return getPublicDisplayName(profile?.name || story?.master || fallback, fallback);
+}
+
+function getStoryAuthorSearchText(story) {
+  const authorId = getStoryAuthorId(story);
+  const profile = authorId ? supabaseProfilesCache[authorId] : null;
+
+  return [
+    story?.master,
+    profile?.name,
+    authorId ? getStoryAuthorName(story, "") : ""
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
 function getStoriesByAuthorId(authorId) {
   const normalizedAuthorId = storyId(authorId);
   if (!normalizedAuthorId) return [];
 
-  return getAllStories().filter(story =>
-    storyId(story.author_id || story.owner_id || story.masterId) === normalizedAuthorId
-  );
+  return getAllStories().filter(story => getStoryAuthorId(story) === normalizedAuthorId);
 }
 
 function getUnlockedStories() {
@@ -1602,7 +1627,7 @@ function getGenreClass(genre) {
 
 function card(story) {
   const storyArg = storyJsArg(story.id);
-  const authorName = story.master || "Autore Lorecast";
+  const authorName = getStoryAuthorName(story, t("trendingMasterFallback", "Master Lorecast"));
   const priceLabel = story.isFree || Number(story.price) === 0
     ? `<span class="story-price-free">${t("priceFree", "Gratis")}</span>`
     : `<span class="story-price-paid">${formatMoney(story.price, { freeLabel: false })}</span>`;
@@ -1901,19 +1926,25 @@ async function renderCatalog() {
 
   await loadSupabaseStories();
 
-  const q = document.getElementById("q")?.value.toLowerCase() || "";
+  const catalogStories = getAllStories();
+  const authorIds = catalogStories.map(getStoryAuthorId).filter(Boolean);
+  await loadSupabaseProfilesForUserIds(authorIds);
+
+  const q = document.getElementById("q")?.value.toLowerCase().trim() || "";
   const genre = document.getElementById("genre")?.value || "";
   const type = document.getElementById("type")?.value || "";
   const price = document.getElementById("price")?.value || "";
   const storyLanguage = document.getElementById("storyLanguageFilter")?.value || "";
   const experienceFormat = document.getElementById("experienceFormatFilter")?.value || "";
 
-  const results = getAllStories().filter(story => {
+  const results = catalogStories.filter(story => {
+    const authorSearchText = getStoryAuthorSearchText(story);
     const matchesSearch =
       !q ||
       story.title.toLowerCase().includes(q) ||
       story.desc.toLowerCase().includes(q) ||
       story.genre.toLowerCase().includes(q) ||
+      authorSearchText.includes(q) ||
       getExperienceFormatLabel(story).toLowerCase().includes(q);
 
     const matchesGenre = !genre || story.genre === genre;
@@ -1979,7 +2010,7 @@ function openStory(id, options = {}) {
   renderDetailRatingSummary(story);
   setHtml("detailMaster", `
     <button type="button" class="inline-author-link" onclick='openStoryAuthorProfile(${storyJsArg(story.id)})'>
-      ${escapeHtml(story.master || currentMaster?.name || "Master non indicato")}
+      ${escapeHtml(getStoryAuthorName(story, currentMaster?.name || "Master non indicato"))}
     </button>
   `);
 

@@ -551,6 +551,14 @@ footer,
   align-self: start;
 }
 
+.filter-hint {
+  margin: -6px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .story-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1386,6 +1394,10 @@ body:not(.is-logged-in) #notificationButton {
   background: #f8fafc;
 }
 
+.booking-choice-grid-calendar .public-choice-box {
+  min-width: 0;
+}
+
 @media (max-width: 950px) {
   .user-dropdown {
     top: auto;
@@ -1472,7 +1484,7 @@ body:not(.is-logged-in) #notificationButton {
 }
 
 .booking-choice-grid-calendar {
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
 }
 
 .calendar-choice-box {

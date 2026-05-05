@@ -6,7 +6,8 @@
     <aside class="card filters">
       <h2 data-i18n="catalogFilters">Filtri</h2>
 
-      <input id="q" data-i18n-placeholder="catalogSearchPlaceholder" placeholder="Cerca titolo o parola" oninput="renderCatalog()" />
+      <input id="q" data-i18n-placeholder="catalogSearchPlaceholder" placeholder="Cerca titolo, parola o Master" oninput="renderCatalog()" />
+      <p class="filter-hint" data-i18n="catalogSearchHint">Puoi cercare anche il nome del Master.</p>
 
       <select id="genre" onchange="renderCatalog()">
         <option value="" data-i18n="genreAny">Tutti i generi</option>

@@ -31,7 +31,8 @@
       <option value="fr" data-i18n="storyLanguageFrench">Français</option>
     </select>
     <p class="form-help" data-i18n="createStoryLanguageHelp">Indica la lingua principale in cui si gioca la sessione o sono scritti i materiali.</p>
-    <input id="newStoryPrice" type="number" data-i18n-placeholder="priceEuro" placeholder="Prezzo in €" />
+    <input id="newStoryPrice" type="number" min="0" step="0.01" data-i18n-placeholder="priceEuro" placeholder="Prezzo in €" oninput="renderStoryFeeEstimate()" />
+    <div id="newStoryFeeEstimate" class="fee-estimate-card" hidden></div>
     <input id="newStoryDuration" data-required="true" data-i18n-placeholder="createStoryDurationPlaceholder" placeholder="Durata, es. 2 ore *" />
     <input id="newStoryPlayers" data-required="true" data-i18n-placeholder="createStoryPlayersPlaceholder" placeholder="Numero giocatori, es. 3–5 *" />
     <textarea id="newStoryDesc" data-required="true" data-i18n-placeholder="createStoryShortDescPlaceholder" placeholder="Descrizione breve pubblica *"></textarea>

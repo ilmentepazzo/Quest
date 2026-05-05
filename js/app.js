@@ -2650,6 +2650,88 @@ function formatMoney(value, options = {}) {
   return from ? `${t("publicMasterFrom", "da")} ${formatted}` : formatted;
 }
 
+const LORECAST_MASTER_FEE_RATE = 0.12;
+const STRIPE_ESTIMATED_PERCENT_RATE = 0.015;
+const STRIPE_ESTIMATED_FIXED_FEE = 0.25;
+
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function getPercentLabel(value, maximumFractionDigits = 1) {
+  return new Intl.NumberFormat(getLocaleForLanguage(), {
+    style: "percent",
+    maximumFractionDigits
+  }).format(Number(value || 0));
+}
+
+function calculateMasterFeeEstimate(grossAmount) {
+  const gross = roundMoney(Math.max(0, Number(grossAmount || 0)));
+  const lorecastFee = roundMoney(gross * LORECAST_MASTER_FEE_RATE);
+  const stripeCost = gross > 0
+    ? roundMoney((gross * STRIPE_ESTIMATED_PERCENT_RATE) + STRIPE_ESTIMATED_FIXED_FEE)
+    : 0;
+  const masterNet = roundMoney(Math.max(0, gross - lorecastFee - stripeCost));
+
+  return { gross, lorecastFee, stripeCost, masterNet };
+}
+
+function renderStoryFeeEstimate() {
+  const estimateBox = document.getElementById("newStoryFeeEstimate");
+  const priceMode = document.getElementById("newStoryPriceMode")?.value || "";
+  const rawPrice = document.getElementById("newStoryPrice")?.value || "";
+
+  if (!estimateBox) return;
+
+  if (priceMode !== "paid") {
+    estimateBox.hidden = true;
+    estimateBox.innerHTML = "";
+    return;
+  }
+
+  estimateBox.hidden = false;
+
+  const gross = Number(rawPrice || 0);
+  const lorecastRateLabel = getPercentLabel(LORECAST_MASTER_FEE_RATE, 0);
+  const stripeRateLabel = `${getPercentLabel(STRIPE_ESTIMATED_PERCENT_RATE, 1)} + ${formatMoney(STRIPE_ESTIMATED_FIXED_FEE, { freeLabel: false })}`;
+
+  if (!rawPrice || !Number.isFinite(gross) || gross <= 0) {
+    estimateBox.innerHTML = `
+      <div class="fee-estimate-header">
+        <strong>${escapeHtml(t("feeEstimateTitle", "Stima incasso Master"))}</strong>
+        <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti non attivi"))}</span>
+      </div>
+      <p>${escapeHtml(t("feeEstimateEnterPrice", "Inserisci un prezzo a pagamento per vedere la stima indicativa."))}</p>
+      <small>${escapeHtml(tf(
+        "feeEstimateRatesNote",
+        { lorecastRate: lorecastRateLabel, stripeRate: stripeRateLabel },
+        `Fee Lorecast stimata ${lorecastRateLabel}; costo Stripe indicativo ${stripeRateLabel}.`
+      ))}</small>
+    `;
+    return;
+  }
+
+  const estimate = calculateMasterFeeEstimate(gross);
+
+  estimateBox.innerHTML = `
+    <div class="fee-estimate-header">
+      <strong>${escapeHtml(t("feeEstimateTitle", "Stima incasso Master"))}</strong>
+      <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti non attivi"))}</span>
+    </div>
+    <div class="fee-estimate-grid">
+      <span>${escapeHtml(t("feeEstimateGross", "Prezzo lordo"))}</span>
+      <strong>${escapeHtml(formatMoney(estimate.gross, { freeLabel: false }))}</strong>
+      <span>${escapeHtml(tf("feeEstimateLorecastFee", { rate: lorecastRateLabel }, `Fee Lorecast stimata (${lorecastRateLabel})`))}</span>
+      <strong>- ${escapeHtml(formatMoney(estimate.lorecastFee, { freeLabel: false }))}</strong>
+      <span>${escapeHtml(tf("feeEstimateStripeCost", { rate: stripeRateLabel }, `Costo Stripe stimato (${stripeRateLabel})`))}</span>
+      <strong>- ${escapeHtml(formatMoney(estimate.stripeCost, { freeLabel: false }))}</strong>
+      <span>${escapeHtml(t("feeEstimateMasterNet", "Incasso netto stimato Master"))}</span>
+      <strong class="fee-estimate-net">${escapeHtml(formatMoney(estimate.masterNet, { freeLabel: false }))}</strong>
+    </div>
+    <p>${escapeHtml(t("feeEstimateDisclaimer", "I pagamenti reali non sono ancora attivi. Questa stima è indicativa: Stripe e commissioni potranno variare quando i pagamenti saranno attivati."))}</p>
+  `;
+}
+
 
 function normalizePaymentStatus(status, fallback = "not_active") {
   const key = String(status || "").trim().toLowerCase().replaceAll(" ", "_").replaceAll("-", "_");
@@ -2791,7 +2873,7 @@ function getAvailabilityForStory(story) {
 
   const id = storyId(story.id);
   const masterId = story.masterId;
-  const rules = getMasterAvailabilityRules();
+  const rules = getMasterAvailabilityRules().filter(isAvailabilityRuleTodayOrFuture);
 
   const storySpecificRules = rules.filter(rule =>
     rule.storyId && storyIdsMatch(rule.storyId, id)
@@ -5301,6 +5383,15 @@ function getWeekdayLabel(weekday) {
   return ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"][Number(weekday)] || "Giorno";
 }
 
+function getTodayIsoDate() {
+  return formatISODate(new Date());
+}
+
+function isAvailabilityRuleTodayOrFuture(rule) {
+  if (!rule?.availabilityDate) return true;
+  return String(rule.availabilityDate) >= getTodayIsoDate();
+}
+
 let masterAvailabilityCalendarOffsetDays = 0;
 let selectedMasterAvailabilitySlot = null;
 
@@ -5351,7 +5442,7 @@ function renderMasterAvailability() {
 
   const rules = getMasterAvailabilityRules()
     .filter(rule => {
-      if (!userId) return false;
+      if (!userId || !isAvailabilityRuleTodayOrFuture(rule)) return false;
       if (rule.storyId) return ownedStoryIds.has(storyId(rule.storyId));
       return storyIdsMatch(rule.masterId, userId);
     })
@@ -5378,7 +5469,7 @@ function renderMasterAvailability() {
           </div>
         </div>
       `).join("")
-    : "<p>Non hai ancora impostato disponibilità per le tue storie.</p>";
+    : `<p>${escapeHtml(t("masterNoFutureAvailability", "Non ci sono disponibilità di oggi o future per le tue storie."))}</p>`;
 }
 
 function doTimeRangesOverlap(startA, endA, startB, endB) {
@@ -5393,6 +5484,7 @@ function getCurrentMasterAvailabilityRules() {
 
   return getMasterAvailabilityRules().filter(rule => {
     if (!rule?.availabilityDate || !rule.startTime || !rule.endTime) return false;
+    if (!isAvailabilityRuleTodayOrFuture(rule)) return false;
     return storyIdsMatch(rule.masterId, userId) || (rule.storyId && ownedStoryIds.has(storyId(rule.storyId)));
   });
 }
@@ -6326,6 +6418,8 @@ function togglePriceField() {
     priceField.disabled = false;
     priceField.placeholder = t("priceEuro", "Prezzo in €");
   }
+
+  renderStoryFeeEstimate();
 }
 
 function getCurrentLanguage() {

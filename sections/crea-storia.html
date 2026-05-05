@@ -18,6 +18,13 @@
       <option value="Con Master" data-i18n="typeWithMaster">Con Master</option>
       <option value="Self-play" data-i18n="typeSelfPlay">Self-play</option>
     </select>
+    <select id="newStoryExperienceFormat" data-required="true">
+      <option value="" data-i18n="experienceFormatRequired">Formato esperienza *</option>
+      <option value="one_shot_gdr" data-i18n="experienceFormatOneShotGdr">One-shot GDR</option>
+      <option value="campagna_gdr" data-i18n="experienceFormatCampaignGdr">Campagna GDR</option>
+      <option value="cena_con_delitto" data-i18n="experienceFormatMurderDinner">Cena con delitto</option>
+    </select>
+    <p class="form-help" data-i18n="experienceFormatHelp">Scegli il formato narrativo principale. Per ora Lorecast resta concentrato su GDR e cene con delitto.</p>
     <select id="newStoryPriceMode" data-required="true" onchange="togglePriceField()">
       <option value="" data-i18n="costRequired">Costo *</option>
       <option value="free" data-i18n="costFree">Gratuita</option>

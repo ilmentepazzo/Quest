@@ -209,6 +209,54 @@ function getDefaultStoryLanguage() {
   return STORY_LANGUAGE_KEYS[current] ? current : "it";
 }
 
+const EXPERIENCE_FORMAT_KEYS = {
+  one_shot_gdr: "experienceFormatOneShotGdr",
+  campagna_gdr: "experienceFormatCampaignGdr",
+  cena_con_delitto: "experienceFormatMurderDinner"
+};
+
+function normalizeExperienceFormat(value, fallback = "one_shot_gdr") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replace(/\s+/g, "_");
+
+  return EXPERIENCE_FORMAT_KEYS[normalized] ? normalized : fallback;
+}
+
+function inferExperienceFormat(story) {
+  const genre = String(story?.genre || "").toLowerCase();
+  const type = String(story?.type || "").toLowerCase();
+
+  if (genre.includes("cena")) return "cena_con_delitto";
+  if (type.includes("campagna")) return "campagna_gdr";
+
+  return "one_shot_gdr";
+}
+
+function getExperienceFormatCode(storyOrCode) {
+  if (typeof storyOrCode === "string") return normalizeExperienceFormat(storyOrCode);
+
+  const raw = storyOrCode?.experience_format
+    || storyOrCode?.experienceFormat
+    || storyOrCode?.format
+    || "";
+
+  return raw ? normalizeExperienceFormat(raw) : inferExperienceFormat(storyOrCode);
+}
+
+function getExperienceFormatLabel(storyOrCode) {
+  const code = getExperienceFormatCode(storyOrCode);
+  const fallbacks = {
+    one_shot_gdr: "One-shot GDR",
+    campagna_gdr: "Campagna GDR",
+    cena_con_delitto: "Cena con delitto"
+  };
+
+  return t(EXPERIENCE_FORMAT_KEYS[code], fallbacks[code] || fallbacks.one_shot_gdr);
+}
+
 function normalizeSupabaseStory(row) {
   if (!row) return null;
 
@@ -221,6 +269,8 @@ function normalizeSupabaseStory(row) {
     title: row.title,
     genre: row.genre,
     type: row.type,
+    experience_format: getExperienceFormatCode(row),
+    experienceFormat: getExperienceFormatCode(row),
     story_language: getStoryLanguageCode(row.story_language || row.language || "it"),
     storyLanguage: getStoryLanguageCode(row.story_language || row.language || "it"),
     price: Number(row.price || 0),
@@ -718,6 +768,8 @@ function go(page, options = {}) {
   if (targetPage === "sessioni") renderOpenSessions();
 
   if (targetPage === "crea-storia") {
+    const formatField = document.getElementById("newStoryExperienceFormat");
+    if (!editingStoryId && formatField && !formatField.value) formatField.value = "one_shot_gdr";
     updateCreateStoryMode();
     togglePriceField();
   }
@@ -1529,6 +1581,7 @@ function card(story) {
 
   const genreClass = getGenreClass(story.genre);
   const languageLabel = getStoryLanguageLabel(story);
+  const experienceFormatLabel = getExperienceFormatLabel(story);
   const coverHtml = story.cover
     ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
          <div class="story-cover-title image-cover-title">
@@ -1551,6 +1604,7 @@ function card(story) {
         <div>
           <span class="tag ${genreClass}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
           <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
+          <span class="tag experience-format-tag">${escapeHtml(experienceFormatLabel)}</span>
           <span class="tag story-language-badge">${escapeHtml(languageLabel)}</span>
         </div>
 
@@ -1830,7 +1884,8 @@ async function renderCatalog() {
       !q ||
       story.title.toLowerCase().includes(q) ||
       story.desc.toLowerCase().includes(q) ||
-      story.genre.toLowerCase().includes(q);
+      story.genre.toLowerCase().includes(q) ||
+      getExperienceFormatLabel(story).toLowerCase().includes(q);
 
     const matchesGenre = !genre || story.genre === genre;
     const matchesType = !type || story.type === type;
@@ -1878,6 +1933,7 @@ function openStory(id, options = {}) {
   setHtml("detailTags", `
     <span class="tag ${getGenreClass(story.genre)}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
     <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
+    <span class="tag experience-format-tag">${escapeHtml(getExperienceFormatLabel(story))}</span>
     <span class="tag story-language-badge">${escapeHtml(getStoryLanguageLabel(story))}</span>
   `);
 
@@ -1888,6 +1944,7 @@ function openStory(id, options = {}) {
   setText("detailPlayers", story.players);
   setText("detailLevel", story.level);
   setText("detailMode", story.mode);
+  setText("detailExperienceFormat", getExperienceFormatLabel(story));
   setText("detailLanguage", getStoryLanguageLabel(story));
   renderDetailRatingSummary(story);
   setHtml("detailMaster", `
@@ -2338,7 +2395,7 @@ function renderPublicMasterStories(stories = []) {
         ${coverHtml}
         <div class="public-master-story-body">
           <h3>${escapeHtml(story.title || "Storia")}</h3>
-          <p>${escapeHtml(story.genre || "")} · ${escapeHtml(story.type || "")} · ${escapeHtml(getStoryLanguageLabel(story))}</p>
+          <p>${escapeHtml(story.genre || "")} · ${escapeHtml(getTranslatedStoryTypeLabel(story.type))} · ${escapeHtml(getExperienceFormatLabel(story))} · ${escapeHtml(getStoryLanguageLabel(story))}</p>
           <small>${escapeHtml(story.players || "")} · ${escapeHtml(story.duration || "")}</small>
         </div>
         <button class="light" type="button" onclick='event.stopPropagation(); openStory(${storyArg})'>${escapeHtml(t("commonOpen", "Apri"))}</button>
@@ -4931,6 +4988,7 @@ async function createStory() {
   const title = document.getElementById("newStoryTitle")?.value.trim() || "";
   const genre = document.getElementById("newStoryGenre")?.value || "";
   const type = document.getElementById("newStoryType")?.value || "";
+  const experienceFormat = document.getElementById("newStoryExperienceFormat")?.value || "";
   const priceMode = document.getElementById("newStoryPriceMode")?.value || "";
   const storyLanguage = document.getElementById("newStoryLanguage")?.value || "";
   const priceValue = document.getElementById("newStoryPrice")?.value || "";
@@ -4947,6 +5005,7 @@ async function createStory() {
   if (!title) errors.push(["newStoryTitle", "Inserisci il titolo della storia."]);
   if (!genre) errors.push(["newStoryGenre", "Seleziona un genere."]);
   if (!type) errors.push(["newStoryType", "Seleziona il tipo di storia."]);
+  if (!experienceFormat) errors.push(["newStoryExperienceFormat", "Seleziona il formato dell’esperienza."]);
   if (!priceMode) errors.push(["newStoryPriceMode", "Scegli se la storia è gratuita o a pagamento."]);
   if (!storyLanguage) errors.push(["newStoryLanguage", "Seleziona la lingua della storia."]);
 
@@ -4989,6 +5048,7 @@ async function createStory() {
     title,
     genre,
     type,
+    experience_format: experienceFormat,
     story_language: storyLanguage,
     price: priceMode === "free" ? 0 : Number(priceValue),
     is_free: priceMode === "free",
@@ -5070,6 +5130,9 @@ function clearStoryForm() {
       field.value = "";
     });
 
+  const formatField = document.getElementById("newStoryExperienceFormat");
+  if (formatField) formatField.value = "one_shot_gdr";
+
   const languageField = document.getElementById("newStoryLanguage");
   if (languageField) languageField.value = getDefaultStoryLanguage();
 
@@ -5134,6 +5197,7 @@ function populateStoryFormForEdit(story) {
   setValue("newStoryTitle", story.title);
   setValue("newStoryGenre", story.genre);
   setValue("newStoryType", story.type);
+  setValue("newStoryExperienceFormat", getExperienceFormatCode(story));
   setValue("newStoryPriceMode", story.isFree || Number(story.price) === 0 ? "free" : "paid");
   setValue("newStoryLanguage", getStoryLanguageCode(story));
   setValue("newStoryPrice", story.isFree ? "" : story.price);

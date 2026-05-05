@@ -639,6 +639,11 @@ footer,
   color: var(--primary-dark);
 }
 
+.experience-format-tag {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
 /* Detail, bookings and materials */
 
 .story-cover img {

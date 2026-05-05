@@ -4332,14 +4332,16 @@ function renderSessionParticipantRows(session, story, options = {}) {
   const includeHost = options.includeHost !== false && hostId;
 
   if (includeHost) {
-    const hostFallback = story?.master || t(isMasterStory ? "sessionParticipantMaster" : "sessionParticipantHost", isMasterStory ? "Master" : "Host");
+    const hostRole = t(isMasterStory ? "sessionParticipantMaster" : "sessionParticipantHost", isMasterStory ? "Master" : "Host");
+    const hostFallback = story?.master || hostRole;
     rows.push(`
       <div class="session-participant-row with-avatar is-host">
         ${renderParticipantAvatar(hostId, hostFallback)}
         <div class="session-participant-main">
           <strong>${escapeHtml(getUserDisplayName(hostId, hostFallback))}</strong>
-          <small>${escapeHtml(t(isMasterStory ? "sessionParticipantMaster" : "sessionParticipantHost", isMasterStory ? "Master" : "Host"))}</small>
+          <small>${escapeHtml(hostRole)}</small>
         </div>
+        <span class="session-participant-tag role">${escapeHtml(hostRole)}</span>
       </div>
     `);
   }
@@ -4348,13 +4350,15 @@ function renderSessionParticipantRows(session, story, options = {}) {
     const fallback = tf("sessionParticipantFallback", { index: index + 1 }, `Giocatore ${index + 1}`);
     const seats = Number(participant.seats || 1);
     const isMe = storyIdsMatch(participant.user_id, getCurrentUserId());
+    const seatLabel = tf(seats > 1 ? "sessionSeatsPlural" : "sessionSeatsSingular", { count: seats }, `${seats} posto${seats > 1 ? "i" : ""}`);
     rows.push(`
       <div class="session-participant-row with-avatar">
         ${renderParticipantAvatar(participant.user_id, fallback)}
         <div class="session-participant-main">
           <strong>${escapeHtml(isMe ? t("sessionParticipantYou", "Tu") : getUserDisplayName(participant.user_id, fallback))}</strong>
-          <small>${escapeHtml(tf(seats > 1 ? "sessionSeatsPlural" : "sessionSeatsSingular", { count: seats }, `${seats} posto${seats > 1 ? "i" : ""}`))}</small>
+          <small>${escapeHtml(t("sessionParticipantJoinedLabel", "Partecipante iscritto"))}</small>
         </div>
+        <span class="session-participant-tag seats">${escapeHtml(seatLabel)}</span>
       </div>
     `);
   });
@@ -4377,7 +4381,7 @@ function renderSessionParticipantsPanel(session, story, options = {}) {
           <strong>${escapeHtml(t("sessionParticipants", "Partecipanti"))}</strong>
           <small>${escapeHtml(tf("sessionParticipantsRegistered", { joined, max }, `${joined} / ${max} iscritti`))}</small>
         </div>
-        <span>${escapeHtml(getSessionSeatsLeftText(session))}</span>
+        <span class="session-participants-availability">${escapeHtml(getSessionSeatsLeftText(session))}</span>
       </div>
       ${renderSessionParticipantRows(session, story, options)}
     </div>

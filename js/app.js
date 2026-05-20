@@ -1606,8 +1606,9 @@ async function uploadProfileAvatar(userId) {
   const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const filePath = `${userId}/avatar.${extension}`;
 
+  const avatarBucketName = "avatars";
   const { error: uploadError } = await supabaseClient.storage
-    .from("avatars")
+    .from(avatarBucketName)
     .upload(filePath, file, {
       cacheControl: "60",
       upsert: true,
@@ -1615,13 +1616,23 @@ async function uploadProfileAvatar(userId) {
     });
 
   if (uploadError) {
-    showToast("Errore upload avatar: " + uploadError.message, "error");
+    const message = uploadError.message || "Errore sconosciuto";
+    if (/bucket not found/i.test(message)) {
+      showToast("Bucket avatar non trovato: crea il bucket Storage “avatars” o esegui lo SQL Update 72D.", "error");
+    } else {
+      showToast("Errore upload avatar: " + message, "error");
+    }
     return null;
   }
 
   const { data } = supabaseClient.storage
-    .from("avatars")
+    .from(avatarBucketName)
     .getPublicUrl(filePath);
+
+  if (!data?.publicUrl) {
+    showToast("Avatar caricato, ma URL pubblico non disponibile. Controlla che il bucket avatars sia pubblico.", "error");
+    return null;
+  }
 
   return addCacheBusterToUrl(data.publicUrl);
 }

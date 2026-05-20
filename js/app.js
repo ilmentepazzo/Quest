@@ -377,6 +377,36 @@ function getUserProfile() {
   return JSON.parse(localStorage.getItem("questhubUserProfile") || "{}");
 }
 
+function getStripeConnectStatus(profile = getUserProfile()) {
+  return String(profile?.stripeConnectStatus || profile?.stripe_connect_status || "not_started")
+    .trim()
+    .toLowerCase()
+    .replaceAll(" ", "_")
+    .replaceAll("-", "_");
+}
+
+function getStripeConnectLabel(profile = getUserProfile()) {
+  const status = getStripeConnectStatus(profile);
+
+  if (status === "active") return t("stripeStatusActive", "Stripe collegato");
+  if (status === "pending") return t("stripeStatusPending", "Verifica Stripe in corso");
+  if (status === "restricted") return t("stripeStatusRestricted", "Stripe richiede informazioni");
+  if (status === "disabled") return t("stripeStatusDisabled", "Stripe non disponibile");
+  if (status === "onboarding_started") return t("stripeStatusOnboardingStarted", "Onboarding Stripe iniziato");
+
+  return t("stripeStatusNotStarted", "Stripe non collegato");
+}
+
+function normalizePaymentProfileFields(profile = {}) {
+  return {
+    stripeConnectAccountId: profile.stripe_connect_account_id || profile.stripeConnectAccountId || "",
+    stripeConnectStatus: profile.stripe_connect_status || profile.stripeConnectStatus || "not_started",
+    stripeChargesEnabled: Boolean(profile.stripe_charges_enabled || profile.stripeChargesEnabled),
+    stripePayoutsEnabled: Boolean(profile.stripe_payouts_enabled || profile.stripePayoutsEnabled),
+    stripeDetailsSubmitted: Boolean(profile.stripe_details_submitted || profile.stripeDetailsSubmitted)
+  };
+}
+
 function getPublicDisplayName(profileOrName, fallback = "Utente Lorecast") {
   const raw = typeof profileOrName === "string"
     ? profileOrName
@@ -760,9 +790,17 @@ function isCurrentUserStory(story) {
   );
 }
 
+function isStoryWithMaster(story) {
+  const rawType = String(story?.type || story?.story_type || story?.type_key || "").trim().toLowerCase();
+  return rawType === "con master"
+    || rawType === "with_master"
+    || rawType === "with master"
+    || rawType.includes("master");
+}
+
 function getOwnedMasterStories() {
   return getAllStories().filter(story =>
-    story.type === "Con Master" && isCurrentUserStory(story)
+    isStoryWithMaster(story) && isCurrentUserStory(story)
   );
 }
 
@@ -831,6 +869,7 @@ function go(page, options = {}) {
     loadSupabaseMarketplaceState().then(() => {
       renderDashboardBookings();
       renderDashboardStats();
+      renderMasterPaymentReadiness();
       renderMasterAvailability();
       renderMasterPublicSessions();
       setMasterAreaView(currentMasterAreaView || "availability");
@@ -897,7 +936,8 @@ async function upsertSupabaseProfile(user) {
     email: profile.email || fallbackProfile.email,
     avatar_url: profile.avatar_url || "",
     language: profile.language || getCurrentLanguage(),
-    isMaster: profile.is_master || false
+    isMaster: profile.is_master || false,
+    ...normalizePaymentProfileFields(profile)
   };
 
   localStorage.setItem("questhubUserProfile", JSON.stringify(localProfile));
@@ -1102,7 +1142,7 @@ function updateHeaderUser() {
 
   if (avatarEl) {
     if (profile.avatar_url) {
-      avatarEl.innerHTML = `<img src="${profile.avatar_url}" alt="${name}" />`;
+      avatarEl.innerHTML = `<img src="${escapeHtmlAttribute(profile.avatar_url)}" alt="${escapeHtmlAttribute(name)}" />`;
     } else {
       avatarEl.textContent = name.charAt(0).toUpperCase();
     }
@@ -1171,7 +1211,7 @@ async function renderUserProfile() {
 
   if (avatarLarge) {
     if (profile.avatar_url) {
-      avatarLarge.innerHTML = `<img src="${profile.avatar_url}" alt="${displayName}" />`;
+      avatarLarge.innerHTML = `<img src="${escapeHtmlAttribute(profile.avatar_url)}" alt="${escapeHtmlAttribute(displayName)}" />`;
     } else {
       avatarLarge.textContent = displayName.charAt(0).toUpperCase();
     }
@@ -1454,15 +1494,106 @@ function setProfileLibraryTab(tabName) {
   });
 }
 
+function isLikelyProfileAvatarInput(input) {
+  if (!input || input.type !== "file") return false;
+
+  const signature = [
+    input.id,
+    input.name,
+    input.className,
+    input.getAttribute("aria-label"),
+    input.getAttribute("placeholder"),
+    input.getAttribute("data-profile-avatar")
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  const isNamedLikeAvatar = /avatar|profile|profilo|foto|immagine|image|picture/.test(signature);
+  const isInsideProfileArea = Boolean(input.closest("#profileEditModal, #profilo, .profile-edit-modal, .profile-form, .profile-sidebar, .profile-card"));
+  const acceptsImages = !input.accept || input.accept.toLowerCase().includes("image");
+  const selectedImage = input.files?.[0]?.type?.startsWith("image/");
+
+  return isNamedLikeAvatar || (isInsideProfileArea && acceptsImages) || (isInsideProfileArea && selectedImage);
+}
+
+function getProfileAvatarInputs() {
+  const candidates = [
+    document.getElementById("profileAvatarFile"),
+    document.getElementById("profileAvatarInput"),
+    document.getElementById("profileAvatarUpload"),
+    document.getElementById("profileImage"),
+    document.getElementById("profilePhoto"),
+    document.getElementById("avatarInput"),
+    ...document.querySelectorAll("#profileEditModal input[type='file']"),
+    ...document.querySelectorAll("#profilo input[type='file']"),
+    ...document.querySelectorAll("input[type='file'][accept*='image']"),
+    ...document.querySelectorAll("input[type='file']")
+  ].filter(Boolean);
+
+  return [...new Set(candidates)].filter(isLikelyProfileAvatarInput);
+}
+
+function getProfileAvatarInput(options = {}) {
+  const inputs = getProfileAvatarInputs();
+  if (!inputs.length) return null;
+
+  if (options.preferSelected) {
+    const selectedInput = inputs.find(input => input.files && input.files.length > 0);
+    if (selectedInput) return selectedInput;
+  }
+
+  return inputs[0];
+}
+
+function hasSelectedProfileAvatarFile() {
+  return Boolean(getProfileAvatarInput({ preferSelected: true })?.files?.[0]);
+}
+
+function clearProfileAvatarInputs() {
+  getProfileAvatarInputs().forEach(input => {
+    input.value = "";
+  });
+}
+
+function addCacheBusterToUrl(url) {
+  if (!url) return "";
+  const cleanUrl = String(url).replace(/[?&]v=\d+$/, "");
+  const separator = cleanUrl.includes("?") ? "&" : "?";
+  return `${cleanUrl}${separator}v=${Date.now()}`;
+}
+
+function renderProfileAvatarPreview(url, displayName = "Utente") {
+  if (!url) return;
+
+  const safeUrl = escapeHtmlAttribute(url);
+  const safeName = escapeHtmlAttribute(displayName || "Utente");
+  const imageMarkup = `<img src="${safeUrl}" alt="${safeName}" />`;
+
+  const avatarLarge = document.getElementById("profileAvatarLarge");
+  const headerAvatar = document.getElementById("headerUserAvatar");
+
+  if (avatarLarge) avatarLarge.innerHTML = imageMarkup;
+  if (headerAvatar) headerAvatar.innerHTML = imageMarkup;
+}
+
+function previewSelectedProfileAvatar(input) {
+  const file = input?.files?.[0];
+  if (!file || !file.type?.startsWith("image/")) return;
+
+  const profile = getUserProfile();
+  const displayName = getPublicDisplayName(profile, "Utente Lorecast");
+  const objectUrl = URL.createObjectURL(file);
+  renderProfileAvatarPreview(objectUrl, displayName);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
+}
+
 async function uploadProfileAvatar(userId) {
-  const fileInput = document.getElementById("profileAvatarFile");
+  const fileInput = getProfileAvatarInput({ preferSelected: true });
   const file = fileInput?.files?.[0];
 
   if (!file) return null;
 
-  const allowedTypes = ["image/jpeg", "image/png"];
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
   if (!allowedTypes.includes(file.type)) {
-    showToast("Carica solo immagini JPG o PNG.", "warning");
+    showToast("Carica solo immagini JPG, PNG o WEBP.", "warning");
     return null;
   }
 
@@ -1472,14 +1603,14 @@ async function uploadProfileAvatar(userId) {
     return null;
   }
 
-  const extension = file.type === "image/png" ? "png" : "jpg";
-  const filePath = `${userId}/avatar-${Date.now()}.${extension}`;
+  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  const filePath = `${userId}/avatar.${extension}`;
 
   const { error: uploadError } = await supabaseClient.storage
     .from("avatars")
     .upload(filePath, file, {
-      cacheControl: "3600",
-      upsert: false,
+      cacheControl: "60",
+      upsert: true,
       contentType: file.type
     });
 
@@ -1492,7 +1623,7 @@ async function uploadProfileAvatar(userId) {
     .from("avatars")
     .getPublicUrl(filePath);
 
-  return data.publicUrl;
+  return addCacheBusterToUrl(data.publicUrl);
 }
 
 
@@ -1533,7 +1664,12 @@ async function saveUserProfile() {
     return;
   }
 
+  const avatarFileSelected = hasSelectedProfileAvatarFile();
   const avatarUrl = await uploadProfileAvatar(authData.user.id);
+
+  if (avatarFileSelected && !avatarUrl) {
+    return;
+  }
 
   const updates = {
     name,
@@ -1561,20 +1697,40 @@ async function saveUserProfile() {
     id: data.id || authData.user.id,
     name: data.name,
     email: data.email,
-    avatar_url: data.avatar_url || "",
+    avatar_url: avatarUrl || data.avatar_url || "",
     language: data.language || language,
-    isMaster: data.is_master || false
+    isMaster: data.is_master || false,
+    ...normalizePaymentProfileFields(data)
   };
+
+  if (avatarUrl) {
+    try {
+      await supabaseClient.auth.updateUser({
+        data: {
+          name,
+          full_name: name,
+          avatar_url: avatarUrl
+        }
+      });
+    } catch (metadataError) {
+      console.warn("Profilo salvato, ma metadati auth non aggiornati:", metadataError.message);
+    }
+  }
 
   localStorage.setItem("questhubUserProfile", JSON.stringify(localProfile));
   localStorage.setItem("questhubLanguage", localProfile.language);
+  supabaseProfilesCache[storyId(localProfile.id)] = {
+    id: storyId(localProfile.id),
+    name: localProfile.name,
+    avatar_url: localProfile.avatar_url
+  };
 
-  const avatarInput = document.getElementById("profileAvatarFile");
-  if (avatarInput) avatarInput.value = "";
+  clearProfileAvatarInputs();
 
-  showToast("Profilo salvato.", "success");
+  showToast(avatarUrl ? "Profilo salvato e avatar aggiornato." : "Profilo salvato.", "success");
   closeProfileEdit();
   updateHeaderUser();
+  if (avatarUrl) renderProfileAvatarPreview(avatarUrl, localProfile.name);
   applyTranslations();
   renderUserProfile();
 }
@@ -1605,7 +1761,8 @@ async function activateMasterMode() {
     email: data.email,
     avatar_url: data.avatar_url,
     language: data.language,
-    isMaster: data.is_master
+    isMaster: data.is_master,
+    ...normalizePaymentProfileFields(data)
   }));
 
   showToast("Modalità Master attivata.", "success");
@@ -4528,7 +4685,7 @@ function renderJoinSession(story) {
 }
 
 function getOpenSessionStories() {
-  return getAllStories().filter(story => story.type === "Con Master");
+  return getAllStories().filter(story => isStoryWithMaster(story));
 }
 
 function getVisibleOpenSessions() {
@@ -5521,6 +5678,84 @@ function getParticipantsForSession(sessionIdValue) {
   return supabaseSessionParticipantsCache.filter(participant =>
     storyIdsMatch(participant.session_id, id) && participant.status === "joined"
   );
+}
+
+function ensureMasterPaymentReadinessPanel() {
+  const section = document.getElementById("area-master") || document.querySelector(".page.active");
+  if (!section) return null;
+
+  let panel = document.getElementById("masterPaymentReadinessPanel");
+  if (panel) return panel;
+
+  panel = document.createElement("div");
+  panel.id = "masterPaymentReadinessPanel";
+  panel.className = "card master-payment-readiness-card";
+
+  const tabs = section.querySelector(".master-sections-nav");
+  if (tabs?.parentNode) {
+    tabs.parentNode.insertBefore(panel, tabs.nextSibling);
+    return panel;
+  }
+
+  const availabilityCard = document.getElementById("masterAvailabilityList")?.closest(".card");
+  if (availabilityCard?.parentNode) {
+    availabilityCard.parentNode.insertBefore(panel, availabilityCard);
+    return panel;
+  }
+
+  const firstCard = section.querySelector(".card");
+  if (firstCard?.parentNode) {
+    firstCard.parentNode.insertBefore(panel, firstCard.nextSibling);
+  } else {
+    section.appendChild(panel);
+  }
+
+  return panel;
+}
+
+function renderMasterPaymentReadiness() {
+  const panel = ensureMasterPaymentReadinessPanel();
+  if (!panel) return;
+
+  const profile = getUserProfile();
+  const status = getStripeConnectStatus(profile);
+  const active = status === "active" && profile.stripeChargesEnabled && profile.stripePayoutsEnabled;
+  const statusClass = active ? "active" : status === "not_started" ? "not-started" : "pending";
+
+  panel.innerHTML = `
+    <div class="payment-readiness-header">
+      <div>
+        <span class="payment-readiness-kicker">${escapeHtml(t("paymentReadinessKicker", "Pagamenti"))}</span>
+        <h2>${escapeHtml(t("paymentReadinessTitle", "Preparazione Stripe Connect"))}</h2>
+        <p>${escapeHtml(t("paymentReadinessIntro", "Qui prepariamo i pagamenti dei Master. Per ora nessun pagamento reale viene creato dal frontend."))}</p>
+      </div>
+      <span class="payment-connect-status ${statusClass}">${escapeHtml(getStripeConnectLabel(profile))}</span>
+    </div>
+
+    <div class="payment-readiness-grid">
+      <div class="payment-readiness-step done">
+        <strong>${escapeHtml(t("paymentReadinessStepDatabase", "Database pagamenti"))}</strong>
+        <span>${escapeHtml(t("paymentReadinessStepDatabaseText", "Campi e tabella eventi pronti dopo lo SQL Update 71."))}</span>
+      </div>
+      <div class="payment-readiness-step ${status === "not_started" ? "todo" : "done"}">
+        <strong>${escapeHtml(t("paymentReadinessStepConnect", "Account Stripe Master"))}</strong>
+        <span>${escapeHtml(t("paymentReadinessStepConnectText", "Nel prossimo update collegheremo l’onboarding Stripe in modalità test."))}</span>
+      </div>
+      <div class="payment-readiness-step todo">
+        <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout e webhook"))}</strong>
+        <span>${escapeHtml(t("paymentReadinessStepCheckoutText", "Il checkout reale arriverà solo dopo onboarding e webhook sicuri."))}</span>
+      </div>
+    </div>
+
+    <div class="payment-readiness-actions">
+      <button type="button" class="light" onclick="showStripeConnectSetupNotice()">${escapeHtml(t("paymentReadinessConnectButton", "Collega Stripe — prossimo update"))}</button>
+      <small>${escapeHtml(t("paymentReadinessNoSecrets", "Non inserire chiavi segrete nel frontend: verranno usate solo in Supabase Edge Functions."))}</small>
+    </div>
+  `;
+}
+
+function showStripeConnectSetupNotice() {
+  showToast(t("paymentReadinessToast", "Prima eseguiamo lo SQL Update 71. Nell’update successivo creeremo il collegamento Stripe in test mode."), "warning");
 }
 
 function renderMasterPublicSessions() {
@@ -6791,6 +7026,7 @@ async function refreshActivePageForLanguage() {
   if (activePage === "area-master") {
     renderDashboardBookings();
     renderDashboardStats();
+    renderMasterPaymentReadiness();
     renderMasterAvailability();
     renderMasterPublicSessions();
     setMasterAreaView(currentMasterAreaView || "availability");
@@ -6913,11 +7149,9 @@ function openProfileEdit() {
 
   const nameInput = document.getElementById("profileName");
   const languageInput = document.getElementById("profileLanguage");
-  const avatarInput = document.getElementById("profileAvatarFile");
-
   if (nameInput) nameInput.value = profile.name || "";
   if (languageInput) languageInput.value = profile.language || getCurrentLanguage();
-  if (avatarInput) avatarInput.value = "";
+  clearProfileAvatarInputs();
 
   modal.classList.add("open");
 }
@@ -7284,6 +7518,13 @@ function renderUserReviews() {
 }
 
 function setupGlobalUiHandlers() {
+  document.addEventListener("change", function (event) {
+    const target = event.target;
+    if (target?.type === "file" && isLikelyProfileAvatarInput(target)) {
+      previewSelectedProfileAvatar(target);
+    }
+  });
+
   document.addEventListener("click", function (event) {
     const notificationsDropdown = document.getElementById("notificationsDropdown");
     const notificationButton = document.getElementById("notificationButton");

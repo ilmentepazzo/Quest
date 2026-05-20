@@ -147,6 +147,7 @@ async function loadSections() {
   updateNotificationBadge();
   const authUser = await checkAuthSession();
   await handleStripeConnectReturn();
+  await handleStripeCheckoutReturn();
   await loadSupabaseMarketplaceState();
   renderHomeMarketplace();
 
@@ -520,6 +521,9 @@ function normalizePublicSession(row) {
     endTime: normalizeTime(row.end_time),
     durationMinutes: Number(row.duration_minutes || 0),
     createdGroupSize: Number(row.created_group_size || 1),
+    paymentStatus: normalizePaymentStatus(row.payment_status || row.paymentStatus || ""),
+    paymentAmount: Number(row.payment_amount ?? row.paymentAmount ?? 0),
+    paymentCurrency: row.payment_currency || row.paymentCurrency || "EUR",
     source: "supabase"
   };
 }
@@ -534,6 +538,12 @@ function normalizeSessionParticipant(row) {
     user_id: row.user_id,
     status: row.status || "joined",
     seats: Number(row.seats || 1),
+    paymentStatus: normalizePaymentStatus(row.payment_status || row.paymentStatus || ""),
+    paymentAmount: Number(row.payment_amount ?? row.paymentAmount ?? 0),
+    paymentCurrency: row.payment_currency || row.paymentCurrency || "EUR",
+    paymentProvider: row.payment_provider || row.paymentProvider || "",
+    paymentReference: row.payment_reference || row.paymentReference || "",
+    paidAt: row.paid_at || row.paidAt || null,
     created_at: row.created_at || null
   };
 }
@@ -1406,7 +1416,13 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
         status: session.status === "complete" ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
         user_id: participant.user_id,
         session_id: session.id,
-        seats: participant.seats || 1
+        seats: participant.seats || 1,
+        paymentStatus: participant.paymentStatus || session.paymentStatus || "not_active",
+        paymentAmount: Number(participant.paymentAmount || session.paymentAmount || story?.price || 0),
+        paymentCurrency: participant.paymentCurrency || session.paymentCurrency || "EUR",
+        paymentProvider: participant.paymentProvider || "",
+        paymentReference: participant.paymentReference || "",
+        paidAt: participant.paidAt || null
       };
     })
     .filter(Boolean);
@@ -1438,7 +1454,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
       : "";
 
-    const paymentChip = type === "booking" && item.source !== "public_session"
+    const paymentChip = type === "booking"
       ? renderBookingPaymentChip(item, "profile-info-chip")
       : "";
 
@@ -1453,6 +1469,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 
     const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
+    const paymentAction = type === "booking" ? renderBookingPaymentAction(item, "primary compact-action") : "";
     const reviewAction = type === "booking" ? renderBookingReviewAction(item, "light compact-action") : "";
 
     return `
@@ -1470,6 +1487,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
           ${reviewChip}
         </div>
         ${messageAction}
+        ${paymentAction}
         ${reviewAction}
         <button class="light compact-action" onclick='openStory(${storyArg})'>${t("commonOpen", "Apri")}</button>
       </article>
@@ -2250,7 +2268,7 @@ function renderStoryPaymentPanel(story) {
   if (hintEl) {
     hintEl.innerHTML = `
       <span>${escapeHtml(paymentRequired
-        ? t("paymentPrepStoryHint", "I pagamenti reali non sono ancora attivi. Puoi continuare a usare prenotazioni, materiali e gestione storia senza checkout reale.")
+        ? t("paymentStripeTestStoryHint", "Checkout Stripe in modalità test: nessun pagamento reale verrà incassato.")
         : t("paymentFreeStoryHint", "Questa storia è gratuita: puoi sbloccare i materiali senza pagamento."))}</span>
       ${renderPaymentStatusChipFromState(paymentState, "payment-panel-chip")}
     `;
@@ -2258,20 +2276,20 @@ function renderStoryPaymentPanel(story) {
 
   if (paymentNote) {
     paymentNote.textContent = paymentRequired
-      ? t("paymentPrepNote", "Checkout reale non ancora collegato. Questa sezione prepara lo stato pagamento per una futura integrazione sicura.")
+      ? t("paymentStripeTestNote", "Usa solo carte test Stripe. La conferma automatica via webhook arriverà nel prossimo update.")
       : t("paymentFreeNote", "Nessun pagamento richiesto per questa storia.");
   }
 
   if (payButton) {
-    payButton.disabled = paymentRequired;
-    payButton.classList.toggle("is-disabled", paymentRequired);
+    payButton.disabled = false;
+    payButton.classList.toggle("is-disabled", false);
     payButton.textContent = paymentRequired
-      ? t("paymentComingSoonButton", "Pagamenti in preparazione")
+      ? t("paymentStripeTestButton", "Paga con Stripe test")
       : t("paymentUnlockFree", "Sblocca gratis");
   }
 }
 
-function payForCurrentStory() {
+async function payForCurrentStory() {
   if (!currentStory) return;
 
   const profile = getUserProfile();
@@ -2282,7 +2300,7 @@ function payForCurrentStory() {
   }
 
   if (isStoryPaymentRequired(currentStory)) {
-    showPaymentsNotActiveNotice();
+    await startStripeCheckout("story", currentStory.id);
     return;
   }
 
@@ -3063,7 +3081,7 @@ function getInitialPaymentStateForStory(story) {
   const required = amount > 0 && !(story?.isFree);
 
   return {
-    status: required ? "not_active" : "not_required",
+    status: required ? "unpaid" : "not_required",
     amount: required ? amount : 0,
     currency: "EUR"
   };
@@ -3107,6 +3125,156 @@ function renderBookingPaymentChip(booking, extraClass = "") {
 
 function showPaymentsNotActiveNotice() {
   showToast(t("paymentNotActiveToast", "I pagamenti reali non sono ancora attivi su Lorecast."), "warning");
+}
+
+function getPaymentCheckoutTarget(item) {
+  if (!item) return null;
+  if (item.source === "public_session") {
+    return { type: "session_participant", id: storyId(item.id) };
+  }
+  return { type: "booking", id: storyId(item.id) };
+}
+
+function isPaymentComplete(status) {
+  return ["paid", "refunded", "not_required"].includes(normalizePaymentStatus(status));
+}
+
+function canStartBookingCheckout(item) {
+  const state = getBookingPaymentState(item);
+  if (state.amount <= 0 || isPaymentComplete(state.status)) return false;
+  if (item?.source === "public_session") return true;
+  return isBookingAccepted(item?.status);
+}
+
+function renderBookingPaymentAction(item, className = "primary compact-action") {
+  if (!canStartBookingCheckout(item)) return "";
+  const target = getPaymentCheckoutTarget(item);
+  if (!target?.id) return "";
+
+  return `<button class="${escapeHtmlAttribute(className)} payment-checkout-action" data-payment-target-type="${escapeHtmlAttribute(target.type)}" data-payment-target-id="${escapeHtmlAttribute(target.id)}" onclick='startStripeCheckout(${JSON.stringify(target.type)}, ${JSON.stringify(target.id)})'>${escapeHtml(t("paymentStripeTestButtonShort", "Paga test"))}</button>`;
+}
+
+function getStripeCheckoutReturnUrl(result, targetType, targetId, includeSessionPlaceholder = false) {
+  const url = new URL(window.location.href);
+  const hash = targetType === "story" ? "#scheda" : "#profilo";
+  url.hash = "";
+  url.searchParams.set("stripe_checkout_return", result);
+  url.searchParams.set("payment_target_type", targetType);
+  url.searchParams.set("payment_target_id", storyId(targetId));
+  url.searchParams.delete("checkout_session_id");
+
+  const search = url.search
+    ? `${url.search}${includeSessionPlaceholder ? "&checkout_session_id={CHECKOUT_SESSION_ID}" : ""}`
+    : includeSessionPlaceholder ? "?checkout_session_id={CHECKOUT_SESSION_ID}" : "";
+
+  return `${url.origin}${url.pathname}${search}${hash}`;
+}
+
+function setStripeCheckoutButtonsLoading(targetType, targetId, isLoading) {
+  document.querySelectorAll("[data-payment-target-type][data-payment-target-id]").forEach(button => {
+    const sameType = button.getAttribute("data-payment-target-type") === String(targetType || "");
+    const sameId = button.getAttribute("data-payment-target-id") === storyId(targetId);
+    if (sameType && sameId) button.disabled = Boolean(isLoading);
+  });
+
+  if (targetType === "story") {
+    const button = document.getElementById("paymentButton");
+    if (button) button.disabled = Boolean(isLoading);
+  }
+}
+
+async function startStripeCheckout(targetType, targetId) {
+  if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
+    showToast(t("paymentCheckoutMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
+    return;
+  }
+
+  const profile = getUserProfile();
+  if (!profile.email) {
+    showToast(t("paymentLoginRequired", "Accedi per procedere con il pagamento."), "warning");
+    go("login");
+    return;
+  }
+
+  const normalizedType = String(targetType || "");
+  const normalizedId = storyId(targetId);
+
+  if (!normalizedType || !normalizedId) {
+    showToast(t("paymentCheckoutMissingTarget", "Pagamento non disponibile: riferimento mancante."), "error");
+    return;
+  }
+
+  setStripeCheckoutButtonsLoading(normalizedType, normalizedId, true);
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("create-checkout-session", {
+      body: {
+        targetType: normalizedType,
+        targetId: normalizedId,
+        successUrl: getStripeCheckoutReturnUrl("success", normalizedType, normalizedId, true),
+        cancelUrl: getStripeCheckoutReturnUrl("cancel", normalizedType, normalizedId, false)
+      }
+    });
+
+    if (error) throw error;
+    if (!data?.url) throw new Error(t("paymentCheckoutMissingUrl", "Stripe non ha restituito il link checkout."));
+
+    window.location.href = data.url;
+  } catch (error) {
+    console.error("Errore checkout Stripe:", error);
+    showToast(`${t("paymentCheckoutError", "Errore checkout Stripe:")} ${error.message || error}`, "error");
+  } finally {
+    setStripeCheckoutButtonsLoading(normalizedType, normalizedId, false);
+  }
+}
+
+async function handleStripeCheckoutReturn() {
+  const params = new URLSearchParams(window.location.search || "");
+  if (!params.has("stripe_checkout_return")) return;
+
+  const result = params.get("stripe_checkout_return");
+  const targetType = params.get("payment_target_type") || "";
+  const targetId = params.get("payment_target_id") || "";
+  const checkoutSessionId = params.get("checkout_session_id") || "";
+
+  if (result === "cancel") {
+    showToast(t("paymentCheckoutCancelled", "Checkout annullato. Nessun pagamento è stato registrato."), "warning");
+  } else if (checkoutSessionId && typeof supabaseClient !== "undefined" && supabaseClient.functions?.invoke) {
+    try {
+      const { data, error } = await supabaseClient.functions.invoke("confirm-checkout-session", {
+        body: { sessionId: checkoutSessionId }
+      });
+
+      if (error) throw error;
+
+      if (data?.status === "paid") {
+        if (data.targetType === "story" && data.storyId) unlockStoryById(data.storyId);
+        showToast(t("paymentCheckoutConfirmed", "Pagamento test confermato da Stripe."), "success");
+      } else {
+        showToast(t("paymentCheckoutPending", "Checkout completato: pagamento in verifica."), "info");
+      }
+    } catch (error) {
+      console.error("Errore conferma checkout Stripe:", error);
+      showToast(`${t("paymentCheckoutConfirmError", "Errore conferma pagamento:")} ${error.message || error}`, "error");
+    }
+  } else if (result === "success") {
+    showToast(t("paymentCheckoutPending", "Checkout completato: pagamento in verifica."), "info");
+  }
+
+  await Promise.all([
+    loadSupabaseBookings(),
+    loadSupabasePublicSessions(),
+    loadSupabaseSessionParticipants(),
+    loadSupabaseNotifications()
+  ]);
+
+  params.delete("stripe_checkout_return");
+  params.delete("payment_target_type");
+  params.delete("payment_target_id");
+  params.delete("checkout_session_id");
+  const cleanSearch = params.toString();
+  const cleanUrl = `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ""}${window.location.hash || (targetType === "story" ? "#scheda" : "#profilo")}`;
+  window.history.replaceState(null, "", cleanUrl);
 }
 
 function getTranslatedGenreLabel(genre) {
@@ -4299,7 +4467,7 @@ async function updateBookingStatus(id, status) {
   renderBookingCalendar(currentStory);
 
   if (status === "Accettata") {
-    showToast(t("bookingAcceptedPaymentPrepToast", "Prenotazione accettata. Il pagamento reale non è ancora attivo: l’utente riceverà una notifica."), "success");
+    showToast(t("bookingAcceptedPaymentPrepToast", "Prenotazione accettata. L’utente può pagare con Stripe in modalità test dal profilo."), "success");
   }
 
   if (status === "Rifiutata") {
@@ -4825,6 +4993,7 @@ async function createPublicSession() {
   const { minPlayers, maxPlayers } = parseStoryPlayersRange(currentStory);
   const initialPlayers = isOwner ? 0 : Math.min(maxPlayers, parsePlayersValue(document.getElementById("bookingPlayers")?.value, 1));
   const newStatus = initialPlayers >= maxPlayers ? "complete" : "open";
+  const paymentState = getInitialPaymentStateForStory(currentStory);
 
   if ((typeof supabaseClient !== "undefined") && getCurrentUserId()) {
     const { data: sessionRow, error: sessionError } = await supabaseClient
@@ -4842,7 +5011,10 @@ async function createPublicSession() {
         end_time: selectedBookingSlot.endTime,
         duration_minutes: selectedBookingSlot.durationMinutes || (timeToMinutes(selectedBookingSlot.endTime) - timeToMinutes(selectedBookingSlot.startTime)),
         created_group_size: initialPlayers,
-        created_by: getCurrentUserId()
+        created_by: getCurrentUserId(),
+        payment_status: paymentState.status,
+        payment_amount: paymentState.amount,
+        payment_currency: paymentState.currency
       })
       .select()
       .single();
@@ -4864,7 +5036,10 @@ async function createPublicSession() {
           story_id: storyId(currentStory.id),
           user_id: getCurrentUserId(),
           status: "joined",
-          seats: initialPlayers
+          seats: initialPlayers,
+          payment_status: paymentState.status,
+          payment_amount: paymentState.amount,
+          payment_currency: paymentState.currency
         })
         .select()
         .single();
@@ -4965,6 +5140,7 @@ async function joinOpenSession(targetSessionId) {
   }
 
   if ((typeof supabaseClient !== "undefined") && getCurrentUserId() && session.source === "supabase") {
+    const paymentState = getInitialPaymentStateForStory(story);
     const { data: participant, error: participantError } = await supabaseClient
       .from("session_participants")
       .upsert({
@@ -4972,7 +5148,10 @@ async function joinOpenSession(targetSessionId) {
         story_id: storyId(story.id),
         user_id: getCurrentUserId(),
         status: "joined",
-        seats: 1
+        seats: 1,
+        payment_status: paymentState.status,
+        payment_amount: paymentState.amount,
+        payment_currency: paymentState.currency
       }, { onConflict: "session_id,user_id" })
       .select()
       .single();
@@ -5754,9 +5933,9 @@ function renderMasterPaymentReadiness() {
         <strong>${escapeHtml(t("paymentReadinessStepConnect", "Account Stripe Master"))}</strong>
         <span>${escapeHtml(t("paymentReadinessStepConnectText", "Collega l’account Stripe Express del Master in modalità test."))}</span>
       </div>
-      <div class="payment-readiness-step todo">
-        <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout e webhook"))}</strong>
-        <span>${escapeHtml(t("paymentReadinessStepCheckoutText", "Il checkout reale arriverà solo dopo onboarding e webhook sicuri."))}</span>
+      <div class="payment-readiness-step ${active ? "done" : "todo"}">
+        <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout test"))}</strong>
+        <span>${escapeHtml(t("paymentReadinessStepCheckoutText", "Checkout Stripe in test mode pronto. I webhook sicuri arriveranno nel prossimo update."))}</span>
       </div>
     </div>
 
@@ -6565,6 +6744,8 @@ function renderMyStories() {
             <p><strong>Data:</strong> ${booking.date} · ${booking.startTime || booking.time}${booking.endTime ? `–${booking.endTime}` : ""}</p>
             <p><strong>Giocatori:</strong> ${booking.players}</p>
             <p><strong>Stato:</strong> ${booking.status}</p>
+            <p><strong>${t("paymentStatusLabel", "Pagamento")}:</strong> ${renderBookingPaymentChip(booking)}</p>
+            ${renderBookingPaymentAction(booking, "primary")}
             ${canCancel ? `<button class="light danger-light" onclick='cancelBooking(${JSON.stringify(storyId(booking.id))})'>Disdici prenotazione</button>` : ""}
           </div>
         `;

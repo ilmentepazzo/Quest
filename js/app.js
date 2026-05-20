@@ -255,6 +255,16 @@ function getExperienceFormatLabel(storyOrCode) {
   return t(EXPERIENCE_FORMAT_KEYS[code], fallbacks[code] || fallbacks.one_shot_gdr);
 }
 
+function isCampaignExperience(story) {
+  return getExperienceFormatCode(story) === "campagna_gdr";
+}
+
+function bookingRequiresMasterApproval(story) {
+  // Per ora richiediamo approvazione manuale solo sulle campagne:
+  // una campagna va concordata con il Master prima del pagamento.
+  return isCampaignExperience(story);
+}
+
 function normalizeSupabaseStory(row) {
   if (!row) return null;
 
@@ -371,8 +381,31 @@ function getUnlockedStories() {
   return readJsonStorage(getUserScopedKey("questhubUnlockedStories"), []);
 }
 
+function getPaidAccessStoryIds() {
+  const userId = getCurrentUserId();
+  if (!userId) return [];
+
+  const ids = new Set();
+
+  getBookings().forEach(booking => {
+    if (!storyIdsMatch(booking.user_id, userId)) return;
+    if (normalizePaymentStatus(booking.paymentStatus || booking.payment_status || "") !== "paid") return;
+    if (booking.storyId || booking.story_id) ids.add(storyId(booking.storyId || booking.story_id));
+  });
+
+  supabaseSessionParticipantsCache.forEach(participant => {
+    if (!storyIdsMatch(participant.user_id, userId)) return;
+    if (normalizePaymentStatus(participant.paymentStatus || participant.payment_status || "") !== "paid") return;
+    if (participant.story_id || participant.storyId) ids.add(storyId(participant.story_id || participant.storyId));
+  });
+
+  return Array.from(ids).filter(Boolean);
+}
+
 function isStoryUnlocked(id) {
-  return getUnlockedStories().map(String).includes(storyId(id));
+  const normalizedId = storyId(id);
+  if (!normalizedId) return false;
+  return getUnlockedStories().map(String).includes(normalizedId) || getPaidAccessStoryIds().includes(normalizedId);
 }
 
 function getUserProfile() {
@@ -2208,8 +2241,8 @@ function openStory(id, options = {}) {
 
   setText(
     "detailAction",
-    story.type === "Con Master"
-      ? t("detailActionWithMaster", "Prenota una sessione guidata con il Master oppure sblocca i materiali della storia.")
+    isStoryWithMaster(story)
+      ? t("detailActionWithMaster", "Scegli uno slot disponibile: se la storia è a pagamento, il checkout Stripe conferma subito la prenotazione.")
       : t("detailActionSelfPlay", "Acquista o sblocca la storia e giocala in autonomia, quando vuoi e con chi vuoi.")
   );
 
@@ -2236,9 +2269,12 @@ function renderStoryPaymentPanel(story) {
   if (!story) return;
 
   const isOwner = isCurrentUserStory(story);
+  const isWithMaster = isStoryWithMaster(story);
 
   const paymentState = getInitialPaymentStateForStory(story);
+  const normalizedPaymentStatus = normalizePaymentStatus(paymentState.status);
   const paymentRequired = paymentState.status !== "not_required";
+  const alreadyPaid = normalizedPaymentStatus === "paid";
 
   if (ownerActions) ownerActions.hidden = !isOwner;
   if (paymentMethods) paymentMethods.hidden = true;
@@ -2246,7 +2282,7 @@ function renderStoryPaymentPanel(story) {
   if (payButton) payButton.hidden = isOwner;
 
   if (masterButton) {
-    masterButton.style.display = story.type === "Con Master" && !isOwner ? "inline-flex" : "none";
+    masterButton.style.display = isStoryWithMaster(story) && !isOwner ? "inline-flex" : "none";
   }
 
   if (panelLabel) panelLabel.textContent = isOwner ? t("ownerStoryManageLabel", "Gestione storia") : t("paymentLabel", "Pagamento");
@@ -2274,6 +2310,30 @@ function renderStoryPaymentPanel(story) {
     `;
   }
 
+  if (alreadyPaid) {
+    if (paymentNote) {
+      paymentNote.textContent = t("paymentAlreadyPaidStoryNote", "Pagamento confermato: i materiali riservati sono sbloccati.");
+    }
+    if (payButton) {
+      payButton.hidden = true;
+      payButton.disabled = true;
+      payButton.classList.toggle("is-disabled", true);
+    }
+    return;
+  }
+
+  if (isWithMaster && paymentRequired) {
+    if (paymentNote) {
+      paymentNote.textContent = t("paymentWithMasterNeedsBookingNote", "Per questa storia scegli prima uno slot libero: il pagamento Stripe confermerà automaticamente la prenotazione. Le campagne restano su richiesta al Master.");
+    }
+    if (payButton) {
+      payButton.hidden = true;
+      payButton.disabled = true;
+      payButton.classList.toggle("is-disabled", true);
+    }
+    return;
+  }
+
   if (paymentNote) {
     paymentNote.textContent = paymentRequired
       ? t("paymentStripeTestNote", "Usa solo carte test Stripe. La conferma automatica via webhook arriverà nel prossimo update.")
@@ -2281,6 +2341,7 @@ function renderStoryPaymentPanel(story) {
   }
 
   if (payButton) {
+    payButton.hidden = false;
     payButton.disabled = false;
     payButton.classList.toggle("is-disabled", false);
     payButton.textContent = paymentRequired
@@ -2299,6 +2360,18 @@ async function payForCurrentStory() {
     return;
   }
 
+  if (isStoryUnlocked(currentStory.id)) {
+    showToast(t("paymentAlreadyPaidStoryToast", "Pagamento già confermato: materiali già sbloccati."), "success");
+    renderStoryPaymentPanel(currentStory);
+    renderStoryMaterials(currentStory);
+    return;
+  }
+
+  if (isStoryWithMaster(currentStory) && isStoryPaymentRequired(currentStory)) {
+    showToast(t("paymentWithMasterNeedsBookingToast", "Per pagare questa storia devi prima selezionare uno slot disponibile oppure unirti a una sessione pubblica."), "warning");
+    return;
+  }
+
   if (isStoryPaymentRequired(currentStory)) {
     await startStripeCheckout("story", currentStory.id);
     return;
@@ -2314,11 +2387,20 @@ function renderStoryBookingMode(story) {
   const selfPlayPanel = document.getElementById("storySelfPlayPanel");
   const unlockButton = document.getElementById("unlockStoryButton");
 
-  const isWithMaster = story?.type === "Con Master";
+  const isWithMaster = isStoryWithMaster(story);
+  const requiresManualApproval = bookingRequiresMasterApproval(story);
+  const bookingButton = masterPanel ? masterPanel.querySelector('[onclick="createBooking()"], button[data-booking-submit]') : null;
 
   if (masterPanel) masterPanel.style.display = isWithMaster ? "block" : "none";
   if (selfPlayPanel) selfPlayPanel.style.display = isWithMaster ? "none" : "block";
   if (unlockButton) unlockButton.textContent = isWithMaster ? "Sblocca / Acquista materiali" : "Sblocca materiali self-play";
+  if (bookingButton) {
+    bookingButton.textContent = requiresManualApproval
+      ? t("bookingRequestMasterButton", "Invia richiesta al Master")
+      : isStoryPaymentRequired(story)
+        ? t("bookingPayAndConfirmButton", "Prenota e paga")
+        : t("bookingConfirmFreeButton", "Prenota slot");
+  }
 
   selectedBookingSlot = null;
   bookingCalendarOffsetDays = 0;
@@ -2512,6 +2594,7 @@ function unlockCurrentStory() {
   writeJsonStorage(getUserScopedKey("questhubUnlockedStories"), unlockedStories);
 
   renderStoryMaterials(currentStory);
+  renderStoryPaymentPanel(currentStory);
   showToast("Storia sbloccata. Ora puoi vedere i materiali riservati.", "success");
   addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success", { storyId: currentStory.id });
 }
@@ -3079,9 +3162,10 @@ function isStoryPaymentRequired(story) {
 function getInitialPaymentStateForStory(story) {
   const amount = getStoryPaymentAmount(story);
   const required = amount > 0 && !(story?.isFree);
+  const paid = required && isStoryUnlocked(story?.id);
 
   return {
-    status: required ? "unpaid" : "not_required",
+    status: paid ? "paid" : required ? "unpaid" : "not_required",
     amount: required ? amount : 0,
     currency: "EUR"
   };
@@ -3204,6 +3288,20 @@ async function startStripeCheckout(targetType, targetId) {
     return;
   }
 
+  if (normalizedType === "story") {
+    const story = getAllStories().find(item => storyIdsMatch(item.id, normalizedId));
+    if (story && isStoryWithMaster(story)) {
+      showToast(t("paymentWithMasterNeedsBookingToast", "Per pagare questa storia devi prima selezionare uno slot disponibile oppure unirti a una sessione pubblica."), "warning");
+      return;
+    }
+    if (story && isStoryUnlocked(story.id)) {
+      showToast(t("paymentAlreadyPaidStoryToast", "Pagamento già confermato: materiali già sbloccati."), "success");
+      renderStoryPaymentPanel(story);
+      renderStoryMaterials(story);
+      return;
+    }
+  }
+
   setStripeCheckoutButtonsLoading(normalizedType, normalizedId, true);
 
   try {
@@ -3248,8 +3346,11 @@ async function handleStripeCheckoutReturn() {
       if (error) throw error;
 
       if (data?.status === "paid") {
-        if (data.targetType === "story" && data.storyId) unlockStoryById(data.storyId);
-        showToast(t("paymentCheckoutConfirmed", "Pagamento test confermato da Stripe."), "success");
+        if (data.storyId) unlockStoryById(data.storyId);
+        const paidStory = data.storyId ? getAllStories().find(item => storyIdsMatch(item.id, data.storyId)) : null;
+        const paidTitle = paidStory?.title || t("paymentCheckoutGenericTitle", "contenuto Lorecast");
+        showToast(tf("paymentCheckoutConfirmedWithTitle", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Materiali sbloccati.`), "success");
+        addNotification(tf("paymentCheckoutNotification", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Materiali sbloccati.`), "success", { storyId: data.storyId || "", page: "profilo" });
       } else {
         showToast(t("paymentCheckoutPending", "Checkout completato: pagamento in verifica."), "info");
       }
@@ -3267,6 +3368,15 @@ async function handleStripeCheckoutReturn() {
     loadSupabaseSessionParticipants(),
     loadSupabaseNotifications()
   ]);
+
+  if (currentStory) {
+    renderStoryPaymentPanel(currentStory);
+    renderStoryMaterials(currentStory);
+    renderJoinSession(currentStory);
+  }
+  renderUserProfile();
+  renderMyStories();
+  renderOpenSessions();
 
   params.delete("stripe_checkout_return");
   params.delete("payment_target_type");
@@ -3579,7 +3689,7 @@ async function createBooking() {
 
   const profile = getUserProfile();
   if (!profile.email) {
-    showToast("Devi accedere per prenotare una sessione.", "warning");
+    showToast(t("bookingLoginRequired", "Devi accedere per prenotare una sessione."), "warning");
     go("login");
     return;
   }
@@ -3589,26 +3699,29 @@ async function createBooking() {
   const message = document.getElementById("bookingMessage")?.value.trim() || "";
 
   if (!selectedBookingSlot) {
-    showToast("Seleziona uno slot libero dal calendario.", "warning");
+    showToast(t("bookingSelectSlotRequired", "Seleziona uno slot libero dal calendario."), "warning");
     return;
   }
 
   if (!group || !players) {
-    showToast("Inserisci nome gruppo/referente e numero giocatori.", "warning");
+    showToast(t("bookingGroupPlayersRequired", "Inserisci nome gruppo/referente e numero giocatori."), "warning");
     return;
   }
 
   const bookedSlot = { ...selectedBookingSlot };
+  const requiresMasterApproval = bookingRequiresMasterApproval(currentStory);
+  const paymentState = getInitialPaymentStateForStory(currentStory);
+  const paymentRequired = paymentState.amount > 0;
+  const initialStatus = requiresMasterApproval ? "In attesa" : "Accettata";
+  const initialPaymentStatus = paymentRequired ? "unpaid" : "not_required";
 
   await loadSupabaseBookings();
 
   if (hasBookingOverlap(getCurrentStoryMasterId(currentStory), bookedSlot.date, bookedSlot.startTime, bookedSlot.endTime) || hasPublicSessionOverlap(currentStory, bookedSlot.date, bookedSlot.startTime, bookedSlot.endTime)) {
-    showToast("Questo slot è appena stato occupato. Scegli un altro orario.", "warning");
+    showToast(t("bookingSlotJustTaken", "Questo slot è appena stato occupato. Scegli un altro orario."), "warning");
     renderBookingCalendar(currentStory);
     return;
   }
-
-  const paymentState = getInitialPaymentStateForStory(currentStory);
 
   const bookingPayload = {
     story_id: storyId(currentStory.id),
@@ -3622,8 +3735,8 @@ async function createBooking() {
     duration_minutes: getStoryDurationMinutes(currentStory),
     players,
     message,
-    status: "In attesa",
-    payment_status: paymentState.status,
+    status: initialStatus,
+    payment_status: initialPaymentStatus,
     payment_amount: paymentState.amount,
     payment_currency: paymentState.currency
   };
@@ -3662,8 +3775,8 @@ async function createBooking() {
       durationMinutes: getStoryDurationMinutes(currentStory),
       players,
       message,
-      status: "In attesa",
-      paymentStatus: paymentState.status,
+      status: initialStatus,
+      paymentStatus: initialPaymentStatus,
       paymentAmount: paymentState.amount,
       paymentCurrency: paymentState.currency,
       user_id: getCurrentUserId()
@@ -3683,8 +3796,29 @@ async function createBooking() {
   renderBookingCalendar(currentStory);
   updateSelectedSlotLabel();
 
-  showToast("Richiesta di prenotazione inviata al Master.", "success");
-  addNotification(`Richiesta di prenotazione inviata per "${currentStory.title}".`, "success", { storyId: currentStory.id, page: "profilo" });
+  if (!requiresMasterApproval) {
+    if (paymentRequired) {
+      showToast(t("bookingImmediatePaymentStartToast", "Slot selezionato. Vai al checkout Stripe test per confermare la prenotazione."), "info");
+      addNotification(tf("bookingImmediatePaymentNotification", { title: currentStory.title }, `Prenotazione creata per "${currentStory.title}". Completa il pagamento per confermare lo slot.`), "info", { storyId: currentStory.id, bookingId: booking.id, page: "profilo" });
+      await startStripeCheckout("booking", booking.id);
+      return;
+    }
+
+    showToast(t("bookingImmediateFreeConfirmedToast", "Prenotazione confermata. Il Master riceverà una notifica."), "success");
+    addNotification(tf("bookingImmediateFreeConfirmedNotification", { title: currentStory.title }, `Prenotazione confermata per "${currentStory.title}".`), "success", { storyId: currentStory.id, bookingId: booking.id, page: "profilo" });
+    await createNotificationForUser(
+      booking.masterId,
+      tf("bookingImmediateMasterNotification", { title: currentStory.title }, `Nuova prenotazione confermata per "${currentStory.title}".`),
+      "success",
+      { storyId: currentStory.id, bookingId: booking.id, page: "area-master" }
+    );
+    await loadSupabaseNotifications();
+    renderUserProfile();
+    return;
+  }
+
+  showToast(t("bookingManualRequestSentToast", "Richiesta inviata al Master. Dopo l’accettazione potrai procedere al pagamento, se previsto."), "success");
+  addNotification(tf("bookingManualRequestSentNotification", { title: currentStory.title }, `Richiesta di prenotazione inviata per "${currentStory.title}".`), "success", { storyId: currentStory.id, bookingId: booking.id, page: "profilo" });
 
   // La notifica al Master viene creata anche lato database con trigger,
   // così arriva anche se il frontend viene chiuso subito dopo la prenotazione.
@@ -3704,7 +3838,7 @@ function isBookingPending(status) {
 }
 
 function isBookingAccepted(status) {
-  return ["accettata", "accepted"].includes(getBookingStatusKey(status));
+  return ["accettata", "accepted", "confermata", "confirmed"].includes(getBookingStatusKey(status));
 }
 
 function isBookingCompleted(status) {
@@ -3729,7 +3863,7 @@ function getTranslatedBookingStatus(status) {
   const key = getBookingStatusKey(status);
 
   if (isBookingPending(status)) return t("bookingStatusPending", "In attesa");
-  if (isBookingAccepted(status)) return t("bookingStatusAccepted", "Accettata");
+  if (isBookingAccepted(status)) return t("bookingStatusAccepted", "Confermata");
   if (isBookingCompleted(status)) return t("bookingStatusCompleted", "Completata");
   if (["rifiutata", "rejected"].includes(key)) return t("bookingStatusRejected", "Rifiutata");
   if (["annullata", "cancelled", "canceled"].includes(key)) return t("bookingStatusCancelled", "Annullata");
@@ -6718,7 +6852,7 @@ function renderMyStories() {
 
   if (!unlockedContainer || !bookingsContainer) return;
 
-  const unlockedIds = getUnlockedStories();
+  const unlockedIds = Array.from(new Set([...getUnlockedStories(), ...getPaidAccessStoryIds()]));
   const unlockedStoryIds = unlockedIds.map(String);
   const unlockedStories = getAllStories().filter(story => unlockedStoryIds.includes(storyId(story.id)));
 

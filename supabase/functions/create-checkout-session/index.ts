@@ -46,7 +46,7 @@ function fromCents(value: number) {
 }
 
 function isAccepted(status: unknown) {
-  return ["accettata", "accepted"].includes(String(status || "").trim().toLowerCase());
+  return ["accettata", "accepted", "confermata", "confirmed"].includes(String(status || "").trim().toLowerCase());
 }
 
 function safeUrl(value: unknown, fallback: string) {
@@ -95,6 +95,14 @@ function getStoryMasterId(story: Record<string, unknown>) {
   return normalizeId(story.author_id || story.master_id || story.owner_id || story.user_id);
 }
 
+function isStoryWithMaster(story: Record<string, unknown>) {
+  const rawType = String(story.type || story.story_type || story.type_key || "").trim().toLowerCase();
+  return rawType === "con master"
+    || rawType === "with_master"
+    || rawType === "with master"
+    || rawType.includes("master");
+}
+
 async function resolvePaymentTarget(adminClient: any, user: { id: string; email?: string | null }, body: Record<string, unknown>): Promise<PaymentTarget> {
   const targetType = normalizeId(body.targetType) as TargetType;
   const targetId = normalizeId(body.targetId);
@@ -111,6 +119,9 @@ async function resolvePaymentTarget(adminClient: any, user: { id: string; email?
     const masterId = getStoryMasterId(story);
     if (!masterId) throw new Error("Master della storia non trovato.");
     if (masterId === user.id) throw new Error("Non puoi pagare una storia che hai creato tu.");
+    if (isStoryWithMaster(story)) {
+      throw new Error("Per questa storia devi prima selezionare uno slot e creare una prenotazione o unirti a una sessione pubblica.");
+    }
 
     return {
       targetType,
@@ -134,7 +145,7 @@ async function resolvePaymentTarget(adminClient: any, user: { id: string; email?
     if (error) throw new Error(error.message);
     if (!booking) throw new Error("Prenotazione non trovata.");
     if (normalizeId(booking.user_id) !== user.id) throw new Error("Puoi pagare solo le tue prenotazioni.");
-    if (!isAccepted(booking.status)) throw new Error("La prenotazione deve essere accettata dal Master prima del pagamento.");
+    if (!isAccepted(booking.status)) throw new Error("Questa prenotazione non è ancora pronta per il pagamento.");
     if (String(booking.payment_status || "").toLowerCase() === "paid") throw new Error("Questa prenotazione risulta già pagata.");
 
     const story = await loadStory(adminClient, normalizeId(booking.story_id));

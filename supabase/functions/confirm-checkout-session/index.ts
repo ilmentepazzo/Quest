@@ -54,7 +54,7 @@ function paymentIntentId(session: Record<string, unknown>) {
 
 async function updatePaidTarget(adminClient: any, targetType: string, targetId: string, session: Record<string, unknown>) {
   const paid = session.payment_status === "paid";
-  const payload = {
+  const payload: Record<string, unknown> = {
     payment_status: paid ? "paid" : "pending",
     payment_provider: "stripe",
     payment_reference: normalizeId(session.id),
@@ -62,6 +62,7 @@ async function updatePaidTarget(adminClient: any, targetType: string, targetId: 
   };
 
   if (targetType === "booking") {
+    if (paid) payload.status = "Accettata";
     const { error } = await adminClient.from("bookings").update(payload).eq("id", targetId);
     if (error) throw new Error(error.message);
   }
@@ -94,6 +95,34 @@ async function logPaymentEvent(adminClient: any, session: Record<string, unknown
     payload: session,
     processed_at: new Date().toISOString()
   });
+}
+
+async function loadStoryTitle(adminClient: any, storyId: string) {
+  if (!storyId) return "contenuto Lorecast";
+  const { data } = await adminClient
+    .from("stories")
+    .select("title")
+    .eq("id", storyId)
+    .maybeSingle();
+  return data?.title || "contenuto Lorecast";
+}
+
+async function createPaymentNotifications(adminClient: any, session: Record<string, unknown>, metadata: Record<string, string>, userId: string) {
+  if (session.payment_status !== "paid") return;
+  if (!metadata.master_id || metadata.master_id === userId) return;
+
+  const storyTitle = await loadStoryTitle(adminClient, metadata.story_id || "");
+  const { error } = await adminClient.from("notifications").insert({
+    user_id: metadata.master_id,
+    message: `Pagamento ricevuto per "${storyTitle}".`,
+    type: "success",
+    read: false,
+    story_id: metadata.story_id || null,
+    booking_id: metadata.booking_id || null,
+    page: "area-master"
+  });
+
+  if (error) console.warn("payment notifications insert skipped", error.message || error);
 }
 
 Deno.serve(async (req) => {
@@ -134,6 +163,9 @@ Deno.serve(async (req) => {
     await updatePaidTarget(adminClient, targetType, targetId, session);
     await logPaymentEvent(adminClient, session, metadata, userData.user.id).catch((error) => {
       console.warn("payment_events insert skipped", error.message || error);
+    });
+    await createPaymentNotifications(adminClient, session, metadata, userData.user.id).catch((error) => {
+      console.warn("payment notifications skipped", error.message || error);
     });
 
     return jsonResponse({

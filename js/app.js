@@ -146,6 +146,7 @@ async function loadSections() {
   applyTranslations();
   updateNotificationBadge();
   const authUser = await checkAuthSession();
+  await handleStripeConnectReturn();
   await loadSupabaseMarketplaceState();
   renderHomeMarketplace();
 
@@ -5732,13 +5733,14 @@ function renderMasterPaymentReadiness() {
   const status = getStripeConnectStatus(profile);
   const active = status === "active" && profile.stripeChargesEnabled && profile.stripePayoutsEnabled;
   const statusClass = active ? "active" : status === "not_started" ? "not-started" : "pending";
+  const connectDone = status !== "not_started";
 
   panel.innerHTML = `
     <div class="payment-readiness-header">
       <div>
         <span class="payment-readiness-kicker">${escapeHtml(t("paymentReadinessKicker", "Pagamenti"))}</span>
         <h2>${escapeHtml(t("paymentReadinessTitle", "Preparazione Stripe Connect"))}</h2>
-        <p>${escapeHtml(t("paymentReadinessIntro", "Qui prepariamo i pagamenti dei Master. Per ora nessun pagamento reale viene creato dal frontend."))}</p>
+        <p>${escapeHtml(t("paymentReadinessIntro", "Qui prepariamo i pagamenti dei Master in modalità test. Per ora nessun utente paga davvero su Lorecast."))}</p>
       </div>
       <span class="payment-connect-status ${statusClass}">${escapeHtml(getStripeConnectLabel(profile))}</span>
     </div>
@@ -5748,9 +5750,9 @@ function renderMasterPaymentReadiness() {
         <strong>${escapeHtml(t("paymentReadinessStepDatabase", "Database pagamenti"))}</strong>
         <span>${escapeHtml(t("paymentReadinessStepDatabaseText", "Campi e tabella eventi pronti dopo lo SQL Update 71."))}</span>
       </div>
-      <div class="payment-readiness-step ${status === "not_started" ? "todo" : "done"}">
+      <div class="payment-readiness-step ${connectDone ? "done" : "todo"}">
         <strong>${escapeHtml(t("paymentReadinessStepConnect", "Account Stripe Master"))}</strong>
-        <span>${escapeHtml(t("paymentReadinessStepConnectText", "Nel prossimo update collegheremo l’onboarding Stripe in modalità test."))}</span>
+        <span>${escapeHtml(t("paymentReadinessStepConnectText", "Collega l’account Stripe Express del Master in modalità test."))}</span>
       </div>
       <div class="payment-readiness-step todo">
         <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout e webhook"))}</strong>
@@ -5759,14 +5761,129 @@ function renderMasterPaymentReadiness() {
     </div>
 
     <div class="payment-readiness-actions">
-      <button type="button" class="light" onclick="showStripeConnectSetupNotice()">${escapeHtml(t("paymentReadinessConnectButton", "Collega Stripe — prossimo update"))}</button>
-      <small>${escapeHtml(t("paymentReadinessNoSecrets", "Non inserire chiavi segrete nel frontend: verranno usate solo in Supabase Edge Functions."))}</small>
+      <button type="button" class="primary" id="stripeConnectStartButton" onclick="startStripeConnectOnboarding()">${escapeHtml(t("paymentReadinessConnectButton", "Collega Stripe in test mode"))}</button>
+      <button type="button" class="light" id="stripeConnectRefreshButton" onclick="refreshStripeConnectStatus()">${escapeHtml(t("paymentReadinessRefreshButton", "Aggiorna stato"))}</button>
+      <small>${escapeHtml(t("paymentReadinessNoSecrets", "Le chiavi segrete restano solo nelle Supabase Edge Functions, mai nel frontend."))}</small>
     </div>
   `;
 }
 
-function showStripeConnectSetupNotice() {
-  showToast(t("paymentReadinessToast", "Prima eseguiamo lo SQL Update 71. Nell’update successivo creeremo il collegamento Stripe in test mode."), "warning");
+function updateLocalStripeConnectProfile(data = {}) {
+  const profile = getUserProfile();
+  const nextProfile = {
+    ...profile,
+    stripeConnectAccountId: data.accountId || data.stripe_connect_account_id || profile.stripeConnectAccountId || "",
+    stripeConnectStatus: data.status || data.stripeConnectStatus || data.stripe_connect_status || profile.stripeConnectStatus || "not_started",
+    stripeChargesEnabled: Boolean(data.chargesEnabled ?? data.stripeChargesEnabled ?? data.stripe_charges_enabled ?? profile.stripeChargesEnabled),
+    stripePayoutsEnabled: Boolean(data.payoutsEnabled ?? data.stripePayoutsEnabled ?? data.stripe_payouts_enabled ?? profile.stripePayoutsEnabled),
+    stripeDetailsSubmitted: Boolean(data.detailsSubmitted ?? data.stripeDetailsSubmitted ?? data.stripe_details_submitted ?? profile.stripeDetailsSubmitted)
+  };
+
+  localStorage.setItem("questhubUserProfile", JSON.stringify(nextProfile));
+
+  const userId = storyId(nextProfile.id || nextProfile.user_id || "");
+  if (userId) {
+    supabaseProfilesCache[userId] = {
+      ...(supabaseProfilesCache[userId] || {}),
+      stripe_connect_account_id: nextProfile.stripeConnectAccountId,
+      stripe_connect_status: nextProfile.stripeConnectStatus,
+      stripe_charges_enabled: nextProfile.stripeChargesEnabled,
+      stripe_payouts_enabled: nextProfile.stripePayoutsEnabled,
+      stripe_details_submitted: nextProfile.stripeDetailsSubmitted
+    };
+  }
+
+  updateHeaderUser();
+  renderMasterPaymentReadiness();
+  return nextProfile;
+}
+
+function setStripeConnectButtonsLoading(isLoading) {
+  ["stripeConnectStartButton", "stripeConnectRefreshButton"].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = Boolean(isLoading);
+  });
+}
+
+function getStripeConnectReturnUrl() {
+  const url = new URL(window.location.href);
+  url.hash = "area-master";
+  url.searchParams.set("stripe_connect_return", "1");
+  return url.toString();
+}
+
+async function startStripeConnectOnboarding() {
+  if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
+    showToast(t("paymentConnectMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
+    return;
+  }
+
+  setStripeConnectButtonsLoading(true);
+  try {
+    const returnUrl = getStripeConnectReturnUrl();
+    const { data, error } = await supabaseClient.functions.invoke("create-connect-account", {
+      body: {
+        returnUrl,
+        refreshUrl: returnUrl
+      }
+    });
+
+    if (error) throw error;
+    if (!data?.url) throw new Error(t("paymentConnectMissingUrl", "Stripe non ha restituito un link onboarding."));
+
+    updateLocalStripeConnectProfile({
+      accountId: data.accountId,
+      status: data.status || "onboarding_started"
+    });
+
+    window.location.href = data.url;
+  } catch (error) {
+    console.error("Errore onboarding Stripe Connect:", error);
+    showToast(`${t("paymentConnectError", "Errore collegamento Stripe:")} ${error.message || error}`, "error");
+  } finally {
+    setStripeConnectButtonsLoading(false);
+  }
+}
+
+async function refreshStripeConnectStatus(options = {}) {
+  if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
+    if (!options.silent) showToast(t("paymentConnectMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
+    return null;
+  }
+
+  setStripeConnectButtonsLoading(true);
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("refresh-connect-status", {
+      body: {}
+    });
+
+    if (error) throw error;
+
+    updateLocalStripeConnectProfile(data || {});
+    if (!options.silent) showToast(t("paymentConnectRefreshSuccess", "Stato Stripe aggiornato."), "success");
+    return data;
+  } catch (error) {
+    console.error("Errore aggiornamento stato Stripe:", error);
+    if (!options.silent) showToast(`${t("paymentConnectRefreshError", "Errore aggiornamento Stripe:")} ${error.message || error}`, "error");
+    return null;
+  } finally {
+    setStripeConnectButtonsLoading(false);
+  }
+}
+
+async function handleStripeConnectReturn() {
+  const params = new URLSearchParams(window.location.search || "");
+  if (!params.has("stripe_connect_return")) return;
+
+  if (getCurrentUserId()) {
+    showToast(t("paymentConnectReturnToast", "Rientro da Stripe: aggiorno lo stato del collegamento."), "info");
+    await refreshStripeConnectStatus({ silent: true });
+  }
+
+  params.delete("stripe_connect_return");
+  const cleanSearch = params.toString();
+  const cleanUrl = `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ""}${window.location.hash || "#area-master"}`;
+  window.history.replaceState(null, "", cleanUrl);
 }
 
 function renderMasterPublicSessions() {

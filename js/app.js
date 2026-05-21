@@ -213,7 +213,8 @@ function getDefaultStoryLanguage() {
 
 const EXPERIENCE_FORMAT_KEYS = {
   one_shot_gdr: "experienceFormatOneShotGdr",
-  campagna_gdr: "experienceFormatCampaignGdr"
+  campagna_gdr: "experienceFormatCampaignGdr",
+  board_game_session: "experienceFormatBoardGameSession"
 };
 
 function normalizeExperienceFormat(value, fallback = "one_shot_gdr") {
@@ -230,6 +231,7 @@ function inferExperienceFormat(story) {
   const type = String(story?.type || "").toLowerCase();
 
   if (type.includes("campagna")) return "campagna_gdr";
+  if (type.includes("board") || type.includes("gioco da tavolo")) return "board_game_session";
 
   return "one_shot_gdr";
 }
@@ -249,7 +251,8 @@ function getExperienceFormatLabel(storyOrCode) {
   const code = getExperienceFormatCode(storyOrCode);
   const fallbacks = {
     one_shot_gdr: "One-shot GDR",
-    campagna_gdr: "Campagna GDR"
+    campagna_gdr: "Campagna GDR",
+    board_game_session: "Sessione board game"
   };
 
   return t(EXPERIENCE_FORMAT_KEYS[code], fallbacks[code] || fallbacks.one_shot_gdr);

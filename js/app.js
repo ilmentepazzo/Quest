@@ -18,6 +18,8 @@ let supabaseSessionParticipantsLoaded = false;
 let supabaseProfilesCache = {};
 let supabaseReviewsCache = [];
 let supabaseReviewsLoaded = false;
+let supabaseStoryPurchasesCache = [];
+let supabaseStoryPurchasesLoaded = false;
 let editingStoryId = null;
 let currentMasterAreaView = "availability";
 let currentBookingMessagesBookingId = null;
@@ -390,6 +392,12 @@ function getPaidAccessStoryIds() {
 
   const ids = new Set();
 
+  supabaseStoryPurchasesCache.forEach(purchase => {
+    if (!storyIdsMatch(purchase.user_id, userId)) return;
+    if (normalizePaymentStatus(purchase.paymentStatus || purchase.payment_status || "") !== "paid") return;
+    if (purchase.storyId || purchase.story_id) ids.add(storyId(purchase.storyId || purchase.story_id));
+  });
+
   getBookings().forEach(booking => {
     if (!storyIdsMatch(booking.user_id, userId)) return;
     if (normalizePaymentStatus(booking.paymentStatus || booking.payment_status || "") !== "paid") return;
@@ -433,6 +441,22 @@ function getStripeConnectLabel(profile = getUserProfile()) {
   if (status === "onboarding_started") return t("stripeStatusOnboardingStarted", "Onboarding Stripe iniziato");
 
   return t("stripeStatusNotStarted", "Stripe non collegato");
+}
+
+function isStripeProfileReady(profile = {}) {
+  const status = getStripeConnectStatus(profile);
+  return status === "active" && Boolean(profile.stripe_charges_enabled || profile.stripeChargesEnabled);
+}
+
+function isStoryAuthorStripeReady(story) {
+  const authorId = getStoryAuthorId(story);
+  if (!authorId) return false;
+
+  if (storyIdsMatch(authorId, getCurrentUserId())) {
+    return isStripeProfileReady(getUserProfile());
+  }
+
+  return isStripeProfileReady(supabaseProfilesCache[storyId(authorId)] || {});
 }
 
 function normalizePaymentProfileFields(profile = {}) {
@@ -601,6 +625,51 @@ function normalizeReview(row) {
   };
 }
 
+function normalizeStoryPurchase(row) {
+  if (!row) return null;
+
+  return {
+    id: storyId(row.id),
+    user_id: storyId(row.user_id),
+    masterId: storyId(row.master_id || row.masterId || ""),
+    storyId: storyId(row.story_id || row.storyId),
+    paymentStatus: normalizePaymentStatus(row.payment_status || row.paymentStatus || ""),
+    paymentAmount: Number(row.payment_amount ?? row.paymentAmount ?? 0),
+    paymentCurrency: row.payment_currency || row.paymentCurrency || "EUR",
+    paymentProvider: row.payment_provider || row.paymentProvider || "",
+    paymentReference: row.payment_reference || row.paymentReference || "",
+    paidAt: row.paid_at || row.paidAt || null,
+    createdAt: row.created_at || row.createdAt || null,
+    updatedAt: row.updated_at || row.updatedAt || null
+  };
+}
+
+async function loadSupabaseStoryPurchases() {
+  if (typeof supabaseClient === "undefined") return [];
+  const userId = getCurrentUserId();
+  if (!userId) {
+    supabaseStoryPurchasesCache = [];
+    supabaseStoryPurchasesLoaded = true;
+    return supabaseStoryPurchasesCache;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_purchases")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("payment_status", "paid");
+
+  if (error) {
+    console.warn("Impossibile caricare acquisti storie:", error.message);
+    supabaseStoryPurchasesLoaded = false;
+    return supabaseStoryPurchasesCache;
+  }
+
+  supabaseStoryPurchasesCache = (data || []).map(normalizeStoryPurchase).filter(Boolean);
+  supabaseStoryPurchasesLoaded = true;
+  return supabaseStoryPurchasesCache;
+}
+
 async function loadSupabaseReviews() {
   if (typeof supabaseClient === "undefined") return [];
 
@@ -630,7 +699,8 @@ async function loadSupabaseMarketplaceState() {
     loadSupabaseBookings(),
     loadSupabasePublicSessions(),
     loadSupabaseNotifications(),
-    loadSupabaseReviews()
+    loadSupabaseReviews(),
+    loadSupabaseStoryPurchases()
   ]);
 
   const userIds = new Set();
@@ -673,7 +743,7 @@ async function loadSupabaseProfilesForUserIds(userIds = []) {
 
   const { data, error } = await supabaseClient
     .from("profiles")
-    .select("id,name,avatar_url")
+    .select("id,name,avatar_url,stripe_connect_status,stripe_charges_enabled,stripe_payouts_enabled,stripe_details_submitted")
     .in("id", missingIds);
 
   if (error) {
@@ -686,7 +756,11 @@ async function loadSupabaseProfilesForUserIds(userIds = []) {
       supabaseProfilesCache[storyId(profile.id)] = {
         id: storyId(profile.id),
         name: profile.name || "Giocatore Lorecast",
-        avatar_url: profile.avatar_url || ""
+        avatar_url: profile.avatar_url || "",
+        stripe_connect_status: profile.stripe_connect_status || "not_started",
+        stripe_charges_enabled: Boolean(profile.stripe_charges_enabled),
+        stripe_payouts_enabled: Boolean(profile.stripe_payouts_enabled),
+        stripe_details_submitted: Boolean(profile.stripe_details_submitted)
       };
     }
   });
@@ -2337,6 +2411,19 @@ function renderStoryPaymentPanel(story) {
     return;
   }
 
+  if (!isWithMaster && paymentRequired && !isStoryAuthorStripeReady(story)) {
+    if (paymentNote) {
+      paymentNote.textContent = t("paymentAuthorStripeMissingNote", "Pagamento non disponibile: l’autore deve prima collegare Stripe in Area Master.");
+    }
+    if (payButton) {
+      payButton.hidden = false;
+      payButton.disabled = true;
+      payButton.classList.toggle("is-disabled", true);
+      payButton.textContent = t("paymentAuthorStripeMissingButton", "Stripe autore non pronto");
+    }
+    return;
+  }
+
   if (paymentNote) {
     paymentNote.textContent = paymentRequired
       ? t("paymentStripeTestNote", "Usa solo carte test Stripe. La conferma automatica via webhook arriverà nel prossimo update.")
@@ -2376,6 +2463,11 @@ async function payForCurrentStory() {
   }
 
   if (isStoryPaymentRequired(currentStory)) {
+    if (!isStoryWithMaster(currentStory) && !isStoryAuthorStripeReady(currentStory)) {
+      showToast(t("paymentAuthorStripeMissingNote", "Pagamento non disponibile: l’autore deve prima collegare Stripe in Area Master."), "warning");
+      renderStoryPaymentPanel(currentStory);
+      return;
+    }
     await startStripeCheckout("story", currentStory.id);
     return;
   }
@@ -2396,7 +2488,12 @@ function renderStoryBookingMode(story) {
 
   if (masterPanel) masterPanel.style.display = isWithMaster ? "block" : "none";
   if (selfPlayPanel) selfPlayPanel.style.display = isWithMaster ? "none" : "block";
-  if (unlockButton) unlockButton.textContent = isWithMaster ? "Sblocca / Acquista materiali" : "Sblocca materiali self-play";
+  if (unlockButton) {
+    const showFreeSelfPlayUnlock = !isWithMaster && !isStoryPaymentRequired(story) && !isStoryUnlocked(story.id);
+    unlockButton.hidden = !showFreeSelfPlayUnlock;
+    unlockButton.disabled = !showFreeSelfPlayUnlock;
+    unlockButton.textContent = t("paymentUnlockFree", "Sblocca gratis");
+  }
   if (bookingButton) {
     bookingButton.textContent = requiresManualApproval
       ? t("bookingRequestMasterButton", "Invia richiesta al Master")
@@ -2587,6 +2684,13 @@ function renderStoryReviews(story = currentStory) {
 
 function unlockCurrentStory() {
   if (!currentStory) return;
+
+  if (isStoryPaymentRequired(currentStory)) {
+    showToast(t("paymentPaidStoryMustUseStripe", "Questa storia è a pagamento: usa il checkout Stripe test per sbloccare i materiali."), "warning");
+    renderStoryPaymentPanel(currentStory);
+    renderStoryMaterials(currentStory);
+    return;
+  }
 
   const unlockedStories = getUnlockedStories();
 
@@ -3297,6 +3401,11 @@ async function startStripeCheckout(targetType, targetId) {
       showToast(t("paymentWithMasterNeedsBookingToast", "Per pagare questa storia devi prima selezionare uno slot disponibile oppure unirti a una sessione pubblica."), "warning");
       return;
     }
+    if (story && isStoryPaymentRequired(story) && !isStoryAuthorStripeReady(story)) {
+      showToast(t("paymentAuthorStripeMissingNote", "Pagamento non disponibile: l’autore deve prima collegare Stripe in Area Master."), "warning");
+      renderStoryPaymentPanel(story);
+      return;
+    }
     if (story && isStoryUnlocked(story.id)) {
       showToast(t("paymentAlreadyPaidStoryToast", "Pagamento già confermato: materiali già sbloccati."), "success");
       renderStoryPaymentPanel(story);
@@ -3317,7 +3426,20 @@ async function startStripeCheckout(targetType, targetId) {
       }
     });
 
-    if (error) throw error;
+    if (error) {
+      let detail = error.message || String(error);
+      try {
+        const context = error.context || error.response;
+        if (context?.clone && context?.json) {
+          const payload = await context.clone().json();
+          detail = payload?.error || payload?.message || detail;
+        } else if (context?.json) {
+          const payload = await context.json();
+          detail = payload?.error || payload?.message || detail;
+        }
+      } catch (_) {}
+      throw new Error(detail);
+    }
     if (!data?.url) throw new Error(t("paymentCheckoutMissingUrl", "Stripe non ha restituito il link checkout."));
 
     window.location.href = data.url;
@@ -3369,7 +3491,8 @@ async function handleStripeCheckoutReturn() {
     loadSupabaseBookings(),
     loadSupabasePublicSessions(),
     loadSupabaseSessionParticipants(),
-    loadSupabaseNotifications()
+    loadSupabaseNotifications(),
+    loadSupabaseStoryPurchases()
   ]);
 
   if (currentStory) {

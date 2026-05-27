@@ -54,12 +54,30 @@ function paymentIntentId(session: Record<string, unknown>) {
 
 async function updatePaidTarget(adminClient: any, targetType: string, targetId: string, session: Record<string, unknown>) {
   const paid = session.payment_status === "paid";
+  const paidAt = paid ? new Date().toISOString() : null;
+  const metadata = (session.metadata || {}) as Record<string, string>;
   const payload: Record<string, unknown> = {
     payment_status: paid ? "paid" : "pending",
     payment_provider: "stripe",
     payment_reference: normalizeId(session.id),
-    paid_at: paid ? new Date().toISOString() : null
+    paid_at: paidAt
   };
+
+  if (targetType === "story") {
+    const { error } = await adminClient.from("story_purchases").upsert({
+      user_id: metadata.user_id,
+      master_id: metadata.master_id || null,
+      story_id: metadata.story_id || targetId,
+      payment_status: paid ? "paid" : "pending",
+      payment_amount: fromCents(session.amount_total),
+      payment_currency: String(session.currency || "EUR").toUpperCase(),
+      payment_provider: "stripe",
+      payment_reference: normalizeId(session.id),
+      paid_at: paidAt,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,story_id" });
+    if (error) throw new Error(error.message);
+  }
 
   if (targetType === "booking") {
     if (paid) payload.status = "Accettata";

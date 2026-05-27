@@ -212,9 +212,9 @@ async function loadConnectedMaster(adminClient: any, masterId: string) {
 
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Profilo Master non trovato.");
-  if (!data.stripe_connect_account_id) throw new Error("Il Master non ha ancora collegato Stripe.");
+  if (!data.stripe_connect_account_id) throw new Error("Il creatore deve collegare Stripe prima di ricevere pagamenti.");
   if (data.stripe_connect_status !== "active" || !data.stripe_charges_enabled) {
-    throw new Error("Stripe del Master non è ancora pronto a ricevere pagamenti.");
+    throw new Error("Stripe del creatore non è ancora pronto a ricevere pagamenti.");
   }
 
   return data;
@@ -226,6 +226,21 @@ async function updatePaymentTarget(adminClient: any, target: PaymentTarget, chec
     payment_provider: "stripe",
     payment_reference: checkoutSessionId
   };
+
+  if (target.targetType === "story") {
+    const { error } = await adminClient.from("story_purchases").upsert({
+      user_id: target.userId,
+      master_id: target.masterId,
+      story_id: target.storyId,
+      payment_status: "pending",
+      payment_amount: fromCents(target.amountCents),
+      payment_currency: target.currency.toUpperCase(),
+      payment_provider: "stripe",
+      payment_reference: checkoutSessionId,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,story_id" });
+    if (error) throw new Error(error.message);
+  }
 
   if (target.targetType === "booking" && target.bookingId) {
     const { error } = await adminClient.from("bookings").update(payload).eq("id", target.bookingId);

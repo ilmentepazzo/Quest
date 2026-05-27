@@ -666,7 +666,7 @@ async function loadSupabaseStoryPurchases() {
     .from("story_purchases")
     .select("*")
     .eq("user_id", userId)
-    .eq("payment_status", "paid");
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.warn("Impossibile caricare acquisti storie:", error.message);
@@ -1381,6 +1381,7 @@ async function renderUserProfile() {
   await loadSupabaseBookings();
   await loadSupabasePublicSessions();
   await loadSupabaseReviews();
+  await loadSupabaseStoryPurchases();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
@@ -1392,6 +1393,7 @@ async function renderUserProfile() {
   const completedJoinedPublicSessions = joinedPublicSessions.filter(item => isBookingCompleted(item.status));
   const playedStories = [...completedPrivateStories, ...completedJoinedPublicSessions];
   const bookedStories = [...privateBookedStories, ...activeJoinedPublicSessions];
+  const purchasedStories = getProfilePurchaseItems(userId);
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
@@ -1431,7 +1433,7 @@ async function renderUserProfile() {
   if (bookingsCount) bookingsCount.textContent = playedStories.length;
   if (unlockedCount) unlockedCount.textContent = bookedStories.length;
 
-  renderProfileLibrary(createdStories, playedStories, bookedStories);
+  renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories);
   renderUserReviews();
 }
 
@@ -1569,10 +1571,75 @@ function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
   `;
 }
 
-function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0) {
+function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0, purchaseCount = 0) {
   setProfileTabLabel("created", t("profileTabCreated", "Create"), createdCount);
   setProfileTabLabel("played", t("profileTabPlayed", "Giocate"), playedCount);
   setProfileTabLabel("booked", t("profileTabBooked", "Prenotate"), bookedCount, bookedUnreadCount);
+  setProfileTabLabel("purchases", t("profileTabPurchases", "Acquisti"), purchaseCount);
+}
+
+function ensureProfilePurchasesTab() {
+  const existingButton = document.querySelector('.profile-tab-button[data-profile-tab="purchases"]');
+  const existingPanel = document.querySelector('.profile-tab-panel[data-profile-panel="purchases"]');
+
+  const bookedButton = document.querySelector('.profile-tab-button[data-profile-tab="booked"]');
+  const tabsContainer = bookedButton?.parentElement || document.querySelector('.profile-tabs, .profile-tab-buttons, [data-profile-tabs]');
+
+  if (!existingButton && tabsContainer) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "profile-tab-button";
+    button.dataset.profileTab = "purchases";
+    button.setAttribute("onclick", "setProfileLibraryTab('purchases')");
+    button.innerHTML = `<span>${escapeHtml(t("profileTabPurchases", "Acquisti"))}</span><strong>0</strong>`;
+    bookedButton?.after(button) || tabsContainer.appendChild(button);
+  }
+
+  const bookedPanel = document.querySelector('.profile-tab-panel[data-profile-panel="booked"]');
+  const panelsContainer = bookedPanel?.parentElement || document.querySelector('.profile-tab-panels, [data-profile-panels]');
+
+  if (!existingPanel && panelsContainer) {
+    const panel = document.createElement("div");
+    panel.className = "profile-tab-panel";
+    panel.dataset.profilePanel = "purchases";
+    panel.innerHTML = `<div id="profilePurchasedStories" class="profile-compact-list"></div>`;
+    bookedPanel?.after(panel) || panelsContainer.appendChild(panel);
+  }
+}
+
+function getProfilePurchaseItems(userId = getCurrentUserId()) {
+  if (!userId) return [];
+
+  const seen = new Set();
+  return supabaseStoryPurchasesCache
+    .filter(purchase => storyIdsMatch(purchase.user_id, userId))
+    .filter(purchase => {
+      const key = purchase.id || `${purchase.storyId}-${purchase.paymentReference || purchase.createdAt || ""}`;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(purchase => {
+      const story = getAllStories().find(item => storyIdsMatch(item.id, purchase.storyId));
+      return {
+        ...purchase,
+        source: "purchase",
+        story: story?.title || t("profilePurchaseUnknownStory", "Storia acquistata"),
+        storyRecord: story || null
+      };
+    })
+    .sort((a, b) => new Date(b.paidAt || b.createdAt || 0) - new Date(a.paidAt || a.createdAt || 0));
+}
+
+function getProfilePurchaseStatusChip(purchase) {
+  const status = normalizePaymentStatus(purchase?.paymentStatus || "pending", "pending");
+  return `<span class="profile-info-chip status-chip ${status === "paid" ? "paid-chip" : status === "refunded" ? "refund-chip" : "muted-chip"}">${escapeHtml(getTranslatedPaymentStatus(status))}</span>`;
+}
+
+function getProfilePurchaseAmountChip(purchase) {
+  const amount = Number(purchase?.paymentAmount || 0);
+  if (!amount) return "";
+  return `<span class="profile-info-chip payment-chip">${escapeHtml(formatMoney(amount, { freeLabel: false }))}</span>`;
 }
 
 function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
@@ -1625,7 +1692,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   container.innerHTML = items.map(item => {
     const story = type === "booking"
       ? getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: item.message || "", genre: item.status || "Sessione" }
-      : item;
+      : type === "purchase"
+        ? item.storyRecord || getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: "", genre: t("profilePurchaseSelfPlay", "Acquisto self-play") }
+        : item;
 
     const storyArg = storyJsArg(story.id || item.storyId);
     const reviewSummary = getStoryReviewSummary(story.id || item.storyId);
@@ -1633,15 +1702,21 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 
     const meta = type === "booking"
       ? `${item.source === "public_session" ? t("profileBookingJoinIn", "Join-in") : t("profileBookingPrivate", "Prenotazione privata")} · ${formatBookingDateTime(item.date, item.startTime || item.time, item.endTime)}`
-      : `${getTranslatedGenreLabel(story.genre)}${story.type ? ` · ${getTranslatedStoryTypeLabel(story.type)}` : ""}`;
+      : type === "purchase"
+        ? `${t("profilePurchaseSelfPlay", "Acquisto self-play")} · ${item.paidAt || item.createdAt ? formatLocalizedDateTime(item.paidAt || item.createdAt) : t("profilePurchaseDateMissing", "Data non disponibile")}`
+        : `${getTranslatedGenreLabel(story.genre)}${story.type ? ` · ${getTranslatedStoryTypeLabel(story.type)}` : ""}`;
 
     const statusChip = type === "booking"
       ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
-      : "";
+      : type === "purchase"
+        ? getProfilePurchaseStatusChip(item)
+        : "";
 
     const paymentChip = type === "booking"
       ? renderBookingPaymentChip(item, "profile-info-chip")
-      : "";
+      : type === "purchase"
+        ? getProfilePurchaseAmountChip(item)
+        : "";
 
     const bookingChip = type === "story"
       ? `<span class="profile-info-chip">${bookingSummary.label}</span>`
@@ -1652,7 +1727,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `<span class="profile-info-chip unread-chip">${tf("bookingUnreadMessages", { count: unreadMessages > 9 ? "9+" : unreadMessages }, `${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi`)}</span>`
       : "";
 
-    const reviewChip = `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
+    const reviewChip = type === "purchase"
+      ? `<span class="profile-info-chip ${normalizePaymentStatus(item.paymentStatus) === "paid" ? "rating-chip" : "muted-chip"}">${escapeHtml(normalizePaymentStatus(item.paymentStatus) === "paid" ? t("profilePurchaseMaterialsUnlocked", "Materiali sbloccati") : t("profilePurchaseAccessLimited", "Accesso non attivo"))}</span>`
+      : `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
     const paymentAction = type === "booking" ? renderBookingPaymentAction(item, "primary compact-action") : "";
     const reviewAction = type === "booking" ? renderBookingReviewAction(item, "light compact-action") : "";
@@ -1680,12 +1757,14 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   }).join("");
 }
 
-function renderProfileLibrary(createdStories, playedStories, bookedStories) {
+function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = []) {
+  ensureProfilePurchasesTab();
   const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
-  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount);
+  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length);
   renderCompactStoryList("profileCreatedStories", createdStories, t("profileEmptyCreated", "Non hai ancora creato storie."));
   renderCompactStoryList("profilePlayedStories", playedStories, t("profileEmptyPlayed", "Non hai ancora storie giocate."), "booking");
   renderCompactStoryList("profileBookedStories", bookedStories, t("profileEmptyBooked", "Non hai ancora storie prenotate."), "booking");
+  renderCompactStoryList("profilePurchasedStories", purchasedStories, t("profileEmptyPurchases", "Non hai ancora acquisti."), "purchase");
 }
 
 function setProfileLibraryTab(tabName) {

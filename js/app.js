@@ -6377,6 +6377,21 @@ function getMasterPaymentRows() {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
+
+function getLorecastFeeAmountForPaymentRow(row) {
+  const amount = Number(row?.amount || 0);
+  const storedFee = Number(row?.applicationFeeAmount || 0);
+  if (storedFee > 0) return storedFee;
+  if (row?.status !== "paid" && row?.status !== "refunded") return 0;
+  if (!amount) return 0;
+  return Math.round(amount * 0.12);
+}
+
+function setMasterPaymentsFilter(filter) {
+  window.lorecastMasterPaymentsFilter = ["all", "paid", "pending", "refunded"].includes(filter) ? filter : "all";
+  renderMasterPaymentsPanel();
+}
+
 function renderMasterPaymentsPanel() {
   const panel = ensureMasterPaymentsPanel();
   if (!panel) return;
@@ -6402,8 +6417,16 @@ function renderMasterPaymentsPanel() {
   const rows = getMasterPaymentRows();
   const activeRows = rows.filter(row => row.status === "paid");
   const gross = activeRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-  const lorecastFees = activeRows.reduce((sum, row) => sum + Number(row.applicationFeeAmount || 0), 0);
+  const lorecastFees = activeRows.reduce((sum, row) => sum + getLorecastFeeAmountForPaymentRow(row), 0);
   const afterLorecast = Math.max(0, gross - lorecastFees);
+  const selectedFilter = window.lorecastMasterPaymentsFilter || "all";
+  const filteredRows = selectedFilter === "all" ? rows : rows.filter(row => row.status === selectedFilter);
+  const filters = [
+    ["all", t("masterPaymentsFilterAll", "Tutti")],
+    ["paid", t("masterPaymentsFilterPaid", "Pagati")],
+    ["pending", t("masterPaymentsFilterPending", "In attesa")],
+    ["refunded", t("masterPaymentsFilterRefunded", "Rimborsati")]
+  ];
 
   panel.innerHTML = `
     <div class="section-heading-row">
@@ -6415,26 +6438,50 @@ function renderMasterPaymentsPanel() {
       <button type="button" class="light" onclick="refreshMasterPaymentsPanel()">${escapeHtml(t("masterPaymentsRefresh", "Aggiorna"))}</button>
     </div>
 
-    <div class="payment-readiness-grid">
-      <div class="payment-readiness-step done">
-        <strong>${escapeHtml(formatMoney(gross, { freeLabel: false }))}</strong>
-        <span>${escapeHtml(t("masterPaymentsGross", "Totale pagato dai giocatori"))}</span>
+    <div class="payment-compact-summary" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0 8px;">
+      <div class="payment-compact-stat" style="padding:12px 14px;border:1px solid #bbf7d0;border-radius:16px;background:rgba(255,255,255,.76);">
+        <strong style="display:block;font-size:18px;">${escapeHtml(formatMoney(gross, { freeLabel: false }))}</strong>
+        <span style="color:#64748b;font-size:13px;font-weight:800;">${escapeHtml(t("masterPaymentsGross", "Totale pagato dai giocatori"))}</span>
       </div>
-      <div class="payment-readiness-step done">
-        <strong>${escapeHtml(formatMoney(lorecastFees, { freeLabel: false }))}</strong>
-        <span>${escapeHtml(t("masterPaymentsLorecastFee", "Fee Lorecast"))}</span>
+      <div class="payment-compact-stat" style="padding:12px 14px;border:1px solid #bbf7d0;border-radius:16px;background:rgba(255,255,255,.76);">
+        <strong style="display:block;font-size:18px;">${escapeHtml(formatMoney(lorecastFees, { freeLabel: false }))}</strong>
+        <span style="color:#64748b;font-size:13px;font-weight:800;">${escapeHtml(t("masterPaymentsLorecastFee", "Fee Lorecast"))}</span>
       </div>
-      <div class="payment-readiness-step done">
-        <strong>${escapeHtml(formatMoney(afterLorecast, { freeLabel: false }))}</strong>
-        <span>${escapeHtml(t("masterPaymentsAfterFee", "Importo dopo fee Lorecast"))}</span>
+      <div class="payment-compact-stat" style="padding:12px 14px;border:1px solid #bbf7d0;border-radius:16px;background:rgba(255,255,255,.76);">
+        <strong style="display:block;font-size:18px;">${escapeHtml(formatMoney(afterLorecast, { freeLabel: false }))}</strong>
+        <span style="color:#64748b;font-size:13px;font-weight:800;">${escapeHtml(t("masterPaymentsAfterFee", "Importo dopo fee Lorecast"))}</span>
       </div>
     </div>
 
     <p class="muted-small">${escapeHtml(t("masterPaymentsNoStripeFee", "Non mostriamo stime sulle fee Stripe: eventuali costi esterni dipendono dalle condizioni del provider di pagamento."))}</p>
 
-    <div class="master-session-list master-payments-list">
-      ${rows.length ? rows.slice(0, 20).map(renderMasterPaymentRow).join("") : `
-        <div class="empty-state small">
+    <div class="master-payments-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;">
+      ${filters.map(([value, label]) => `
+        <button type="button" class="${selectedFilter === value ? "primary" : "light"}" style="padding:8px 12px;border-radius:999px;" onclick="setMasterPaymentsFilter('${value}')">${escapeHtml(label)}</button>
+      `).join("")}
+    </div>
+
+    <div class="master-payments-table-wrap" style="overflow:auto;border:1px solid #e5e7eb;border-radius:18px;background:rgba(255,255,255,.82);">
+      ${filteredRows.length ? `
+        <table class="master-payments-table" style="width:100%;border-collapse:collapse;min-width:860px;font-size:14px;">
+          <thead>
+            <tr style="text-align:left;color:#64748b;border-bottom:1px solid #e5e7eb;">
+              <th style="padding:12px 14px;">${escapeHtml(t("masterPaymentsTableStory", "Storia"))}</th>
+              <th style="padding:12px 14px;">${escapeHtml(t("masterPaymentsTablePlayer", "Giocatore"))}</th>
+              <th style="padding:12px 14px;">${escapeHtml(t("masterPaymentsTableDate", "Data"))}</th>
+              <th style="padding:12px 14px;text-align:right;">${escapeHtml(t("masterPaymentsGrossShort", "Lordo"))}</th>
+              <th style="padding:12px 14px;text-align:right;">${escapeHtml(t("masterPaymentsFeeShort", "Fee Lorecast"))}</th>
+              <th style="padding:12px 14px;text-align:right;">${escapeHtml(t("masterPaymentsAfterFeeShort", "Dopo fee"))}</th>
+              <th style="padding:12px 14px;">${escapeHtml(t("masterPaymentsTableStatus", "Stato"))}</th>
+              <th style="padding:12px 14px;text-align:right;">${escapeHtml(t("masterPaymentsTableActions", "Azioni"))}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredRows.slice(0, 30).map(renderMasterPaymentRow).join("")}
+          </tbody>
+        </table>
+      ` : `
+        <div class="empty-state small" style="padding:18px;">
           <strong>${escapeHtml(t("masterPaymentsEmptyTitle", "Nessun pagamento test ancora"))}</strong>
           <p>${escapeHtml(t("masterPaymentsEmptyText", "Quando un giocatore paga con Stripe test, lo vedrai qui."))}</p>
         </div>
@@ -6448,30 +6495,27 @@ function renderMasterPaymentRow(row) {
   const playerName = row.userId ? getUserDisplayName(row.userId, t("masterPaymentsPlayerFallback", "Giocatore")) : t("masterPaymentsPlayerFallback", "Giocatore");
   const status = row.status === "refunded" ? t("paymentStatusRefunded", "Rimborsato") : row.status === "paid" ? t("paymentStatusPaid", "Pagato") : getTranslatedPaymentStatus(row.status);
   const statusClass = row.status === "refunded" ? "rejected" : row.status === "paid" ? "accepted" : "pending";
-  const fee = Number(row.applicationFeeAmount || 0);
-  const afterFee = Math.max(0, Number(row.amount || 0) - fee);
-  const dateLabel = row.createdAt ? new Date(row.createdAt).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" }) : "";
+  const fee = getLorecastFeeAmountForPaymentRow(row);
+  const amount = Number(row.amount || 0);
+  const afterFee = row.status === "paid" || row.status === "refunded" ? Math.max(0, amount - fee) : 0;
+  const dateLabel = row.createdAt ? new Date(row.createdAt).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" }) : "—";
+  const moneyOrDash = value => value ? formatMoney(value, { freeLabel: false }) : "—";
 
   return `
-    <article class="master-session-card master-payment-row">
-      <div class="master-session-main">
-        <div>
-          <h3>${escapeHtml(title)}</h3>
-          <p>${escapeHtml(playerName)}${dateLabel ? ` · ${escapeHtml(dateLabel)}` : ""}</p>
-        </div>
-        <span class="status-badge ${statusClass}">${escapeHtml(status)}</span>
-      </div>
-      <div class="master-session-meta">
-        <span><strong>${escapeHtml(t("masterPaymentsGrossShort", "Lordo"))}:</strong> ${escapeHtml(formatMoney(row.amount, { freeLabel: false }))}</span>
-        <span><strong>${escapeHtml(t("masterPaymentsFeeShort", "Fee Lorecast"))}:</strong> ${escapeHtml(formatMoney(fee, { freeLabel: false }))}</span>
-        <span><strong>${escapeHtml(t("masterPaymentsAfterFeeShort", "Dopo fee"))}:</strong> ${escapeHtml(formatMoney(afterFee, { freeLabel: false }))}</span>
-      </div>
-      <div class="master-session-actions">
+    <tr class="master-payment-row" style="border-bottom:1px solid #eef2f7;vertical-align:middle;">
+      <td style="padding:12px 14px;font-weight:900;color:#111827;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlAttribute(title)}">${escapeHtml(title)}</td>
+      <td style="padding:12px 14px;color:#475569;white-space:nowrap;">${escapeHtml(playerName)}</td>
+      <td style="padding:12px 14px;color:#64748b;white-space:nowrap;">${escapeHtml(dateLabel)}</td>
+      <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(amount))}</td>
+      <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(fee))}</td>
+      <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(afterFee))}</td>
+      <td style="padding:12px 14px;white-space:nowrap;"><span class="status-badge ${statusClass}">${escapeHtml(status)}</span></td>
+      <td style="padding:12px 14px;text-align:right;white-space:nowrap;">
         ${row.status === "paid" && row.refundable ? `
-          <button type="button" class="danger-light" onclick='requestTestRefund(${JSON.stringify(row.checkoutSessionId)})'>${escapeHtml(t("masterPaymentsRefundButton", "Rimborsa test"))}</button>
-        ` : `<span class="muted-small">${escapeHtml(row.status === "refunded" ? t("masterPaymentsAlreadyRefunded", "Rimborso test registrato.") : t("masterPaymentsNoAction", "Nessuna azione disponibile."))}</span>`}
-      </div>
-    </article>
+          <button type="button" class="danger-light" style="padding:8px 11px;border-radius:12px;" onclick='requestTestRefund(${JSON.stringify(row.checkoutSessionId)})'>${escapeHtml(t("masterPaymentsRefundButton", "Rimborsa test"))}</button>
+        ` : `<span class="muted-small">${escapeHtml(row.status === "refunded" ? t("masterPaymentsAlreadyRefunded", "Rimborso registrato") : "—")}</span>`}
+      </td>
+    </tr>
   `;
 }
 

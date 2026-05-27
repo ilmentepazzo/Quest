@@ -5863,3 +5863,94 @@ button.is-disabled {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
+
+/* UPDATE 84 - Preferiti storie */
+.story-favorite-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #475569;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.story-favorite-button:hover {
+  transform: translateY(-1px);
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.story-favorite-button span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.story-favorite-button small {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.story-favorite-button.is-active {
+  border-color: #fda4af;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.catalog-favorite-button {
+  position: absolute;
+  z-index: 4;
+  right: 12px;
+  top: 56px;
+}
+
+.story-card.is-favorite {
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.detail-favorite-button {
+  margin: 0 8px 8px 0;
+}
+
+.favorite-filter-button {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #111827;
+  font-weight: 950;
+  cursor: pointer;
+  text-align: center;
+}
+
+.favorite-filter-button.active {
+  border-color: #fda4af;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.profile-info-chip.favorite-chip {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+@media (max-width: 760px) {
+  .catalog-favorite-button {
+    right: 10px;
+    top: 56px;
+  }
+
+  .story-favorite-button small {
+    display: none;
+  }
+}

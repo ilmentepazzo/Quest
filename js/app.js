@@ -20,6 +20,9 @@ let supabaseReviewsCache = [];
 let supabaseReviewsLoaded = false;
 let supabaseStoryPurchasesCache = [];
 let supabaseStoryPurchasesLoaded = false;
+let supabaseStoryFavoritesCache = [];
+let supabaseStoryFavoritesLoaded = false;
+let catalogFavoritesOnly = false;
 let supabaseMasterPaymentEventsCache = [];
 let supabaseMasterPaymentEventsLoaded = false;
 let editingStoryId = null;
@@ -451,6 +454,156 @@ function renderStoryOwnerBadge(extraClass = "") {
   return `<span class="${className}" title="${escapeHtmlAttribute(t("storyOwnerBadgeHelp", "Questa storia è stata creata da te."))}">★ ${escapeHtml(t("storyOwnerBadge", "Tua storia"))}</span>`;
 }
 
+function normalizeStoryFavorite(row) {
+  if (!row) return null;
+
+  return {
+    id: storyId(row.id),
+    user_id: storyId(row.user_id),
+    storyId: storyId(row.story_id || row.storyId),
+    createdAt: row.created_at || row.createdAt || null
+  };
+}
+
+async function loadSupabaseStoryFavorites() {
+  if (typeof supabaseClient === "undefined") return [];
+  const userId = getCurrentUserId();
+  if (!userId) {
+    supabaseStoryFavoritesCache = [];
+    supabaseStoryFavoritesLoaded = true;
+    return supabaseStoryFavoritesCache;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_favorites")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("Impossibile caricare preferiti storie:", error.message);
+    supabaseStoryFavoritesLoaded = false;
+    return supabaseStoryFavoritesCache;
+  }
+
+  supabaseStoryFavoritesCache = (data || []).map(normalizeStoryFavorite).filter(Boolean);
+  supabaseStoryFavoritesLoaded = true;
+  return supabaseStoryFavoritesCache;
+}
+
+function isStoryFavoriteByCurrentUser(storyIdValue) {
+  const currentUserId = getCurrentUserId();
+  if (!currentUserId || !storyIdValue) return false;
+
+  return supabaseStoryFavoritesCache.some(favorite =>
+    storyIdsMatch(favorite.user_id, currentUserId) &&
+    storyIdsMatch(favorite.storyId || favorite.story_id, storyIdValue)
+  );
+}
+
+function renderStoryFavoriteButton(storyIdValue, extraClass = "") {
+  const isFavorite = isStoryFavoriteByCurrentUser(storyIdValue);
+  const className = ["story-favorite-button", extraClass, isFavorite ? "is-active" : ""].filter(Boolean).join(" ");
+  const label = isFavorite ? t("favoriteRemove", "Rimuovi dai preferiti") : t("favoriteAdd", "Aggiungi ai preferiti");
+
+  return `
+    <button type="button" class="${className}" title="${escapeHtmlAttribute(label)}" aria-label="${escapeHtmlAttribute(label)}" onclick="toggleStoryFavorite('${escapeHtmlAttribute(storyId(storyIdValue))}', event)">
+      <span aria-hidden="true">${isFavorite ? "♥" : "♡"}</span>
+      <small>${escapeHtml(isFavorite ? t("favoriteSavedShort", "Preferita") : t("favoriteSaveShort", "Salva"))}</small>
+    </button>
+  `;
+}
+
+async function toggleStoryFavorite(storyIdValue, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const normalizedStoryId = storyId(storyIdValue);
+  const { data } = typeof supabaseClient !== "undefined"
+    ? await supabaseClient.auth.getUser()
+    : { data: { user: null } };
+
+  if (!data?.user?.id) {
+    showToast(t("favoriteLoginRequired", "Accedi per salvare una storia nei preferiti."), "warning");
+    go("login");
+    return;
+  }
+
+  if (!normalizedStoryId || typeof supabaseClient === "undefined") return;
+
+  const userId = storyId(data.user.id);
+  const existing = supabaseStoryFavoritesCache.find(favorite =>
+    storyIdsMatch(favorite.user_id, userId) && storyIdsMatch(favorite.storyId, normalizedStoryId)
+  );
+
+  if (existing) {
+    const { error } = await supabaseClient
+      .from("story_favorites")
+      .delete()
+      .eq("user_id", userId)
+      .eq("story_id", normalizedStoryId);
+
+    if (error) {
+      showToast(`${t("favoriteRemoveError", "Errore rimozione preferito")}: ${error.message}`, "error");
+      return;
+    }
+
+    supabaseStoryFavoritesCache = supabaseStoryFavoritesCache.filter(favorite =>
+      !(storyIdsMatch(favorite.user_id, userId) && storyIdsMatch(favorite.storyId, normalizedStoryId))
+    );
+    showToast(t("favoriteRemovedToast", "Storia rimossa dai preferiti."), "success");
+  } else {
+    const { data: inserted, error } = await supabaseClient
+      .from("story_favorites")
+      .insert({ user_id: userId, story_id: normalizedStoryId })
+      .select("*")
+      .single();
+
+    if (error) {
+      showToast(`${t("favoriteAddError", "Errore salvataggio preferito")}: ${error.message}`, "error");
+      return;
+    }
+
+    const normalized = normalizeStoryFavorite(inserted);
+    if (normalized) supabaseStoryFavoritesCache = [normalized, ...supabaseStoryFavoritesCache];
+    showToast(t("favoriteAddedToast", "Storia aggiunta ai preferiti."), "success");
+  }
+
+  if (getActivePageId() === "catalogo") renderCatalog();
+  if (currentStory && storyIdsMatch(currentStory.id, normalizedStoryId)) openStory(currentStory.id, { updateHash: false, scroll: false });
+  if (getActivePageId() === "profilo") renderUserProfile();
+}
+
+function ensureCatalogFavoritesFilter() {
+  const filters = document.querySelector("#catalogo .filters, #catalogo .catalog-filters, #catalogo aside, #catalogo .filter-card");
+  if (!filters || document.getElementById("favoriteStoriesOnlyButton")) return;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "favoriteStoriesOnlyButton";
+  button.className = "favorite-filter-button";
+  button.onclick = () => toggleCatalogFavoritesOnly();
+  filters.appendChild(button);
+  updateCatalogFavoritesFilterButton();
+}
+
+function updateCatalogFavoritesFilterButton() {
+  const button = document.getElementById("favoriteStoriesOnlyButton");
+  if (!button) return;
+  button.classList.toggle("active", catalogFavoritesOnly);
+  button.innerHTML = catalogFavoritesOnly
+    ? `♥ ${escapeHtml(t("catalogFavoritesOnlyActive", "Preferiti attivi"))}`
+    : `♡ ${escapeHtml(t("catalogFavoritesOnly", "Mostra preferiti"))}`;
+}
+
+function toggleCatalogFavoritesOnly() {
+  catalogFavoritesOnly = !catalogFavoritesOnly;
+  updateCatalogFavoritesFilterButton();
+  renderCatalog();
+}
+
 function isStoryUnlocked(id) {
   const normalizedId = storyId(id);
   if (!normalizedId) return false;
@@ -805,6 +958,7 @@ async function loadSupabaseMarketplaceState() {
     loadSupabaseNotifications(),
     loadSupabaseReviews(),
     loadSupabaseStoryPurchases(),
+    loadSupabaseStoryFavorites(),
     loadSupabaseMasterPaymentEvents()
   ]);
 
@@ -1418,6 +1572,7 @@ async function renderUserProfile() {
   await loadSupabasePublicSessions();
   await loadSupabaseReviews();
   await loadSupabaseStoryPurchases();
+  await loadSupabaseStoryFavorites();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
@@ -1430,6 +1585,7 @@ async function renderUserProfile() {
   const playedStories = [...completedPrivateStories, ...completedJoinedPublicSessions];
   const bookedStories = [...privateBookedStories, ...activeJoinedPublicSessions];
   const purchasedStories = getProfilePurchaseItems(userId);
+  const favoriteStories = getProfileFavoriteItems(userId);
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
@@ -1469,7 +1625,7 @@ async function renderUserProfile() {
   if (bookingsCount) bookingsCount.textContent = playedStories.length;
   if (unlockedCount) unlockedCount.textContent = bookedStories.length;
 
-  renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories);
+  renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories, favoriteStories);
   renderUserReviews();
 }
 
@@ -1607,11 +1763,12 @@ function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
   `;
 }
 
-function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0, purchaseCount = 0) {
+function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0, purchaseCount = 0, favoriteCount = 0) {
   setProfileTabLabel("created", t("profileTabCreated", "Create"), createdCount);
   setProfileTabLabel("played", t("profileTabPlayed", "Giocate"), playedCount);
   setProfileTabLabel("booked", t("profileTabBooked", "Prenotate"), bookedCount, bookedUnreadCount);
   setProfileTabLabel("purchases", t("profileTabPurchases", "Acquisti"), purchaseCount);
+  setProfileTabLabel("favorites", t("profileTabFavorites", "Preferiti"), favoriteCount);
 }
 
 function ensureProfilePurchasesTab() {
@@ -1641,6 +1798,56 @@ function ensureProfilePurchasesTab() {
     panel.innerHTML = `<div id="profilePurchasedStories" class="profile-compact-list"></div>`;
     bookedPanel?.after(panel) || panelsContainer.appendChild(panel);
   }
+}
+
+function ensureProfileFavoritesTab() {
+  const existingButton = document.querySelector('.profile-tab-button[data-profile-tab="favorites"]');
+  const existingPanel = document.querySelector('.profile-tab-panel[data-profile-panel="favorites"]');
+
+  const purchasesButton = document.querySelector('.profile-tab-button[data-profile-tab="purchases"]');
+  const bookedButton = document.querySelector('.profile-tab-button[data-profile-tab="booked"]');
+  const tabsContainer = purchasesButton?.parentElement || bookedButton?.parentElement || document.querySelector('.profile-tabs, .profile-tab-buttons, [data-profile-tabs]');
+
+  if (!existingButton && tabsContainer) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "profile-tab-button";
+    button.dataset.profileTab = "favorites";
+    button.setAttribute("onclick", "setProfileLibraryTab('favorites')");
+    button.innerHTML = `<span>${escapeHtml(t("profileTabFavorites", "Preferiti"))}</span><strong>0</strong>`;
+    purchasesButton?.after(button) || bookedButton?.after(button) || tabsContainer.appendChild(button);
+  }
+
+  const purchasesPanel = document.querySelector('.profile-tab-panel[data-profile-panel="purchases"]');
+  const bookedPanel = document.querySelector('.profile-tab-panel[data-profile-panel="booked"]');
+  const panelsContainer = purchasesPanel?.parentElement || bookedPanel?.parentElement || document.querySelector('.profile-tab-panels, [data-profile-panels]');
+
+  if (!existingPanel && panelsContainer) {
+    const panel = document.createElement("div");
+    panel.className = "profile-tab-panel";
+    panel.dataset.profilePanel = "favorites";
+    panel.innerHTML = `<div id="profileFavoriteStories" class="profile-compact-list"></div>`;
+    purchasesPanel?.after(panel) || bookedPanel?.after(panel) || panelsContainer.appendChild(panel);
+  }
+}
+
+function getProfileFavoriteItems(userId = getCurrentUserId()) {
+  if (!userId) return [];
+
+  return supabaseStoryFavoritesCache
+    .filter(favorite => storyIdsMatch(favorite.user_id, userId))
+    .map(favorite => {
+      const story = getAllStories().find(item => storyIdsMatch(item.id, favorite.storyId));
+      if (!story) return null;
+      return {
+        ...story,
+        source: "favorite",
+        favoriteId: favorite.id,
+        favoriteCreatedAt: favorite.createdAt
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.favoriteCreatedAt || 0) - new Date(a.favoriteCreatedAt || 0));
 }
 
 function getProfilePurchaseItems(userId = getCurrentUserId()) {
@@ -1735,7 +1942,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: item.message || "", genre: item.status || "Sessione" }
       : type === "purchase"
         ? item.storyRecord || getAllStories().find(s => storyIdsMatch(s.id, item.storyId)) || { id: item.storyId, title: item.story, desc: "", genre: t("profilePurchaseSelfPlay", "Acquisto self-play") }
-        : item;
+        : type === "favorite"
+          ? item.storyRecord || item
+          : item;
 
     const storyArg = storyJsArg(story.id || item.storyId);
     const reviewSummary = getStoryReviewSummary(story.id || item.storyId);
@@ -1745,7 +1954,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `${item.source === "public_session" ? t("profileBookingJoinIn", "Join-in") : t("profileBookingPrivate", "Prenotazione privata")} · ${formatBookingDateTime(item.date, item.startTime || item.time, item.endTime)}`
       : type === "purchase"
         ? `${t("profilePurchaseSelfPlay", "Acquisto self-play")} · ${item.paidAt || item.createdAt ? formatLocalizedDateTime(item.paidAt || item.createdAt) : t("profilePurchaseDateMissing", "Data non disponibile")}`
-        : `${getTranslatedGenreLabel(story.genre)}${story.type ? ` · ${getTranslatedStoryTypeLabel(story.type)}` : ""}`;
+        : type === "favorite"
+          ? `${t("profileFavoriteSaved", "Salvata nei preferiti")} · ${item.favoriteCreatedAt ? formatLocalizedDateTime(item.favoriteCreatedAt) : t("profilePurchaseDateMissing", "Data non disponibile")}`
+          : `${getTranslatedGenreLabel(story.genre)}${story.type ? ` · ${getTranslatedStoryTypeLabel(story.type)}` : ""}`;
 
     const statusChip = type === "booking"
       ? `<span class="profile-info-chip status-chip">${item.source === "public_session" ? t("profileBookingPublic", "Sessione pubblica") : getTranslatedBookingStatus(item.status)}</span>`
@@ -1761,7 +1972,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
 
     const bookingChip = type === "story"
       ? `<span class="profile-info-chip">${bookingSummary.label}</span>`
-      : "";
+      : type === "favorite"
+        ? `<span class="profile-info-chip favorite-chip">♥ ${escapeHtml(t("favoriteSavedShort", "Preferita"))}</span>`
+        : "";
 
     const unreadMessages = type === "booking" ? getUnreadBookingMessageCount(item.id) : 0;
     const unreadChip = unreadMessages > 0
@@ -1771,7 +1984,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
     const purchasePaymentStatus = type === "purchase" ? normalizePaymentStatus(item.paymentStatus) : "";
     const reviewChip = type === "purchase"
       ? `<span class="profile-info-chip ${purchasePaymentStatus === "paid" ? "rating-chip" : "muted-chip"}" title="${escapeHtmlAttribute(getPaymentStatusHelpText(purchasePaymentStatus, "purchase"))}">${escapeHtml(purchasePaymentStatus === "paid" ? t("profilePurchaseMaterialsUnlocked", "Materiali sbloccati") : purchasePaymentStatus === "refunded" ? t("profilePurchaseRefundedAccess", "Accesso revocato") : t("profilePurchaseAccessLimited", "Accesso non attivo"))}</span>`
-      : `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
+      : type === "favorite"
+        ? `<span class="profile-info-chip muted-chip">${escapeHtml(getTranslatedStoryTypeLabel(story.type || "Self-play"))}</span>`
+        : `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
     const paymentAction = type === "booking" ? renderBookingPaymentAction(item, "primary compact-action") : "";
     const reviewAction = type === "booking" ? renderBookingReviewAction(item, "light compact-action") : "";
@@ -1801,14 +2016,16 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   }).join("");
 }
 
-function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = []) {
+function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = [], favoriteStories = []) {
   ensureProfilePurchasesTab();
+  ensureProfileFavoritesTab();
   const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
-  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length);
+  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length, favoriteStories.length);
   renderCompactStoryList("profileCreatedStories", createdStories, t("profileEmptyCreated", "Non hai ancora creato storie."));
   renderCompactStoryList("profilePlayedStories", playedStories, t("profileEmptyPlayed", "Non hai ancora storie giocate."), "booking");
   renderCompactStoryList("profileBookedStories", bookedStories, t("profileEmptyBooked", "Non hai ancora storie prenotate."), "booking");
   renderCompactStoryList("profilePurchasedStories", purchasedStories, t("profileEmptyPurchases", "Non hai ancora acquisti."), "purchase");
+  renderCompactStoryList("profileFavoriteStories", favoriteStories, t("profileEmptyFavorites", "Non hai ancora storie preferite."), "favorite");
 }
 
 function setProfileLibraryTab(tabName) {
@@ -2132,10 +2349,12 @@ function card(story) {
   const experienceFormatLabel = getExperienceFormatLabel(story);
   const purchasedByCurrentUser = isStoryPurchasedByCurrentUser(story.id);
   const ownedByCurrentUser = isCurrentUserStory(story);
+  const favoriteByCurrentUser = isStoryFavoriteByCurrentUser(story.id);
   const purchasedBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("catalog-purchased-badge") : "";
   const purchasedInlineBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("story-purchased-inline-badge") : "";
   const ownerBadge = ownedByCurrentUser ? renderStoryOwnerBadge("catalog-owner-badge") : "";
   const ownerInlineBadge = ownedByCurrentUser ? renderStoryOwnerBadge("story-owner-inline-badge") : "";
+  const favoriteButton = renderStoryFavoriteButton(story.id, "catalog-favorite-button");
   const coverHtml = story.cover
     ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
          <div class="story-cover-title image-cover-title">
@@ -2151,9 +2370,10 @@ function card(story) {
        </div>`;
 
   return `
-    <div class="story-card ${purchasedByCurrentUser ? "is-purchased" : ""} ${ownedByCurrentUser ? "is-owned" : ""}" onclick='openStory(${storyArg})'>
+    <div class="story-card ${purchasedByCurrentUser ? "is-purchased" : ""} ${ownedByCurrentUser ? "is-owned" : ""} ${favoriteByCurrentUser ? "is-favorite" : ""}" onclick='openStory(${storyArg})'>
       ${purchasedBadge}
       ${ownerBadge}
+      ${favoriteButton}
       ${coverHtml}
 
       <div class="story-card-body">
@@ -2431,6 +2651,9 @@ async function renderCatalog() {
 
   await loadSupabaseStories();
   await loadSupabaseStoryPurchases();
+  await loadSupabaseStoryFavorites();
+  ensureCatalogFavoritesFilter();
+  updateCatalogFavoritesFilterButton();
 
   const catalogStories = getAllStories();
   const authorIds = catalogStories.map(getStoryAuthorId).filter(Boolean);
@@ -2462,8 +2685,9 @@ async function renderCatalog() {
       : price === "free"
         ? story.isFree || Number(story.price) === 0
         : Number(story.price) <= Number(price);
+    const matchesFavorites = !catalogFavoritesOnly || isStoryFavoriteByCurrentUser(story.id);
 
-    return matchesSearch && matchesGenre && matchesType && matchesExperienceFormat && matchesLanguage && matchesPrice;
+    return matchesSearch && matchesGenre && matchesType && matchesExperienceFormat && matchesLanguage && matchesPrice && matchesFavorites;
   });
 
   count.textContent = results.length === 1
@@ -2500,8 +2724,10 @@ function openStory(id, options = {}) {
   const detailPurchasedBadge = isStoryPurchasedByCurrentUser(story.id)
     ? renderStoryPurchasedBadge("detail-purchased-badge")
     : "";
+  const detailFavoriteButton = renderStoryFavoriteButton(story.id, "detail-favorite-button");
 
   setHtml("detailTags", `
+    ${detailFavoriteButton}
     ${detailPurchasedBadge}
     <span class="tag ${getGenreClass(story.genre)}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
     <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>

@@ -1633,7 +1633,12 @@ function getProfilePurchaseItems(userId = getCurrentUserId()) {
 
 function getProfilePurchaseStatusChip(purchase) {
   const status = normalizePaymentStatus(purchase?.paymentStatus || "pending", "pending");
-  return `<span class="profile-info-chip status-chip ${status === "paid" ? "paid-chip" : status === "refunded" ? "refund-chip" : "muted-chip"}">${escapeHtml(getTranslatedPaymentStatus(status))}</span>`;
+  const label = status === "paid"
+    ? t("profilePurchaseStatusPaid", "Acquisto confermato")
+    : status === "refunded"
+      ? t("profilePurchaseStatusRefunded", "Acquisto rimborsato")
+      : getTranslatedPaymentStatus(status);
+  return `<span class="profile-info-chip status-chip ${status === "paid" ? "paid-chip" : status === "refunded" ? "refund-chip" : "muted-chip"}" title="${escapeHtmlAttribute(getPaymentStatusHelpText(status, "purchase"))}">${escapeHtml(label)}</span>`;
 }
 
 function getProfilePurchaseAmountChip(purchase) {
@@ -1727,8 +1732,9 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
       ? `<span class="profile-info-chip unread-chip">${tf("bookingUnreadMessages", { count: unreadMessages > 9 ? "9+" : unreadMessages }, `${unreadMessages > 9 ? "9+" : unreadMessages} nuovi messaggi`)}</span>`
       : "";
 
+    const purchasePaymentStatus = type === "purchase" ? normalizePaymentStatus(item.paymentStatus) : "";
     const reviewChip = type === "purchase"
-      ? `<span class="profile-info-chip ${normalizePaymentStatus(item.paymentStatus) === "paid" ? "rating-chip" : "muted-chip"}">${escapeHtml(normalizePaymentStatus(item.paymentStatus) === "paid" ? t("profilePurchaseMaterialsUnlocked", "Materiali sbloccati") : t("profilePurchaseAccessLimited", "Accesso non attivo"))}</span>`
+      ? `<span class="profile-info-chip ${purchasePaymentStatus === "paid" ? "rating-chip" : "muted-chip"}" title="${escapeHtmlAttribute(getPaymentStatusHelpText(purchasePaymentStatus, "purchase"))}">${escapeHtml(purchasePaymentStatus === "paid" ? t("profilePurchaseMaterialsUnlocked", "Materiali sbloccati") : purchasePaymentStatus === "refunded" ? t("profilePurchaseRefundedAccess", "Accesso revocato") : t("profilePurchaseAccessLimited", "Accesso non attivo"))}</span>`
       : `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
     const paymentAction = type === "booking" ? renderBookingPaymentAction(item, "primary compact-action") : "";
@@ -2580,7 +2586,7 @@ function renderStoryPaymentPanel(story) {
 
   if (paymentNote) {
     paymentNote.textContent = paymentRequired
-      ? t("paymentStripeTestNote", "Usa solo carte test Stripe. La conferma automatica via webhook arriverà nel prossimo update.")
+      ? t("paymentStripeTestNote", "Usa solo carte test Stripe. La conferma avviene tramite webhook sicuro.")
       : t("paymentFreeNote", "Nessun pagamento richiesto per questa storia.");
   }
 
@@ -3395,13 +3401,37 @@ function getTranslatedPaymentStatus(status) {
 
   if (normalized === "not_required") return t("paymentStatusNotRequired", "Non richiesto");
   if (normalized === "not_active") return t("paymentStatusNotActive", "Pagamento non ancora attivo");
-  if (normalized === "unpaid") return t("paymentStatusUnpaid", "Da pagare");
-  if (normalized === "pending") return t("paymentStatusPending", "Pagamento in attesa");
-  if (normalized === "paid") return t("paymentStatusPaid", "Pagato");
+  if (normalized === "unpaid") return t("paymentStatusUnpaid", "Pagamento richiesto");
+  if (normalized === "pending") return t("paymentStatusPending", "Pagamento in verifica");
+  if (normalized === "paid") return t("paymentStatusPaid", "Pagamento confermato");
   if (normalized === "refunded") return t("paymentStatusRefunded", "Rimborsato");
   if (normalized === "failed") return t("paymentStatusFailed", "Pagamento non riuscito");
 
   return t("paymentStatusNotActive", "Pagamento non ancora attivo");
+}
+
+function getPaymentStatusHelpText(status, context = "generic") {
+  const normalized = normalizePaymentStatus(status);
+  const isPurchase = context === "purchase";
+  const isBooking = context === "booking";
+
+  if (normalized === "paid") {
+    return isPurchase
+      ? t("paymentHelpPaidPurchase", "Acquisto confermato: materiali disponibili nella scheda storia.")
+      : isBooking
+        ? t("paymentHelpPaidBooking", "Pagamento confermato: prenotazione/sessione attiva.")
+        : t("paymentHelpPaidGeneric", "Pagamento confermato.");
+  }
+  if (normalized === "refunded") {
+    return isPurchase
+      ? t("paymentHelpRefundedPurchase", "Acquisto rimborsato: accesso ai materiali non attivo.")
+      : t("paymentHelpRefundedGeneric", "Pagamento rimborsato.");
+  }
+  if (normalized === "pending") return t("paymentHelpPending", "Pagamento in verifica: attendi conferma Stripe/webhook.");
+  if (normalized === "unpaid") return t("paymentHelpUnpaid", "Pagamento richiesto per completare l’accesso.");
+  if (normalized === "not_required") return t("paymentHelpNotRequired", "Nessun pagamento richiesto.");
+
+  return t("paymentHelpNotActive", "Pagamento non ancora disponibile.");
 }
 
 function getStoryPaymentAmount(story) {
@@ -3453,7 +3483,8 @@ function renderPaymentStatusChipFromState(state, extraClass = "") {
   const amount = Number(state?.amount || 0);
   const amountLabel = amount > 0 ? ` · ${formatMoney(amount, { freeLabel: false })}` : "";
 
-  return `<span class="payment-status-chip payment-status-${normalized} ${extraClass}">${escapeHtml(label)}${amountLabel}</span>`;
+  const help = getPaymentStatusHelpText(normalized);
+  return `<span class="payment-status-chip payment-status-${normalized} ${extraClass}" title="${escapeHtmlAttribute(help)}">${escapeHtml(label)}${amountLabel}</span>`;
 }
 
 function renderBookingPaymentChip(booking, extraClass = "") {
@@ -3488,7 +3519,7 @@ function renderBookingPaymentAction(item, className = "primary compact-action") 
   const target = getPaymentCheckoutTarget(item);
   if (!target?.id) return "";
 
-  return `<button class="${escapeHtmlAttribute(className)} payment-checkout-action" data-payment-target-type="${escapeHtmlAttribute(target.type)}" data-payment-target-id="${escapeHtmlAttribute(target.id)}" onclick='startStripeCheckout(${JSON.stringify(target.type)}, ${JSON.stringify(target.id)})'>${escapeHtml(t("paymentStripeTestButtonShort", "Paga test"))}</button>`;
+  return `<button class="${escapeHtmlAttribute(className)} payment-checkout-action" data-payment-target-type="${escapeHtmlAttribute(target.type)}" data-payment-target-id="${escapeHtmlAttribute(target.id)}" onclick='startStripeCheckout(${JSON.stringify(target.type)}, ${JSON.stringify(target.id)})'>${escapeHtml(t("paymentCompleteTestButton", "Completa pagamento test"))}</button>`;
 }
 
 function getStripeCheckoutReturnUrl(result, targetType, targetId, includeSessionPlaceholder = false) {
@@ -3620,8 +3651,8 @@ async function handleStripeCheckoutReturn() {
         if (data.storyId) unlockStoryById(data.storyId);
         const paidStory = data.storyId ? getAllStories().find(item => storyIdsMatch(item.id, data.storyId)) : null;
         const paidTitle = paidStory?.title || t("paymentCheckoutGenericTitle", "contenuto Lorecast");
-        showToast(tf("paymentCheckoutConfirmedWithTitle", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Materiali sbloccati.`), "success");
-        addNotification(tf("paymentCheckoutNotification", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Materiali sbloccati.`), "success", { storyId: data.storyId || "", page: "profilo" });
+        showToast(tf("paymentCheckoutConfirmedWithTitle", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Trovi l’accesso nel profilo.`), "success");
+        addNotification(tf("paymentCheckoutNotification", { title: paidTitle }, `Pagamento confermato per "${paidTitle}". Accesso aggiornato nel profilo.`), "success", { storyId: data.storyId || "", page: "profilo" });
       } else {
         showToast(t("paymentCheckoutPending", "Checkout completato: pagamento in verifica."), "info");
       }
@@ -6572,7 +6603,7 @@ function renderMasterPaymentsPanel() {
 function renderMasterPaymentRow(row) {
   const title = getMasterPaymentStoryTitle(row);
   const playerName = row.userId ? getUserDisplayName(row.userId, t("masterPaymentsPlayerFallback", "Giocatore")) : t("masterPaymentsPlayerFallback", "Giocatore");
-  const status = row.status === "refunded" ? t("paymentStatusRefunded", "Rimborsato") : row.status === "paid" ? t("paymentStatusPaid", "Pagato") : getTranslatedPaymentStatus(row.status);
+  const status = getTranslatedPaymentStatus(row.status);
   const statusClass = row.status === "refunded" ? "rejected" : row.status === "paid" ? "accepted" : "pending";
   const fee = getLorecastFeeAmountForPaymentRow(row);
   const amount = Number(row.amount || 0);
@@ -6588,7 +6619,7 @@ function renderMasterPaymentRow(row) {
       <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(amount))}</td>
       <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(fee))}</td>
       <td style="padding:12px 14px;text-align:right;font-weight:800;white-space:nowrap;">${escapeHtml(moneyOrDash(afterFee))}</td>
-      <td style="padding:12px 14px;white-space:nowrap;"><span class="status-badge ${statusClass}">${escapeHtml(status)}</span></td>
+      <td style="padding:12px 14px;white-space:nowrap;"><span class="status-badge ${statusClass}" title="${escapeHtmlAttribute(getPaymentStatusHelpText(row.status))}">${escapeHtml(status)}</span></td>
       <td style="padding:12px 14px;text-align:right;white-space:nowrap;">
         ${row.status === "paid" && row.refundable ? `
           <button type="button" class="danger-light" style="padding:8px 11px;border-radius:12px;" onclick='requestTestRefund(${JSON.stringify(row.checkoutSessionId)})'>${escapeHtml(t("masterPaymentsRefundButton", "Rimborsa test"))}</button>

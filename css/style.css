@@ -5761,28 +5761,34 @@ button.is-disabled {
 
 /* UPDATE 83 - profilo pagamenti compatto, badge proprietà e chat 7 giorni */
 .profile-compact-item {
-  grid-template-columns: 76px minmax(0, 1fr) minmax(220px, auto) minmax(170px, auto);
+  grid-template-columns: 76px minmax(220px, 1fr) minmax(240px, auto) 164px;
+}
+
+.profile-compact-body {
+  min-width: 0;
 }
 
 .profile-compact-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-content: stretch;
   gap: 8px;
+  width: 164px;
   min-width: 0;
 }
 
 .profile-compact-actions .compact-action {
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   white-space: normal;
   text-align: center;
   line-height: 1.15;
+  padding: 10px 12px;
 }
 
 .profile-compact-actions .payment-checkout-action {
-  flex: 1 1 150px;
-  max-width: 190px;
+  max-width: none;
 }
 
 .story-owner-badge {
@@ -5828,13 +5834,32 @@ button.is-disabled {
   z-index: 1;
 }
 
-@media (max-width: 900px) {
-  .profile-compact-actions {
-    grid-column: 1 / -1;
+@media (max-width: 1100px) {
+  .profile-compact-item {
+    grid-template-columns: 76px minmax(0, 1fr) 164px;
+    align-items: start;
+  }
+
+  .profile-compact-meta {
+    grid-column: 2 / 3;
     justify-content: flex-start;
   }
 
-  .profile-compact-actions .compact-action {
-    flex: 1 1 150px;
+  .profile-compact-actions {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .profile-compact-item {
+    grid-template-columns: 60px minmax(0, 1fr);
+  }
+
+  .profile-compact-actions {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }

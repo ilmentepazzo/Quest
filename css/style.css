@@ -5758,3 +5758,83 @@ button.is-disabled {
 .story-card.is-purchased .story-cover-title {
   z-index: 2;
 }
+
+/* UPDATE 83 - profilo pagamenti compatto, badge proprietà e chat 7 giorni */
+.profile-compact-item {
+  grid-template-columns: 76px minmax(0, 1fr) minmax(220px, auto) minmax(170px, auto);
+}
+
+.profile-compact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profile-compact-actions .compact-action {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.profile-compact-actions .payment-checkout-action {
+  flex: 1 1 150px;
+  max-width: 190px;
+}
+
+.story-owner-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  font-weight: 950;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 24px rgba(55, 48, 163, 0.10);
+}
+
+.catalog-owner-badge {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  padding: 9px 13px;
+  font-size: 13px;
+}
+
+.story-owner-inline-badge {
+  padding: 8px 12px;
+  margin: 0 8px 8px 0;
+  font-size: 13px;
+}
+
+.story-card.is-owned {
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.story-card.is-owned .story-card-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(79, 70, 229, 0.10), transparent 44%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (max-width: 900px) {
+  .profile-compact-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .profile-compact-actions .compact-action {
+    flex: 1 1 150px;
+  }
+}

@@ -446,6 +446,11 @@ function renderStoryPurchasedBadge(extraClass = "") {
   return `<span class="${className}" title="${escapeHtmlAttribute(t("storyPurchasedBadgeHelp", "Hai già acquistato questa storia."))}">✓ ${escapeHtml(t("storyPurchasedBadge", "Acquistata"))}</span>`;
 }
 
+function renderStoryOwnerBadge(extraClass = "") {
+  const className = ["story-owner-badge", extraClass].filter(Boolean).join(" ");
+  return `<span class="${className}" title="${escapeHtmlAttribute(t("storyOwnerBadgeHelp", "Questa storia è stata creata da te."))}">★ ${escapeHtml(t("storyOwnerBadge", "Tua storia"))}</span>`;
+}
+
 function isStoryUnlocked(id) {
   const normalizedId = storyId(id);
   if (!normalizedId) return false;
@@ -1785,10 +1790,12 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
           ${unreadChip}
           ${reviewChip}
         </div>
-        ${messageAction}
-        ${paymentAction}
-        ${reviewAction}
-        <button class="light compact-action" onclick='openStory(${storyArg})'>${t("commonOpen", "Apri")}</button>
+        <div class="profile-compact-actions">
+          ${paymentAction}
+          ${messageAction}
+          ${reviewAction}
+          <button class="light compact-action" onclick='openStory(${storyArg})'>${t("commonOpen", "Apri")}</button>
+        </div>
       </article>
     `;
   }).join("");
@@ -2124,8 +2131,11 @@ function card(story) {
   const languageLabel = getStoryLanguageLabel(story);
   const experienceFormatLabel = getExperienceFormatLabel(story);
   const purchasedByCurrentUser = isStoryPurchasedByCurrentUser(story.id);
+  const ownedByCurrentUser = isCurrentUserStory(story);
   const purchasedBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("catalog-purchased-badge") : "";
   const purchasedInlineBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("story-purchased-inline-badge") : "";
+  const ownerBadge = ownedByCurrentUser ? renderStoryOwnerBadge("catalog-owner-badge") : "";
+  const ownerInlineBadge = ownedByCurrentUser ? renderStoryOwnerBadge("story-owner-inline-badge") : "";
   const coverHtml = story.cover
     ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
          <div class="story-cover-title image-cover-title">
@@ -2141,13 +2151,15 @@ function card(story) {
        </div>`;
 
   return `
-    <div class="story-card ${purchasedByCurrentUser ? "is-purchased" : ""}" onclick='openStory(${storyArg})'>
+    <div class="story-card ${purchasedByCurrentUser ? "is-purchased" : ""} ${ownedByCurrentUser ? "is-owned" : ""}" onclick='openStory(${storyArg})'>
       ${purchasedBadge}
+      ${ownerBadge}
       ${coverHtml}
 
       <div class="story-card-body">
         <div class="story-card-tags">
           ${purchasedInlineBadge}
+          ${ownerInlineBadge}
           <span class="tag ${genreClass}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
           <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
           <span class="tag experience-format-tag">${escapeHtml(experienceFormatLabel)}</span>
@@ -4297,7 +4309,7 @@ function getBookingMessagingWindow(booking) {
     };
   }
 
-  const openAt = new Date(start.getTime() - 48 * 60 * 60 * 1000);
+  const openAt = new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000);
   const closeAt = new Date(end.getTime() + 24 * 60 * 60 * 1000);
   const now = new Date();
 

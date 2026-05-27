@@ -415,6 +415,37 @@ function getPaidAccessStoryIds() {
   return Array.from(ids).filter(Boolean);
 }
 
+function getCurrentUserStoryPurchase(storyIdValue) {
+  const currentUserId = getCurrentUserId();
+  const normalizedStoryId = storyId(storyIdValue);
+  if (!currentUserId || !normalizedStoryId) return null;
+
+  const purchases = supabaseStoryPurchasesCache
+    .filter(purchase =>
+      storyIdsMatch(purchase.user_id, currentUserId) &&
+      storyIdsMatch(purchase.storyId || purchase.story_id, normalizedStoryId)
+    )
+    .sort((a, b) => {
+      const statusA = normalizePaymentStatus(a.paymentStatus || a.payment_status || "");
+      const statusB = normalizePaymentStatus(b.paymentStatus || b.payment_status || "");
+      if (statusA === "paid" && statusB !== "paid") return -1;
+      if (statusB === "paid" && statusA !== "paid") return 1;
+      return new Date(b.paidAt || b.createdAt || 0) - new Date(a.paidAt || a.createdAt || 0);
+    });
+
+  return purchases[0] || null;
+}
+
+function isStoryPurchasedByCurrentUser(storyIdValue) {
+  const purchase = getCurrentUserStoryPurchase(storyIdValue);
+  return normalizePaymentStatus(purchase?.paymentStatus || purchase?.payment_status || "") === "paid";
+}
+
+function renderStoryPurchasedBadge(extraClass = "") {
+  const className = ["story-purchased-badge", extraClass].filter(Boolean).join(" ");
+  return `<span class="${className}" title="${escapeHtmlAttribute(t("storyPurchasedBadgeHelp", "Hai già acquistato questa storia."))}">✓ ${escapeHtml(t("storyPurchasedBadge", "Acquistata"))}</span>`;
+}
+
 function isStoryUnlocked(id) {
   const normalizedId = storyId(id);
   if (!normalizedId) return false;
@@ -2092,6 +2123,9 @@ function card(story) {
   const genreClass = getGenreClass(story.genre);
   const languageLabel = getStoryLanguageLabel(story);
   const experienceFormatLabel = getExperienceFormatLabel(story);
+  const purchasedByCurrentUser = isStoryPurchasedByCurrentUser(story.id);
+  const purchasedBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("catalog-purchased-badge") : "";
+  const purchasedInlineBadge = purchasedByCurrentUser ? renderStoryPurchasedBadge("story-purchased-inline-badge") : "";
   const coverHtml = story.cover
     ? `<div class="story-card-cover image-cover" style="background-image: url('${story.cover}')">
          <div class="story-cover-title image-cover-title">
@@ -2107,11 +2141,13 @@ function card(story) {
        </div>`;
 
   return `
-    <div class="story-card" onclick='openStory(${storyArg})'>
+    <div class="story-card ${purchasedByCurrentUser ? "is-purchased" : ""}" onclick='openStory(${storyArg})'>
+      ${purchasedBadge}
       ${coverHtml}
 
       <div class="story-card-body">
-        <div>
+        <div class="story-card-tags">
+          ${purchasedInlineBadge}
           <span class="tag ${genreClass}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
           <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
           <span class="tag experience-format-tag">${escapeHtml(experienceFormatLabel)}</span>
@@ -2382,6 +2418,7 @@ async function renderCatalog() {
   if (!container || !count) return;
 
   await loadSupabaseStories();
+  await loadSupabaseStoryPurchases();
 
   const catalogStories = getAllStories();
   const authorIds = catalogStories.map(getStoryAuthorId).filter(Boolean);
@@ -2448,7 +2485,12 @@ function openStory(id, options = {}) {
     if (element) element.innerHTML = value ?? "";
   };
 
+  const detailPurchasedBadge = isStoryPurchasedByCurrentUser(story.id)
+    ? renderStoryPurchasedBadge("detail-purchased-badge")
+    : "";
+
   setHtml("detailTags", `
+    ${detailPurchasedBadge}
     <span class="tag ${getGenreClass(story.genre)}">${escapeHtml(getTranslatedGenreLabel(story.genre))}</span>
     <span class="tag gold">${escapeHtml(getTranslatedStoryTypeLabel(story.type))}</span>
     <span class="tag experience-format-tag">${escapeHtml(getExperienceFormatLabel(story))}</span>

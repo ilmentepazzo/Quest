@@ -5570,3 +5570,191 @@ button.is-disabled {
     margin-left: 46px;
   }
 }
+
+
+/* UPDATE 71 - Preparazione pagamenti Stripe Connect */
+.master-payment-readiness-card {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(79, 70, 229, 0.16);
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.86), rgba(255, 255, 255, 0.94));
+}
+
+.payment-readiness-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.payment-readiness-header h2 {
+  margin: 4px 0 6px;
+}
+
+.payment-readiness-header p,
+.payment-readiness-actions small,
+.payment-readiness-step span {
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.payment-readiness-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.payment-connect-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.payment-connect-status.not-started {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.payment-connect-status.pending {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.payment-connect-status.active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.payment-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.payment-readiness-step {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.payment-readiness-step strong {
+  color: #111827;
+}
+
+.payment-readiness-step.done {
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.payment-readiness-step.todo {
+  border-color: rgba(251, 191, 36, 0.32);
+}
+
+.payment-readiness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.payment-readiness-actions button {
+  margin: 0;
+}
+
+@media (max-width: 860px) {
+  .payment-readiness-header,
+  .payment-readiness-actions {
+    display: grid;
+  }
+
+  .payment-readiness-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-connect-status {
+    justify-self: start;
+    white-space: normal;
+  }
+}
+
+/* UPDATE 82 - badge acquisto visibile su catalogo e scheda storia */
+.story-card {
+  position: relative;
+}
+
+.story-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+}
+
+.story-purchased-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  font-weight: 950;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 24px rgba(22, 101, 52, 0.12);
+}
+
+.catalog-purchased-badge {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 12px;
+  padding: 9px 13px;
+  font-size: 13px;
+}
+
+.story-purchased-inline-badge {
+  padding: 8px 12px;
+  margin: 0 8px 8px 0;
+  font-size: 13px;
+}
+
+.detail-purchased-badge {
+  padding: 10px 14px;
+  margin: 0 8px 8px 0;
+  font-size: 14px;
+}
+
+.story-card.is-purchased {
+  border-color: rgba(34, 197, 94, 0.42);
+  box-shadow: 0 20px 50px rgba(22, 101, 52, 0.10);
+}
+
+.story-card.is-purchased .story-card-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(22, 101, 52, 0.14), transparent 42%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.story-card.is-purchased .story-cover-title {
+  z-index: 2;
+}

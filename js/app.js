@@ -3148,8 +3148,6 @@ function formatMoney(value, options = {}) {
 }
 
 const LORECAST_MASTER_FEE_RATE = 0.12;
-const STRIPE_ESTIMATED_PERCENT_RATE = 0.015;
-const STRIPE_ESTIMATED_FIXED_FEE = 0.25;
 
 function roundMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -3165,12 +3163,9 @@ function getPercentLabel(value, maximumFractionDigits = 1) {
 function calculateMasterFeeEstimate(grossAmount) {
   const gross = roundMoney(Math.max(0, Number(grossAmount || 0)));
   const lorecastFee = roundMoney(gross * LORECAST_MASTER_FEE_RATE);
-  const stripeCost = gross > 0
-    ? roundMoney((gross * STRIPE_ESTIMATED_PERCENT_RATE) + STRIPE_ESTIMATED_FIXED_FEE)
-    : 0;
-  const masterNet = roundMoney(Math.max(0, gross - lorecastFee - stripeCost));
+  const afterLorecastFee = roundMoney(Math.max(0, gross - lorecastFee));
 
-  return { gross, lorecastFee, stripeCost, masterNet };
+  return { gross, lorecastFee, afterLorecastFee };
 }
 
 function renderStoryFeeEstimate() {
@@ -3190,19 +3185,18 @@ function renderStoryFeeEstimate() {
 
   const gross = Number(rawPrice || 0);
   const lorecastRateLabel = getPercentLabel(LORECAST_MASTER_FEE_RATE, 0);
-  const stripeRateLabel = `${getPercentLabel(STRIPE_ESTIMATED_PERCENT_RATE, 1)} + ${formatMoney(STRIPE_ESTIMATED_FIXED_FEE, { freeLabel: false })}`;
 
   if (!rawPrice || !Number.isFinite(gross) || gross <= 0) {
     estimateBox.innerHTML = `
       <div class="fee-estimate-header">
-        <strong>${escapeHtml(t("feeEstimateTitle", "Stima incasso Master"))}</strong>
-        <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti non attivi"))}</span>
+        <strong>${escapeHtml(t("feeEstimateTitle", "Stima commissione Lorecast"))}</strong>
+        <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti in test"))}</span>
       </div>
       <p>${escapeHtml(t("feeEstimateEnterPrice", "Inserisci un prezzo a pagamento per vedere la stima indicativa."))}</p>
       <small>${escapeHtml(tf(
         "feeEstimateRatesNote",
-        { lorecastRate: lorecastRateLabel, stripeRate: stripeRateLabel },
-        `Fee Lorecast stimata ${lorecastRateLabel}; costo Stripe indicativo ${stripeRateLabel}.`
+        { lorecastRate: lorecastRateLabel },
+        `Commissione Lorecast stimata ${lorecastRateLabel}.`
       ))}</small>
     `;
     return;
@@ -3212,20 +3206,18 @@ function renderStoryFeeEstimate() {
 
   estimateBox.innerHTML = `
     <div class="fee-estimate-header">
-      <strong>${escapeHtml(t("feeEstimateTitle", "Stima incasso Master"))}</strong>
-      <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti non attivi"))}</span>
+      <strong>${escapeHtml(t("feeEstimateTitle", "Stima commissione Lorecast"))}</strong>
+      <span>${escapeHtml(t("feeEstimateInactiveBadge", "Pagamenti in test"))}</span>
     </div>
     <div class="fee-estimate-grid">
-      <span>${escapeHtml(t("feeEstimateGross", "Prezzo lordo"))}</span>
+      <span>${escapeHtml(t("feeEstimateGross", "Prezzo impostato"))}</span>
       <strong>${escapeHtml(formatMoney(estimate.gross, { freeLabel: false }))}</strong>
-      <span>${escapeHtml(tf("feeEstimateLorecastFee", { rate: lorecastRateLabel }, `Fee Lorecast stimata (${lorecastRateLabel})`))}</span>
+      <span>${escapeHtml(tf("feeEstimateLorecastFee", { rate: lorecastRateLabel }, `Commissione Lorecast stimata (${lorecastRateLabel})`))}</span>
       <strong>- ${escapeHtml(formatMoney(estimate.lorecastFee, { freeLabel: false }))}</strong>
-      <span>${escapeHtml(tf("feeEstimateStripeCost", { rate: stripeRateLabel }, `Costo Stripe stimato (${stripeRateLabel})`))}</span>
-      <strong>- ${escapeHtml(formatMoney(estimate.stripeCost, { freeLabel: false }))}</strong>
-      <span>${escapeHtml(t("feeEstimateMasterNet", "Incasso netto stimato Master"))}</span>
-      <strong class="fee-estimate-net">${escapeHtml(formatMoney(estimate.masterNet, { freeLabel: false }))}</strong>
+      <span>${escapeHtml(t("feeEstimateAfterLorecastFee", "Importo dopo commissione Lorecast"))}</span>
+      <strong class="fee-estimate-net">${escapeHtml(formatMoney(estimate.afterLorecastFee, { freeLabel: false }))}</strong>
     </div>
-    <p>${escapeHtml(t("feeEstimateDisclaimer", "I pagamenti reali non sono ancora attivi. Questa stima è indicativa: Stripe e commissioni potranno variare quando i pagamenti saranno attivati."))}</p>
+    <p>${escapeHtml(t("feeEstimateDisclaimer", "Stima indicativa. Eventuali costi del processore di pagamento, imposte o trattenute esterne possono variare e saranno gestiti secondo le condizioni applicabili del provider di pagamento."))}</p>
   `;
 }
 

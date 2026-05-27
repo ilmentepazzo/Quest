@@ -20,6 +20,8 @@ let supabaseReviewsCache = [];
 let supabaseReviewsLoaded = false;
 let supabaseStoryPurchasesCache = [];
 let supabaseStoryPurchasesLoaded = false;
+let supabaseMasterPaymentEventsCache = [];
+let supabaseMasterPaymentEventsLoaded = false;
 let editingStoryId = null;
 let currentMasterAreaView = "availability";
 let currentBookingMessagesBookingId = null;
@@ -416,7 +418,14 @@ function getPaidAccessStoryIds() {
 function isStoryUnlocked(id) {
   const normalizedId = storyId(id);
   if (!normalizedId) return false;
-  return getUnlockedStories().map(String).includes(normalizedId) || getPaidAccessStoryIds().includes(normalizedId);
+
+  const hasPaidAccess = getPaidAccessStoryIds().includes(normalizedId);
+  if (hasPaidAccess) return true;
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, normalizedId));
+  if (story && isStoryPaymentRequired(story)) return false;
+
+  return getUnlockedStories().map(String).includes(normalizedId);
 }
 
 function getUserProfile() {
@@ -670,6 +679,65 @@ async function loadSupabaseStoryPurchases() {
   return supabaseStoryPurchasesCache;
 }
 
+
+function normalizeMasterPaymentEvent(row) {
+  if (!row) return null;
+
+  return {
+    id: storyId(row.id),
+    provider: row.provider || "stripe",
+    providerEventId: row.provider_event_id || row.providerEventId || "",
+    eventType: row.event_type || row.eventType || "",
+    livemode: Boolean(row.livemode),
+    status: row.status || "received",
+    storyId: storyId(row.story_id || row.storyId || ""),
+    bookingId: storyId(row.booking_id || row.bookingId || ""),
+    publicSessionId: storyId(row.public_session_id || row.publicSessionId || ""),
+    participantId: storyId(row.participant_id || row.participantId || ""),
+    userId: storyId(row.user_id || row.userId || ""),
+    masterId: storyId(row.master_id || row.masterId || ""),
+    amount: Number(row.amount || 0),
+    currency: row.currency || "EUR",
+    checkoutSessionId: row.checkout_session_id || row.checkoutSessionId || "",
+    paymentIntentId: row.payment_intent_id || row.paymentIntentId || "",
+    connectedAccountId: row.connected_account_id || row.connectedAccountId || "",
+    applicationFeeAmount: Number(row.application_fee_amount || row.applicationFeeAmount || 0),
+    createdAt: row.created_at || row.createdAt || null,
+    processedAt: row.processed_at || row.processedAt || null
+  };
+}
+
+async function loadSupabaseMasterPaymentEvents() {
+  if (typeof supabaseClient === "undefined") return [];
+  const userId = getCurrentUserId();
+  if (!userId) {
+    supabaseMasterPaymentEventsCache = [];
+    supabaseMasterPaymentEventsLoaded = true;
+    return supabaseMasterPaymentEventsCache;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("payment_events")
+    .select("*")
+    .eq("master_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.warn("Impossibile caricare eventi pagamento Master:", error.message);
+    supabaseMasterPaymentEventsLoaded = false;
+    return supabaseMasterPaymentEventsCache;
+  }
+
+  supabaseMasterPaymentEventsCache = (data || []).map(normalizeMasterPaymentEvent).filter(Boolean);
+  supabaseMasterPaymentEventsLoaded = true;
+
+  const userIds = supabaseMasterPaymentEventsCache.map(event => event.userId).filter(Boolean);
+  await loadSupabaseProfilesForUserIds(userIds);
+
+  return supabaseMasterPaymentEventsCache;
+}
+
 async function loadSupabaseReviews() {
   if (typeof supabaseClient === "undefined") return [];
 
@@ -700,7 +768,8 @@ async function loadSupabaseMarketplaceState() {
     loadSupabasePublicSessions(),
     loadSupabaseNotifications(),
     loadSupabaseReviews(),
-    loadSupabaseStoryPurchases()
+    loadSupabaseStoryPurchases(),
+    loadSupabaseMasterPaymentEvents()
   ]);
 
   const userIds = new Set();
@@ -931,6 +1000,9 @@ function getStoryTitleById(id) {
 }
 
 function setMasterAreaView(view) {
+  ensureMasterPaymentsTab();
+  ensureMasterPaymentsView();
+
   currentMasterAreaView = view || "availability";
 
   document.querySelectorAll(".master-view").forEach(panel => {
@@ -946,7 +1018,9 @@ function setMasterAreaView(view) {
       ? "masterViewRequests"
       : currentMasterAreaView === "sessions"
         ? "masterViewSessions"
-        : "masterViewAvailability"
+        : currentMasterAreaView === "payments"
+          ? "masterViewPayments"
+          : "masterViewAvailability"
   );
 
   if (target) target.classList.add("is-active");
@@ -991,6 +1065,7 @@ function go(page, options = {}) {
       renderDashboardBookings();
       renderDashboardStats();
       renderMasterPaymentReadiness();
+      renderMasterPaymentsPanel();
       renderMasterAvailability();
       renderMasterPublicSessions();
       setMasterAreaView(currentMasterAreaView || "availability");
@@ -3484,7 +3559,8 @@ async function handleStripeCheckoutReturn() {
     loadSupabasePublicSessions(),
     loadSupabaseSessionParticipants(),
     loadSupabaseNotifications(),
-    loadSupabaseStoryPurchases()
+    loadSupabaseStoryPurchases(),
+    loadSupabaseMasterPaymentEvents()
   ]);
 
   if (currentStory) {
@@ -6123,36 +6199,60 @@ function getParticipantsForSession(sessionIdValue) {
   );
 }
 
-function ensureMasterPaymentReadinessPanel() {
+function ensureMasterPaymentsTab() {
+  const nav = document.querySelector("#area-master .master-sections-nav");
+  if (!nav || nav.querySelector('[data-master-view="payments"]')) return;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "master-section-tab";
+  button.dataset.masterView = "payments";
+  button.textContent = t("masterPaymentsTab", "Pagamenti");
+  button.addEventListener("click", () => setMasterAreaView("payments"));
+  nav.appendChild(button);
+}
+
+function ensureMasterPaymentsView() {
   const section = document.getElementById("area-master") || document.querySelector(".page.active");
   if (!section) return null;
 
+  let view = document.getElementById("masterViewPayments");
+  if (view) return view;
+
+  view = document.createElement("div");
+  view.id = "masterViewPayments";
+  view.className = "master-view";
+
+  const sessionsView = document.getElementById("masterViewSessions");
+  if (sessionsView?.parentNode) {
+    sessionsView.parentNode.insertBefore(view, sessionsView.nextSibling);
+    return view;
+  }
+
+  const tabs = section.querySelector(".master-sections-nav");
+  if (tabs?.parentNode) {
+    tabs.parentNode.insertBefore(view, tabs.nextSibling);
+    return view;
+  }
+
+  section.appendChild(view);
+  return view;
+}
+
+function ensureMasterPaymentReadinessPanel() {
+  const view = ensureMasterPaymentsView();
+  if (!view) return null;
+
   let panel = document.getElementById("masterPaymentReadinessPanel");
-  if (panel) return panel;
+  if (panel) {
+    if (panel.parentNode !== view) view.insertBefore(panel, view.firstChild);
+    return panel;
+  }
 
   panel = document.createElement("div");
   panel.id = "masterPaymentReadinessPanel";
   panel.className = "card master-payment-readiness-card";
-
-  const tabs = section.querySelector(".master-sections-nav");
-  if (tabs?.parentNode) {
-    tabs.parentNode.insertBefore(panel, tabs.nextSibling);
-    return panel;
-  }
-
-  const availabilityCard = document.getElementById("masterAvailabilityList")?.closest(".card");
-  if (availabilityCard?.parentNode) {
-    availabilityCard.parentNode.insertBefore(panel, availabilityCard);
-    return panel;
-  }
-
-  const firstCard = section.querySelector(".card");
-  if (firstCard?.parentNode) {
-    firstCard.parentNode.insertBefore(panel, firstCard.nextSibling);
-  } else {
-    section.appendChild(panel);
-  }
-
+  view.insertBefore(panel, view.firstChild);
   return panel;
 }
 
@@ -6197,6 +6297,241 @@ function renderMasterPaymentReadiness() {
       <small>${escapeHtml(t("paymentReadinessNoSecrets", "Le chiavi segrete restano solo nelle Supabase Edge Functions, mai nel frontend."))}</small>
     </div>
   `;
+}
+
+
+function ensureMasterPaymentsPanel() {
+  const view = ensureMasterPaymentsView();
+  if (!view) return null;
+
+  let panel = document.getElementById("masterPaymentsPanel");
+  if (panel) {
+    if (panel.parentNode !== view) view.appendChild(panel);
+    return panel;
+  }
+
+  panel = document.createElement("div");
+  panel.id = "masterPaymentsPanel";
+  panel.className = "card master-payments-card";
+  view.appendChild(panel);
+  return panel;
+}
+
+function getMasterPaymentStoryTitle(row) {
+  const story = getAllStories().find(item => storyIdsMatch(item.id, row.storyId));
+  return story?.title || t("paymentAdminUnknownStory", "Storia Lorecast");
+}
+
+function getMasterPaymentRows() {
+  const bySession = new Map();
+
+  supabaseMasterPaymentEventsCache.forEach(event => {
+    const key = event.checkoutSessionId || event.providerEventId || event.id;
+    if (!key) return;
+
+    const existing = bySession.get(key) || {
+      checkoutSessionId: event.checkoutSessionId,
+      storyId: event.storyId,
+      bookingId: event.bookingId,
+      participantId: event.participantId,
+      userId: event.userId,
+      amount: 0,
+      currency: event.currency || "EUR",
+      applicationFeeAmount: 0,
+      createdAt: event.createdAt,
+      status: "pending",
+      refundable: false,
+      livemode: event.livemode
+    };
+
+    existing.storyId = existing.storyId || event.storyId;
+    existing.bookingId = existing.bookingId || event.bookingId;
+    existing.participantId = existing.participantId || event.participantId;
+    existing.userId = existing.userId || event.userId;
+    existing.currency = existing.currency || event.currency || "EUR";
+    existing.livemode = existing.livemode || event.livemode;
+    existing.createdAt = existing.createdAt || event.createdAt;
+
+    const eventType = String(event.eventType || "").toLowerCase();
+    const providerEventId = String(event.providerEventId || "").toLowerCase();
+
+    if ((eventType === "checkout.session.completed" || event.status === "processed") && existing.status !== "refunded") {
+      existing.status = "paid";
+      existing.amount = Number(event.amount || existing.amount || 0);
+      existing.applicationFeeAmount = Number(event.applicationFeeAmount || existing.applicationFeeAmount || 0);
+      existing.refundable = Boolean(event.checkoutSessionId);
+      existing.createdAt = event.processedAt || event.createdAt || existing.createdAt;
+    }
+
+    if (eventType.includes("refund") || providerEventId.includes("refund")) {
+      existing.status = "refunded";
+      existing.refundable = false;
+      existing.refundedAt = event.processedAt || event.createdAt;
+    }
+
+    bySession.set(key, existing);
+  });
+
+  return Array.from(bySession.values())
+    .filter(row => row.checkoutSessionId && ["paid", "refunded", "pending"].includes(row.status))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function renderMasterPaymentsPanel() {
+  const panel = ensureMasterPaymentsPanel();
+  if (!panel) return;
+
+  if (!getCurrentUserId()) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  if (!supabaseMasterPaymentEventsLoaded && typeof supabaseClient !== "undefined") {
+    panel.innerHTML = `
+      <div class="section-heading-row">
+        <div>
+          <h2>${escapeHtml(t("masterPaymentsTitle", "Pagamenti test"))}</h2>
+          <p>${escapeHtml(t("masterPaymentsLoading", "Caricamento pagamenti..."))}</p>
+        </div>
+      </div>
+    `;
+    loadSupabaseMasterPaymentEvents().then(renderMasterPaymentsPanel);
+    return;
+  }
+
+  const rows = getMasterPaymentRows();
+  const activeRows = rows.filter(row => row.status === "paid");
+  const gross = activeRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const lorecastFees = activeRows.reduce((sum, row) => sum + Number(row.applicationFeeAmount || 0), 0);
+  const afterLorecast = Math.max(0, gross - lorecastFees);
+
+  panel.innerHTML = `
+    <div class="section-heading-row">
+      <div>
+        <span class="payment-readiness-kicker">${escapeHtml(t("masterPaymentsKicker", "Test mode"))}</span>
+        <h2>${escapeHtml(t("masterPaymentsTitle", "Pagamenti test"))}</h2>
+        <p>${escapeHtml(t("masterPaymentsIntro", "Controlla i pagamenti test ricevuti, la fee Lorecast applicata e prova i rimborsi test."))}</p>
+      </div>
+      <button type="button" class="light" onclick="refreshMasterPaymentsPanel()">${escapeHtml(t("masterPaymentsRefresh", "Aggiorna"))}</button>
+    </div>
+
+    <div class="payment-readiness-grid">
+      <div class="payment-readiness-step done">
+        <strong>${escapeHtml(formatMoney(gross, { freeLabel: false }))}</strong>
+        <span>${escapeHtml(t("masterPaymentsGross", "Totale pagato dai giocatori"))}</span>
+      </div>
+      <div class="payment-readiness-step done">
+        <strong>${escapeHtml(formatMoney(lorecastFees, { freeLabel: false }))}</strong>
+        <span>${escapeHtml(t("masterPaymentsLorecastFee", "Fee Lorecast"))}</span>
+      </div>
+      <div class="payment-readiness-step done">
+        <strong>${escapeHtml(formatMoney(afterLorecast, { freeLabel: false }))}</strong>
+        <span>${escapeHtml(t("masterPaymentsAfterFee", "Importo dopo fee Lorecast"))}</span>
+      </div>
+    </div>
+
+    <p class="muted-small">${escapeHtml(t("masterPaymentsNoStripeFee", "Non mostriamo stime sulle fee Stripe: eventuali costi esterni dipendono dalle condizioni del provider di pagamento."))}</p>
+
+    <div class="master-session-list master-payments-list">
+      ${rows.length ? rows.slice(0, 20).map(renderMasterPaymentRow).join("") : `
+        <div class="empty-state small">
+          <strong>${escapeHtml(t("masterPaymentsEmptyTitle", "Nessun pagamento test ancora"))}</strong>
+          <p>${escapeHtml(t("masterPaymentsEmptyText", "Quando un giocatore paga con Stripe test, lo vedrai qui."))}</p>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderMasterPaymentRow(row) {
+  const title = getMasterPaymentStoryTitle(row);
+  const playerName = row.userId ? getUserDisplayName(row.userId, t("masterPaymentsPlayerFallback", "Giocatore")) : t("masterPaymentsPlayerFallback", "Giocatore");
+  const status = row.status === "refunded" ? t("paymentStatusRefunded", "Rimborsato") : row.status === "paid" ? t("paymentStatusPaid", "Pagato") : getTranslatedPaymentStatus(row.status);
+  const statusClass = row.status === "refunded" ? "rejected" : row.status === "paid" ? "accepted" : "pending";
+  const fee = Number(row.applicationFeeAmount || 0);
+  const afterFee = Math.max(0, Number(row.amount || 0) - fee);
+  const dateLabel = row.createdAt ? new Date(row.createdAt).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" }) : "";
+
+  return `
+    <article class="master-session-card master-payment-row">
+      <div class="master-session-main">
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(playerName)}${dateLabel ? ` · ${escapeHtml(dateLabel)}` : ""}</p>
+        </div>
+        <span class="status-badge ${statusClass}">${escapeHtml(status)}</span>
+      </div>
+      <div class="master-session-meta">
+        <span><strong>${escapeHtml(t("masterPaymentsGrossShort", "Lordo"))}:</strong> ${escapeHtml(formatMoney(row.amount, { freeLabel: false }))}</span>
+        <span><strong>${escapeHtml(t("masterPaymentsFeeShort", "Fee Lorecast"))}:</strong> ${escapeHtml(formatMoney(fee, { freeLabel: false }))}</span>
+        <span><strong>${escapeHtml(t("masterPaymentsAfterFeeShort", "Dopo fee"))}:</strong> ${escapeHtml(formatMoney(afterFee, { freeLabel: false }))}</span>
+      </div>
+      <div class="master-session-actions">
+        ${row.status === "paid" && row.refundable ? `
+          <button type="button" class="danger-light" onclick='requestTestRefund(${JSON.stringify(row.checkoutSessionId)})'>${escapeHtml(t("masterPaymentsRefundButton", "Rimborsa test"))}</button>
+        ` : `<span class="muted-small">${escapeHtml(row.status === "refunded" ? t("masterPaymentsAlreadyRefunded", "Rimborso test registrato.") : t("masterPaymentsNoAction", "Nessuna azione disponibile."))}</span>`}
+      </div>
+    </article>
+  `;
+}
+
+async function refreshMasterPaymentsPanel() {
+  supabaseMasterPaymentEventsLoaded = false;
+  await loadSupabaseMasterPaymentEvents();
+  renderMasterPaymentsPanel();
+}
+
+async function requestTestRefund(checkoutSessionId) {
+  const sessionId = String(checkoutSessionId || "").trim();
+  if (!sessionId) {
+    showToast(t("masterPaymentsRefundMissing", "Rimborso non disponibile: checkout mancante."), "error");
+    return;
+  }
+
+  const ok = window.confirm(t("masterPaymentsRefundConfirm", "Vuoi creare un rimborso test su Stripe? Questa azione aggiorna lo stato su Lorecast."));
+  if (!ok) return;
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("create-test-refund", {
+      body: { checkoutSessionId: sessionId }
+    });
+
+    if (error) {
+      let detail = error.message || String(error);
+      try {
+        const context = error.context || error.response;
+        if (context?.clone && context?.json) {
+          const payload = await context.clone().json();
+          detail = payload?.error || payload?.message || detail;
+        } else if (context?.json) {
+          const payload = await context.json();
+          detail = payload?.error || payload?.message || detail;
+        }
+      } catch (_) {}
+      throw new Error(detail);
+    }
+
+    showToast(t("masterPaymentsRefundSuccess", "Rimborso test creato e stato aggiornato."), "success");
+    await Promise.all([
+      loadSupabaseBookings(),
+      loadSupabasePublicSessions(),
+      loadSupabaseSessionParticipants(),
+      loadSupabaseStoryPurchases(),
+      loadSupabaseNotifications(),
+      refreshMasterPaymentsPanel()
+    ]);
+
+    if (currentStory) {
+      renderStoryPaymentPanel(currentStory);
+      renderStoryMaterials(currentStory);
+      renderJoinSession(currentStory);
+    }
+    renderUserProfile();
+    renderOpenSessions();
+  } catch (error) {
+    console.error("Errore rimborso test:", error);
+    showToast(`${t("masterPaymentsRefundError", "Errore rimborso test:")} ${error.message || error}`, "error");
+  }
 }
 
 function updateLocalStripeConnectProfile(data = {}) {

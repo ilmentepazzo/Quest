@@ -6034,6 +6034,50 @@ button.is-disabled {
   margin: 0;
 }
 
+
+.master-inquiry-row.compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+
+.master-inquiry-row.compact .master-inquiry-main {
+  gap: 4px;
+}
+
+.master-inquiry-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.master-inquiry-message {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+}
+
+.master-inquiry-reply.compact {
+  margin-top: 2px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.master-inquiry-actions.compact {
+  min-width: 124px;
+  gap: 6px;
+}
+
+.master-inquiry-actions.compact button {
+  min-height: 34px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 @media (max-width: 760px) {
   .master-inquiry-row {
     grid-template-columns: 1fr;

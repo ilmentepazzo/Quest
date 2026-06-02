@@ -2991,7 +2991,49 @@ function getMasterStoryInquiries(userId = getCurrentUserId()) {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
+function syncStoryInquiryNotificationsForCurrentUser(userId = getCurrentUserId()) {
+  if (!userId) return;
+
+  const openInquiries = getMasterStoryInquiries(userId).filter(inquiry => inquiry.status === "open");
+  if (!openInquiries.length) return;
+
+  const notifications = getNotifications();
+  let changed = false;
+
+  openInquiries.forEach(inquiry => {
+    const inquiryId = storyId(inquiry.id);
+    if (!inquiryId) return;
+
+    const alreadyExists = notifications.some(notification =>
+      storyIdsMatch(notification.inquiryId, inquiryId) ||
+      (notification.type === "story_inquiry" && storyIdsMatch(notification.storyId, inquiry.storyId) && !notification.read)
+    );
+
+    if (alreadyExists) return;
+
+    const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
+    notifications.unshift({
+      id: `story-inquiry-${inquiryId}`,
+      inquiryId,
+      message: tf("storyInquiryMasterNotification", { title: story?.title || t("storySingular", "Storia") }, `Nuova richiesta su "${story?.title || "Storia"}".`),
+      type: "story_inquiry",
+      read: false,
+      storyId: inquiry.storyId,
+      page: "area-master",
+      date: inquiry.createdAt ? formatLocalizedDateTime(inquiry.createdAt) : new Date().toLocaleString()
+    });
+    changed = true;
+  });
+
+  if (changed) {
+    saveNotifications(notifications.slice(0, 80));
+    updateNotificationBadge();
+  }
+}
+
 function renderMasterStoryInquiries(userId = getCurrentUserId()) {
+  syncStoryInquiryNotificationsForCurrentUser(userId);
+
   const inquiries = getMasterStoryInquiries(userId);
   const openCount = inquiries.filter(item => item.status === "open").length;
 
@@ -3023,20 +3065,20 @@ function renderMasterStoryInquiries(userId = getCurrentUserId()) {
           const isOpen = inquiry.status === "open";
           const hasReply = Boolean(inquiry.masterReply);
           return `
-            <article class="master-inquiry-row ${isOpen ? "is-new" : ""}">
+            <article class="master-inquiry-row compact ${isOpen ? "is-new" : ""}">
               <div class="master-inquiry-main">
                 <div class="master-inquiry-title-row">
                   <strong>${escapeHtml(storyTitle)}</strong>
                   <span class="status ${isOpen ? "pending" : hasReply ? "accepted" : ""}">${escapeHtml(isOpen ? t("storyInquiryStatusOpen", "Nuova") : hasReply ? t("storyInquiryStatusReplied", "Risposta inviata") : t("storyInquiryStatusRead", "Letta"))}</span>
                 </div>
-                <small>${escapeHtml(senderName)} · ${formatLocalizedDateTime(inquiry.createdAt)}</small>
-                <p>“${escapeHtml(inquiry.message)}”</p>
-                ${hasReply ? `<p class="master-inquiry-reply"><strong>${t("storyInquiryYourReply", "Risposta")}:</strong> ${escapeHtml(inquiry.masterReply)}</p>` : ""}
+                <div class="master-inquiry-meta">${escapeHtml(senderName)} · ${formatLocalizedDateTime(inquiry.createdAt)}</div>
+                <p class="master-inquiry-message">“${escapeHtml(inquiry.message)}”</p>
+                ${hasReply ? `<p class="master-inquiry-reply compact"><strong>${t("storyInquiryYourReply", "Risposta")}:</strong> ${escapeHtml(inquiry.masterReply)}</p>` : ""}
               </div>
-              <div class="master-inquiry-actions">
-                <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
-                <button class="primary" onclick='replyStoryInquiry(${inquiryArg})'>${hasReply ? t("storyInquiryReplyAgain", "Rispondi ancora") : t("storyInquiryReply", "Rispondi")}</button>
-                <button class="light" onclick='archiveStoryInquiry(${inquiryArg})'>${t("commonArchive", "Archivia")}</button>
+              <div class="master-inquiry-actions compact">
+                <button class="light small" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
+                <button class="primary small" onclick='replyStoryInquiry(${inquiryArg})'>${hasReply ? t("storyInquiryReplyAgain", "Rispondi ancora") : t("storyInquiryReply", "Rispondi")}</button>
+                <button class="light small" onclick='archiveStoryInquiry(${inquiryArg})'>${t("commonArchive", "Archivia")}</button>
               </div>
             </article>
           `;

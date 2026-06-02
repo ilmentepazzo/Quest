@@ -22,6 +22,8 @@ let supabaseStoryPurchasesCache = [];
 let supabaseStoryPurchasesLoaded = false;
 let supabaseStoryFavoritesCache = [];
 let supabaseStoryFavoritesLoaded = false;
+let supabaseStoryInquiriesCache = [];
+let supabaseStoryInquiriesLoaded = false;
 let catalogFavoritesOnly = false;
 let supabaseMasterPaymentEventsCache = [];
 let supabaseMasterPaymentEventsLoaded = false;
@@ -489,6 +491,54 @@ async function loadSupabaseStoryFavorites() {
   supabaseStoryFavoritesCache = (data || []).map(normalizeStoryFavorite).filter(Boolean);
   supabaseStoryFavoritesLoaded = true;
   return supabaseStoryFavoritesCache;
+}
+
+function normalizeStoryInquiry(row) {
+  if (!row) return null;
+  return {
+    id: storyId(row.id),
+    storyId: storyId(row.story_id),
+    senderId: storyId(row.sender_id),
+    recipientId: storyId(row.recipient_id),
+    message: row.message || "",
+    status: row.status || "open",
+    masterReply: row.master_reply || "",
+    repliedAt: row.replied_at || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    source: "supabase"
+  };
+}
+
+async function loadSupabaseStoryInquiries() {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const userId = getCurrentUserId();
+  if (!userId) {
+    supabaseStoryInquiriesCache = [];
+    supabaseStoryInquiriesLoaded = false;
+    return [];
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_inquiries")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    const message = String(error.message || "");
+    if (!message.toLowerCase().includes("does not exist") && !message.toLowerCase().includes("schema cache")) {
+      console.warn("Impossibile caricare contatti Master:", error.message);
+    }
+    supabaseStoryInquiriesCache = [];
+    supabaseStoryInquiriesLoaded = false;
+    return [];
+  }
+
+  supabaseStoryInquiriesCache = (data || []).map(normalizeStoryInquiry).filter(Boolean);
+  supabaseStoryInquiriesLoaded = true;
+  return supabaseStoryInquiriesCache;
 }
 
 function isStoryFavoriteByCurrentUser(storyIdValue) {
@@ -959,6 +1009,7 @@ async function loadSupabaseMarketplaceState() {
     loadSupabaseReviews(),
     loadSupabaseStoryPurchases(),
     loadSupabaseStoryFavorites(),
+    loadSupabaseStoryInquiries(),
     loadSupabaseMasterPaymentEvents()
   ]);
 
@@ -976,6 +1027,11 @@ async function loadSupabaseMarketplaceState() {
   supabasePublicSessionsCache.forEach(session => {
     if (session.createdBy) userIds.add(storyId(session.createdBy));
     if (session.storyAuthorId) userIds.add(storyId(session.storyAuthorId));
+  });
+
+  supabaseStoryInquiriesCache.forEach(inquiry => {
+    if (inquiry.senderId) userIds.add(storyId(inquiry.senderId));
+    if (inquiry.recipientId) userIds.add(storyId(inquiry.recipientId));
   });
 
   getAllStories().forEach(story => {
@@ -2755,6 +2811,7 @@ function openStory(id, options = {}) {
   setText("detailPrice", formatMoney(story.price));
 
   renderStoryPaymentPanel(story);
+  renderStoryInquiryButton(story);
 
   setText(
     "detailAction",
@@ -2770,6 +2827,285 @@ function openStory(id, options = {}) {
   renderStoryBookingMode(story);
 
   go("scheda", options);
+}
+
+
+function getStoryInquiryRecipientId(story) {
+  return getStoryAuthorId(story) || storyId(getCurrentStoryMasterId(story));
+}
+
+function renderStoryInquiryButton(story = currentStory) {
+  const button = document.getElementById("contactMasterButton");
+  if (!button || !story) return;
+
+  const recipientId = getStoryInquiryRecipientId(story);
+  const canContact = Boolean(recipientId) && !storyIdsMatch(recipientId, getCurrentUserId());
+  button.hidden = !canContact;
+  button.disabled = !canContact;
+  button.textContent = isStoryWithMaster(story)
+    ? t("storyContactMasterButton", "Contatta Master")
+    : t("storyContactAuthorButton", "Contatta autore");
+}
+
+function ensureStoryInquiryModal() {
+  let modal = document.getElementById("storyInquiryModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "storyInquiryModal";
+  modal.className = "booking-messages-modal story-inquiry-modal";
+  modal.innerHTML = `
+    <div class="booking-messages-box story-inquiry-box" role="dialog" aria-modal="true" aria-labelledby="storyInquiryTitle">
+      <div class="booking-messages-header">
+        <div>
+          <h2 id="storyInquiryTitle">${t("storyInquiryTitle", "Contatta Master")}</h2>
+          <p id="storyInquirySubtitle"></p>
+        </div>
+        <button class="light icon-button" type="button" onclick="closeStoryInquiryModal()" aria-label="${escapeHtmlAttribute(t("commonCloseModal", "Chiudi"))}">×</button>
+      </div>
+      <form id="storyInquiryForm" class="booking-messages-form" onsubmit="sendStoryInquiry(event)">
+        <textarea id="storyInquiryMessage" maxlength="1200" placeholder="${escapeHtmlAttribute(t("storyInquiryPlaceholder", "Scrivi una domanda breve sul gruppo, il tono della storia o la disponibilità. Non inserire email o dati personali."))}"></textarea>
+        <div class="booking-messages-form-footer">
+          <small>${t("storyInquiryHint", "Il messaggio viene inviato al Master e resta collegato a questa storia. Non è una chat libera.")}</small>
+          <button class="primary" type="submit">${t("storyInquirySend", "Invia richiesta")}</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openStoryInquiryModal(storyIdValue = null) {
+  const story = storyIdValue
+    ? getAllStories().find(item => storyIdsMatch(item.id, storyIdValue))
+    : currentStory;
+
+  if (!story) {
+    showToast(t("storyInquiryMissingStory", "Storia non trovata."), "warning");
+    return;
+  }
+
+  if (!getCurrentUserId()) {
+    showToast(t("storyInquiryLoginRequired", "Accedi per contattare il Master."), "warning");
+    go("login");
+    return;
+  }
+
+  const recipientId = getStoryInquiryRecipientId(story);
+  if (!recipientId || storyIdsMatch(recipientId, getCurrentUserId())) {
+    showToast(t("storyInquiryCannotContactSelf", "Non puoi inviare una richiesta a te stesso."), "warning");
+    return;
+  }
+
+  currentStory = story;
+  const modal = ensureStoryInquiryModal();
+  const title = document.getElementById("storyInquiryTitle");
+  const subtitle = document.getElementById("storyInquirySubtitle");
+  const textarea = document.getElementById("storyInquiryMessage");
+
+  if (title) title.textContent = isStoryWithMaster(story) ? t("storyInquiryTitle", "Contatta Master") : t("storyInquiryAuthorTitle", "Contatta autore");
+  if (subtitle) subtitle.textContent = story.title || "";
+  if (textarea) textarea.value = "";
+
+  modal.classList.add("open");
+}
+
+function closeStoryInquiryModal() {
+  const modal = document.getElementById("storyInquiryModal");
+  if (modal) modal.classList.remove("open");
+}
+
+async function sendStoryInquiry(event) {
+  event?.preventDefault();
+
+  const story = currentStory;
+  const userId = getCurrentUserId();
+  const recipientId = story ? getStoryInquiryRecipientId(story) : "";
+  const textarea = document.getElementById("storyInquiryMessage");
+  const message = String(textarea?.value || "").trim();
+
+  if (!story || !storyId(story.id)) {
+    showToast(t("storyInquiryMissingStory", "Storia non trovata."), "warning");
+    return;
+  }
+  if (!userId) {
+    showToast(t("storyInquiryLoginRequired", "Accedi per contattare il Master."), "warning");
+    return;
+  }
+  if (!recipientId || storyIdsMatch(recipientId, userId)) {
+    showToast(t("storyInquiryCannotContactSelf", "Non puoi inviare una richiesta a te stesso."), "warning");
+    return;
+  }
+  if (message.length < 10) {
+    showToast(t("storyInquiryTooShort", "Scrivi almeno 10 caratteri."), "warning");
+    return;
+  }
+
+  if (typeof supabaseClient === "undefined") {
+    showToast(t("storyInquiryUnavailable", "Contatti non disponibili senza Supabase."), "warning");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_inquiries")
+    .insert({
+      story_id: storyId(story.id),
+      sender_id: userId,
+      recipient_id: recipientId,
+      message,
+      status: "open"
+    })
+    .select()
+    .single();
+
+  if (error) {
+    showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${error.message}`, "error");
+    return;
+  }
+
+  const inquiry = normalizeStoryInquiry(data);
+  if (inquiry) {
+    supabaseStoryInquiriesCache = [inquiry, ...supabaseStoryInquiriesCache.filter(item => !storyIdsMatch(item.id, inquiry.id))];
+    supabaseStoryInquiriesLoaded = true;
+  }
+
+  await createNotificationForUser(
+    recipientId,
+    tf("storyInquiryMasterNotification", { title: story.title }, `Nuova richiesta su "${story.title}".`),
+    "info",
+    { storyId: story.id, page: "area-master" }
+  );
+
+  addNotification(tf("storyInquirySentNotification", { title: story.title }, `Richiesta inviata per "${story.title}".`), "success", { storyId: story.id, page: "scheda" });
+  closeStoryInquiryModal();
+  showToast(t("storyInquirySentToast", "Richiesta inviata al Master."), "success");
+  await loadSupabaseNotifications();
+  renderDashboardBookings();
+}
+
+function getMasterStoryInquiries(userId = getCurrentUserId()) {
+  if (!userId) return [];
+  return supabaseStoryInquiriesCache
+    .filter(inquiry => storyIdsMatch(inquiry.recipientId, userId) && inquiry.status !== "archived")
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function renderMasterStoryInquiries(userId = getCurrentUserId()) {
+  const inquiries = getMasterStoryInquiries(userId);
+  const openCount = inquiries.filter(item => item.status === "open").length;
+
+  if (!inquiries.length) {
+    return `
+      <div class="master-inquiries-block">
+        <div class="master-subsection-head">
+          <h3>${t("masterInquiriesTitle", "Contatti Master")}</h3>
+          <span class="pill-counter">0</span>
+        </div>
+        <p class="muted-small">${t("masterNoInquiries", "Nessuna richiesta diretta dai giocatori.")}</p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="master-inquiries-block">
+      <div class="master-subsection-head">
+        <h3>${t("masterInquiriesTitle", "Contatti Master")}</h3>
+        <span class="pill-counter ${openCount ? "alert-counter" : ""}">${tf("masterInquiriesCount", { count: inquiries.length }, `${inquiries.length} contatti`)}</span>
+      </div>
+      <div class="master-inquiries-list">
+        ${inquiries.map(inquiry => {
+          const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
+          const storyTitle = story?.title || t("storySingular", "Storia");
+          const senderName = getUserDisplayName(inquiry.senderId, t("bookingParticipant", "partecipante"));
+          const inquiryArg = JSON.stringify(storyId(inquiry.id));
+          const storyArg = JSON.stringify(storyId(inquiry.storyId));
+          const isOpen = inquiry.status === "open";
+          const hasReply = Boolean(inquiry.masterReply);
+          return `
+            <article class="master-inquiry-row ${isOpen ? "is-new" : ""}">
+              <div class="master-inquiry-main">
+                <div class="master-inquiry-title-row">
+                  <strong>${escapeHtml(storyTitle)}</strong>
+                  <span class="status ${isOpen ? "pending" : hasReply ? "accepted" : ""}">${escapeHtml(isOpen ? t("storyInquiryStatusOpen", "Nuova") : hasReply ? t("storyInquiryStatusReplied", "Risposta inviata") : t("storyInquiryStatusRead", "Letta"))}</span>
+                </div>
+                <small>${escapeHtml(senderName)} · ${formatLocalizedDateTime(inquiry.createdAt)}</small>
+                <p>“${escapeHtml(inquiry.message)}”</p>
+                ${hasReply ? `<p class="master-inquiry-reply"><strong>${t("storyInquiryYourReply", "Risposta")}:</strong> ${escapeHtml(inquiry.masterReply)}</p>` : ""}
+              </div>
+              <div class="master-inquiry-actions">
+                <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
+                <button class="primary" onclick='replyStoryInquiry(${inquiryArg})'>${hasReply ? t("storyInquiryReplyAgain", "Rispondi ancora") : t("storyInquiryReply", "Rispondi")}</button>
+                <button class="light" onclick='archiveStoryInquiry(${inquiryArg})'>${t("commonArchive", "Archivia")}</button>
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function replyStoryInquiry(inquiryIdValue) {
+  const inquiryId = storyId(inquiryIdValue);
+  const inquiry = supabaseStoryInquiriesCache.find(item => storyIdsMatch(item.id, inquiryId));
+  if (!inquiry) {
+    showToast(t("storyInquiryMissing", "Richiesta non trovata."), "warning");
+    return;
+  }
+
+  const reply = window.prompt(t("storyInquiryReplyPrompt", "Scrivi una risposta breve. Verrà inviata come notifica al giocatore."), inquiry.masterReply || "");
+  if (reply === null) return;
+  const cleanReply = String(reply || "").trim();
+  if (cleanReply.length < 2) {
+    showToast(t("storyInquiryReplyTooShort", "Risposta troppo breve."), "warning");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_inquiries")
+    .update({ status: "replied", master_reply: cleanReply, replied_at: new Date().toISOString() })
+    .eq("id", inquiryId)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    showToast(`${t("storyInquiryReplyError", "Errore invio risposta")}: ${error.message}`, "error");
+    return;
+  }
+
+  const updated = normalizeStoryInquiry(data) || { ...inquiry, status: "replied", masterReply: cleanReply, repliedAt: new Date().toISOString() };
+  supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiryId) ? updated : item);
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
+  await createNotificationForUser(
+    inquiry.senderId,
+    tf("storyInquiryPlayerReplyNotification", { title: story?.title || t("storySingular", "Storia"), reply: cleanReply }, `Il Master ha risposto su "${story?.title || "Storia"}": ${cleanReply}`),
+    "info",
+    { storyId: inquiry.storyId, page: "scheda" }
+  );
+
+  showToast(t("storyInquiryReplySentToast", "Risposta inviata al giocatore."), "success");
+  renderDashboardBookings();
+}
+
+async function archiveStoryInquiry(inquiryIdValue) {
+  const inquiryId = storyId(inquiryIdValue);
+  if (!inquiryId) return;
+
+  const { error } = await supabaseClient
+    .from("story_inquiries")
+    .update({ status: "archived" })
+    .eq("id", inquiryId);
+
+  if (error) {
+    showToast(`${t("storyInquiryArchiveError", "Errore archiviazione")}: ${error.message}`, "error");
+    return;
+  }
+
+  supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiryId) ? { ...item, status: "archived" } : item);
+  showToast(t("storyInquiryArchivedToast", "Richiesta archiviata."), "success");
+  renderDashboardBookings();
 }
 
 function renderStoryPaymentPanel(story) {
@@ -4978,12 +5314,15 @@ function renderDashboardBookings() {
     .sort((a, b) => `${b.date || ""} ${b.startTime || b.time || ""}`.localeCompare(`${a.date || ""} ${a.startTime || a.time || ""}`));
 
   const confirmedUnreadCount = getTotalUnreadBookingMessagesForBookings(confirmedBookings);
+  const masterInquiries = getMasterStoryInquiries(userId);
+  const openInquiryCount = masterInquiries.filter(inquiry => inquiry.status === "open").length;
+  const requestBadgeCount = pendingBookings.length + openInquiryCount;
 
-  count.textContent = pendingBookings.length === 1
+  count.textContent = requestBadgeCount === 1
     ? t("masterOneRequest", "1 richiesta")
-    : tf("masterRequestsCount", { count: pendingBookings.length }, `${pendingBookings.length} richieste`);
+    : tf("masterRequestsCount", { count: requestBadgeCount }, `${requestBadgeCount} richieste`);
 
-  updateMasterRequestsTabBadge(pendingBookings.length);
+  updateMasterRequestsTabBadge(requestBadgeCount);
 
   const pendingHtml = pendingBookings.length
     ? pendingBookings.map((booking, index) => {
@@ -5107,7 +5446,12 @@ function renderDashboardBookings() {
     : "";
 
   container.innerHTML = `
+    ${renderMasterStoryInquiries(userId)}
     <div class="master-pending-requests-block">
+      <div class="master-subsection-head">
+        <h3>${t("masterBookingRequestsTitle", "Richieste prenotazione")}</h3>
+        <span class="pill-counter">${pendingBookings.length}</span>
+      </div>
       ${pendingHtml}
     </div>
     ${confirmedHtml}

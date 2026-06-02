@@ -5954,3 +5954,99 @@ button.is-disabled {
     display: none;
   }
 }
+
+/* UPDATE 85 - Contatta Master controllato */
+.contact-master-button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.story-inquiry-box textarea {
+  min-height: 140px;
+}
+
+.master-inquiries-block {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.master-inquiries-list {
+  display: grid;
+  gap: 10px;
+}
+
+.master-inquiry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.master-inquiry-row.is-new {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(255, 251, 235, 0.78);
+}
+
+.master-inquiry-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.master-inquiry-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.master-inquiry-main p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.master-inquiry-main small,
+.master-inquiry-reply {
+  color: var(--muted);
+}
+
+.master-inquiry-reply {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(241, 245, 249, 0.92);
+}
+
+.master-inquiry-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.master-inquiry-actions button {
+  width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .master-inquiry-row {
+    grid-template-columns: 1fr;
+  }
+
+  .master-inquiry-actions {
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .master-inquiry-actions button {
+    width: auto;
+    flex: 1 1 130px;
+  }
+}

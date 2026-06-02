@@ -513,6 +513,40 @@ function normalizeStoryInquiry(row) {
   };
 }
 
+function getStoryInquiryConversationKey(inquiryOrValues = {}) {
+  const story = storyId(inquiryOrValues.storyId || inquiryOrValues.story_id || "");
+  const sender = storyId(inquiryOrValues.senderId || inquiryOrValues.sender_id || "");
+  const recipient = storyId(inquiryOrValues.recipientId || inquiryOrValues.recipient_id || "");
+  return `${story}:${sender}:${recipient}`;
+}
+
+function getLatestStoryInquiryConversations(inquiries = []) {
+  const byConversation = new Map();
+
+  inquiries
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.updatedAt || b.repliedAt || b.createdAt || 0) - new Date(a.updatedAt || a.repliedAt || a.createdAt || 0))
+    .forEach(inquiry => {
+      const key = getStoryInquiryConversationKey(inquiry);
+      if (!key || key === "::" || byConversation.has(key)) return;
+      byConversation.set(key, inquiry);
+    });
+
+  return [...byConversation.values()];
+}
+
+function findExistingStoryInquiryConversation(storyIdValue, senderIdValue, recipientIdValue) {
+  const targetKey = getStoryInquiryConversationKey({
+    storyId: storyIdValue,
+    senderId: senderIdValue,
+    recipientId: recipientIdValue
+  });
+
+  return supabaseStoryInquiriesCache
+    .filter(inquiry => inquiry.status !== "archived" && getStoryInquiryConversationKey(inquiry) === targetKey)
+    .sort((a, b) => new Date(b.updatedAt || b.repliedAt || b.createdAt || 0) - new Date(a.updatedAt || a.repliedAt || a.createdAt || 0))[0] || null;
+}
+
 async function loadSupabaseStoryInquiries() {
   if (typeof supabaseClient === "undefined") return [];
 
@@ -1096,6 +1130,7 @@ async function loadSupabaseMarketplaceState() {
   });
 
   await loadSupabaseProfilesForUserIds([...userIds]);
+  syncStoryInquiryNotificationsForCurrentUser();
 }
 
 async function loadSupabaseProfilesForUserIds(userIds = []) {
@@ -1977,8 +2012,9 @@ function ensureProfileInquiriesTab() {
 function getProfileInquiryItems(userId = getCurrentUserId()) {
   if (!userId) return [];
 
-  return supabaseStoryInquiriesCache
-    .filter(inquiry => storyIdsMatch(inquiry.senderId, userId))
+  return getLatestStoryInquiryConversations(
+    supabaseStoryInquiriesCache.filter(inquiry => storyIdsMatch(inquiry.senderId, userId))
+  )
     .map(inquiry => {
       const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
       return {
@@ -3109,24 +3145,60 @@ async function sendStoryInquiry(event) {
   }
 
   try {
-    const { data, error } = await supabaseClient
-      .from("story_inquiries")
-      .insert({
-        story_id: storyId(story.id),
-        sender_id: userId,
-        recipient_id: recipientId,
-        message,
-        status: "open"
-      })
-      .select()
-      .single();
+    let inquiry = findExistingStoryInquiryConversation(story.id, userId, recipientId);
 
-    if (error) {
-      showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${error.message}`, "error");
-      return;
+    if (!inquiry) {
+      const { data: existingRows, error: existingError } = await supabaseClient
+        .from("story_inquiries")
+        .select("*")
+        .eq("story_id", storyId(story.id))
+        .eq("sender_id", userId)
+        .eq("recipient_id", recipientId)
+        .neq("status", "archived")
+        .order("updated_at", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!existingError && existingRows?.length) {
+        inquiry = normalizeStoryInquiry(existingRows[0]);
+      }
     }
 
-    const inquiry = normalizeStoryInquiry(data);
+    if (!inquiry) {
+      const { data, error } = await supabaseClient
+        .from("story_inquiries")
+        .insert({
+          story_id: storyId(story.id),
+          sender_id: userId,
+          recipient_id: recipientId,
+          message,
+          status: "open"
+        })
+        .select()
+        .single();
+
+      if (error) {
+        showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${error.message}`, "error");
+        return;
+      }
+
+      inquiry = normalizeStoryInquiry(data);
+    } else {
+      const now = new Date().toISOString();
+      const { data: updatedRow, error: updateError } = await supabaseClient
+        .from("story_inquiries")
+        .update({ status: "open", updated_at: now })
+        .eq("id", inquiry.id)
+        .select()
+        .maybeSingle();
+
+      if (!updateError && updatedRow) {
+        inquiry = normalizeStoryInquiry(updatedRow) || { ...inquiry, status: "open", updatedAt: now };
+      } else if (updateError) {
+        console.warn("Messaggio inviato, ma conversazione contatto non aggiornata:", updateError.message);
+      }
+    }
+
     if (inquiry) {
       supabaseStoryInquiriesCache = [inquiry, ...supabaseStoryInquiriesCache.filter(item => !storyIdsMatch(item.id, inquiry.id))];
       supabaseStoryInquiriesLoaded = true;
@@ -3153,12 +3225,11 @@ async function sendStoryInquiry(event) {
 
     await createNotificationForUser(
       recipientId,
-      tf("storyInquiryMasterNotification", { title: story.title }, `Nuova richiesta su "${story.title}".`),
+      tf("storyInquiryMasterNotification", { title: story.title }, `Nuovo messaggio su "${story.title}".`),
       "info",
       { storyId: story.id, page: "area-master" }
     );
 
-    addNotification(tf("storyInquirySentNotification", { title: story.title }, `Richiesta inviata per "${story.title}".`), "success", { storyId: story.id, page: "scheda" });
     closeStoryInquiryModal();
     showToast(t("storyInquirySentToast", "Richiesta inviata al Master."), "success");
     if (textarea) textarea.value = "";
@@ -3180,9 +3251,9 @@ async function sendStoryInquiry(event) {
 
 function getMasterStoryInquiries(userId = getCurrentUserId()) {
   if (!userId) return [];
-  return supabaseStoryInquiriesCache
-    .filter(inquiry => storyIdsMatch(inquiry.recipientId, userId) && inquiry.status !== "archived")
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  return getLatestStoryInquiryConversations(
+    supabaseStoryInquiriesCache.filter(inquiry => storyIdsMatch(inquiry.recipientId, userId) && inquiry.status !== "archived")
+  ).sort((a, b) => new Date(b.updatedAt || b.repliedAt || b.createdAt || 0) - new Date(a.updatedAt || a.repliedAt || a.createdAt || 0));
 }
 
 function syncStoryInquiryNotificationsForCurrentUser(userId = getCurrentUserId()) {
@@ -3200,7 +3271,7 @@ function syncStoryInquiryNotificationsForCurrentUser(userId = getCurrentUserId()
 
     const alreadyExists = notifications.some(notification =>
       storyIdsMatch(notification.inquiryId, inquiryId) ||
-      (notification.type === "story_inquiry" && storyIdsMatch(notification.storyId, inquiry.storyId) && !notification.read)
+      (notification.type === "story_inquiry" && storyIdsMatch(notification.storyId, inquiry.storyId) && storyIdsMatch(notification.senderId, inquiry.senderId) && !notification.read)
     );
 
     if (alreadyExists) return;
@@ -3213,6 +3284,7 @@ function syncStoryInquiryNotificationsForCurrentUser(userId = getCurrentUserId()
       type: "story_inquiry",
       read: false,
       storyId: inquiry.storyId,
+      senderId: inquiry.senderId,
       page: "area-master",
       date: inquiry.createdAt ? formatLocalizedDateTime(inquiry.createdAt) : new Date().toLocaleString()
     });

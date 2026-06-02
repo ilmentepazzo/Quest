@@ -1629,6 +1629,7 @@ async function renderUserProfile() {
   await loadSupabaseReviews();
   await loadSupabaseStoryPurchases();
   await loadSupabaseStoryFavorites();
+  await loadSupabaseStoryInquiries();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
@@ -1642,6 +1643,7 @@ async function renderUserProfile() {
   const bookedStories = [...privateBookedStories, ...activeJoinedPublicSessions];
   const purchasedStories = getProfilePurchaseItems(userId);
   const favoriteStories = getProfileFavoriteItems(userId);
+  const inquiryMessages = getProfileInquiryItems(userId);
   const unlockedIds = getUnlockedStories();
   const reviews = getProfileReviews();
 
@@ -1681,7 +1683,7 @@ async function renderUserProfile() {
   if (bookingsCount) bookingsCount.textContent = playedStories.length;
   if (unlockedCount) unlockedCount.textContent = bookedStories.length;
 
-  renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories, favoriteStories);
+  renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories, favoriteStories, inquiryMessages);
   renderUserReviews();
 }
 
@@ -1819,12 +1821,13 @@ function setProfileTabLabel(tabName, label, count, unreadCount = 0) {
   `;
 }
 
-function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0, purchaseCount = 0, favoriteCount = 0) {
+function updateProfileLibraryTabCounts(createdCount, playedCount, bookedCount, bookedUnreadCount = 0, purchaseCount = 0, favoriteCount = 0, inquiryCount = 0, inquiryUnreadCount = 0) {
   setProfileTabLabel("created", t("profileTabCreated", "Create"), createdCount);
   setProfileTabLabel("played", t("profileTabPlayed", "Giocate"), playedCount);
   setProfileTabLabel("booked", t("profileTabBooked", "Prenotate"), bookedCount, bookedUnreadCount);
   setProfileTabLabel("purchases", t("profileTabPurchases", "Acquisti"), purchaseCount);
   setProfileTabLabel("favorites", t("profileTabFavorites", "Preferiti"), favoriteCount);
+  setProfileTabLabel("inquiries", t("profileTabInquiries", "Messaggi"), inquiryCount, inquiryUnreadCount);
 }
 
 function ensureProfilePurchasesTab() {
@@ -1885,6 +1888,101 @@ function ensureProfileFavoritesTab() {
     panel.innerHTML = `<div id="profileFavoriteStories" class="profile-compact-list"></div>`;
     purchasesPanel?.after(panel) || bookedPanel?.after(panel) || panelsContainer.appendChild(panel);
   }
+}
+
+function ensureProfileInquiriesTab() {
+  const existingButton = document.querySelector('.profile-tab-button[data-profile-tab="inquiries"]');
+  const existingPanel = document.querySelector('.profile-tab-panel[data-profile-panel="inquiries"]');
+
+  const favoritesButton = document.querySelector('.profile-tab-button[data-profile-tab="favorites"]');
+  const purchasesButton = document.querySelector('.profile-tab-button[data-profile-tab="purchases"]');
+  const bookedButton = document.querySelector('.profile-tab-button[data-profile-tab="booked"]');
+  const tabsContainer = favoritesButton?.parentElement || purchasesButton?.parentElement || bookedButton?.parentElement || document.querySelector('.profile-tabs, .profile-tab-buttons, [data-profile-tabs]');
+
+  if (!existingButton && tabsContainer) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "profile-tab-button";
+    button.dataset.profileTab = "inquiries";
+    button.setAttribute("onclick", "setProfileLibraryTab('inquiries')");
+    button.innerHTML = `<span>${escapeHtml(t("profileTabInquiries", "Messaggi"))}</span><strong>0</strong>`;
+    favoritesButton?.after(button) || purchasesButton?.after(button) || bookedButton?.after(button) || tabsContainer.appendChild(button);
+  }
+
+  const favoritesPanel = document.querySelector('.profile-tab-panel[data-profile-panel="favorites"]');
+  const purchasesPanel = document.querySelector('.profile-tab-panel[data-profile-panel="purchases"]');
+  const bookedPanel = document.querySelector('.profile-tab-panel[data-profile-panel="booked"]');
+  const panelsContainer = favoritesPanel?.parentElement || purchasesPanel?.parentElement || bookedPanel?.parentElement || document.querySelector('.profile-tab-panels, [data-profile-panels]');
+
+  if (!existingPanel && panelsContainer) {
+    const panel = document.createElement("div");
+    panel.className = "profile-tab-panel";
+    panel.dataset.profilePanel = "inquiries";
+    panel.innerHTML = `<div id="profileStoryInquiries" class="profile-compact-list profile-inquiries-list"></div>`;
+    favoritesPanel?.after(panel) || purchasesPanel?.after(panel) || bookedPanel?.after(panel) || panelsContainer.appendChild(panel);
+  }
+}
+
+function getProfileInquiryItems(userId = getCurrentUserId()) {
+  if (!userId) return [];
+
+  return supabaseStoryInquiriesCache
+    .filter(inquiry => storyIdsMatch(inquiry.senderId, userId))
+    .map(inquiry => {
+      const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
+      return {
+        ...inquiry,
+        storyRecord: story || null,
+        story: story?.title || t("storySingular", "Storia")
+      };
+    })
+    .sort((a, b) => new Date(b.updatedAt || b.repliedAt || b.createdAt || 0) - new Date(a.updatedAt || a.repliedAt || a.createdAt || 0));
+}
+
+function getProfileInquiryUnreadCount(inquiries = []) {
+  return inquiries.filter(inquiry => inquiry.status === "replied" && inquiry.masterReply).length;
+}
+
+function renderProfileInquiries(containerId, inquiries) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!inquiries.length) {
+    container.innerHTML = `<p>${escapeHtml(t("profileEmptyInquiries", "Non hai ancora contattato nessun Master."))}</p>`;
+    return;
+  }
+
+  container.innerHTML = inquiries.map(inquiry => {
+    const story = inquiry.storyRecord || { id: inquiry.storyId, title: inquiry.story, genre: t("storySingular", "Storia") };
+    const storyArg = storyJsArg(story.id || inquiry.storyId);
+    const hasReply = Boolean(inquiry.masterReply);
+    const archived = inquiry.status === "archived";
+    const statusLabel = archived
+      ? t("storyInquiryStatusArchived", "Archiviata")
+      : hasReply
+        ? t("storyInquiryStatusReplied", "Risposta ricevuta")
+        : t("storyInquiryStatusOpenPlayer", "Inviata");
+    const statusClass = archived ? "muted-chip" : hasReply ? "paid-chip" : "status-chip";
+
+    return `
+      <article class="profile-compact-item profile-inquiry-item ${hasReply ? "has-reply" : ""}">
+        ${compactStoryCover(story)}
+        <div class="profile-compact-body profile-inquiry-body">
+          <h3>${escapeHtml(story.title || inquiry.story || t("storySingular", "Storia"))}</h3>
+          <p>${escapeHtml(tf("profileInquirySentMeta", { date: formatLocalizedDateTime(inquiry.createdAt) }, `Richiesta inviata · ${formatLocalizedDateTime(inquiry.createdAt)}`))}</p>
+          <p class="profile-inquiry-message"><strong>${escapeHtml(t("profileInquiryYourMessage", "Tu"))}:</strong> “${escapeHtml(inquiry.message)}”</p>
+          ${hasReply ? `<p class="profile-inquiry-reply"><strong>${escapeHtml(t("profileInquiryMasterReply", "Risposta Master"))}:</strong> ${escapeHtml(inquiry.masterReply)}</p>` : ""}
+        </div>
+        <div class="profile-compact-meta">
+          <span class="profile-info-chip ${statusClass}">${escapeHtml(statusLabel)}</span>
+          ${hasReply && inquiry.repliedAt ? `<span class="profile-info-chip muted-chip">${escapeHtml(formatLocalizedDateTime(inquiry.repliedAt))}</span>` : ""}
+        </div>
+        <div class="profile-compact-actions">
+          <button class="light compact-action" onclick='openStory(${storyArg})'>${escapeHtml(t("commonOpen", "Apri"))}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function getProfileFavoriteItems(userId = getCurrentUserId()) {
@@ -2072,16 +2170,19 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   }).join("");
 }
 
-function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = [], favoriteStories = []) {
+function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = [], favoriteStories = [], inquiryMessages = []) {
   ensureProfilePurchasesTab();
   ensureProfileFavoritesTab();
+  ensureProfileInquiriesTab();
   const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
-  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length, favoriteStories.length);
+  const inquiryUnreadCount = getProfileInquiryUnreadCount(inquiryMessages);
+  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length, favoriteStories.length, inquiryMessages.length, inquiryUnreadCount);
   renderCompactStoryList("profileCreatedStories", createdStories, t("profileEmptyCreated", "Non hai ancora creato storie."));
   renderCompactStoryList("profilePlayedStories", playedStories, t("profileEmptyPlayed", "Non hai ancora storie giocate."), "booking");
   renderCompactStoryList("profileBookedStories", bookedStories, t("profileEmptyBooked", "Non hai ancora storie prenotate."), "booking");
   renderCompactStoryList("profilePurchasedStories", purchasedStories, t("profileEmptyPurchases", "Non hai ancora acquisti."), "purchase");
   renderCompactStoryList("profileFavoriteStories", favoriteStories, t("profileEmptyFavorites", "Non hai ancora storie preferite."), "favorite");
+  renderProfileInquiries("profileStoryInquiries", inquiryMessages);
 }
 
 function setProfileLibraryTab(tabName) {
@@ -2708,6 +2809,7 @@ async function renderCatalog() {
   await loadSupabaseStories();
   await loadSupabaseStoryPurchases();
   await loadSupabaseStoryFavorites();
+  await loadSupabaseStoryInquiries();
   ensureCatalogFavoritesFilter();
   updateCatalogFavoritesFilterButton();
 

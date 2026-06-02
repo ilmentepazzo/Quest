@@ -3165,7 +3165,7 @@ async function sendStoryInquiry(event) {
     await loadSupabaseStoryInquiries();
     await loadSupabaseStoryInquiryMessages();
     await loadSupabaseNotifications();
-    renderProfile();
+    if (getActivePageId() === "profilo") await renderUserProfile();
     renderDashboardBookings();
   } catch (err) {
     console.error("Errore imprevisto invio Contatta Master:", err);
@@ -3492,7 +3492,7 @@ async function sendStoryInquiryThreadMessage(event) {
   );
 
   renderStoryInquiryThreadModal();
-  renderProfile();
+  if (getActivePageId() === "profilo") await renderUserProfile();
   renderDashboardBookings();
 }
 

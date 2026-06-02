@@ -1332,6 +1332,8 @@ function getStoryTitleById(id) {
 }
 
 function setMasterAreaView(view) {
+  ensureMasterMessagesTab();
+  ensureMasterMessagesView();
   ensureMasterPaymentsTab();
   ensureMasterPaymentsView();
 
@@ -1348,11 +1350,13 @@ function setMasterAreaView(view) {
   const target = document.getElementById(
     currentMasterAreaView === "requests"
       ? "masterViewRequests"
-      : currentMasterAreaView === "sessions"
-        ? "masterViewSessions"
-        : currentMasterAreaView === "payments"
-          ? "masterViewPayments"
-          : "masterViewAvailability"
+      : currentMasterAreaView === "messages"
+        ? "masterViewMessages"
+        : currentMasterAreaView === "sessions"
+          ? "masterViewSessions"
+          : currentMasterAreaView === "payments"
+            ? "masterViewPayments"
+            : "masterViewAvailability"
   );
 
   if (target) target.classList.add("is-active");
@@ -3223,13 +3227,6 @@ async function sendStoryInquiry(event) {
       }
     }
 
-    await createNotificationForUser(
-      recipientId,
-      tf("storyInquiryMasterNotification", { title: story.title }, `Nuovo messaggio su "${story.title}".`),
-      "info",
-      { storyId: story.id, page: "area-master" }
-    );
-
     closeStoryInquiryModal();
     showToast(t("storyInquirySentToast", "Richiesta inviata al Master."), "success");
     if (textarea) textarea.value = "";
@@ -3238,6 +3235,7 @@ async function sendStoryInquiry(event) {
     await loadSupabaseNotifications();
     if (getActivePageId() === "profilo") await renderUserProfile();
     renderDashboardBookings();
+    renderMasterMessagesView();
   } catch (err) {
     console.error("Errore imprevisto invio Contatta Master:", err);
     showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${err?.message || err}`, "error");
@@ -3257,45 +3255,11 @@ function getMasterStoryInquiries(userId = getCurrentUserId()) {
 }
 
 function syncStoryInquiryNotificationsForCurrentUser(userId = getCurrentUserId()) {
-  if (!userId) return;
-
-  const openInquiries = getMasterStoryInquiries(userId).filter(inquiry => inquiry.status === "open");
-  if (!openInquiries.length) return;
-
-  const notifications = getNotifications();
-  let changed = false;
-
-  openInquiries.forEach(inquiry => {
-    const inquiryId = storyId(inquiry.id);
-    if (!inquiryId) return;
-
-    const alreadyExists = notifications.some(notification =>
-      storyIdsMatch(notification.inquiryId, inquiryId) ||
-      (notification.type === "story_inquiry" && storyIdsMatch(notification.storyId, inquiry.storyId) && storyIdsMatch(notification.senderId, inquiry.senderId) && !notification.read)
-    );
-
-    if (alreadyExists) return;
-
-    const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
-    notifications.unshift({
-      id: `story-inquiry-${inquiryId}`,
-      inquiryId,
-      message: tf("storyInquiryMasterNotification", { title: story?.title || t("storySingular", "Storia") }, `Nuova richiesta su "${story?.title || "Storia"}".`),
-      type: "story_inquiry",
-      read: false,
-      storyId: inquiry.storyId,
-      senderId: inquiry.senderId,
-      page: "area-master",
-      date: inquiry.createdAt ? formatLocalizedDateTime(inquiry.createdAt) : new Date().toLocaleString()
-    });
-    changed = true;
-  });
-
-  if (changed) {
-    saveNotifications(notifications.slice(0, 80));
-    updateNotificationBadge();
-  }
+  // Le notifiche chat Contatta Master vengono create da trigger Supabase
+  // su story_inquiry_messages, così arrivano nella campanella senza entrare in Area Master.
+  return;
 }
+
 
 function renderMasterStoryInquiries(userId = getCurrentUserId()) {
   syncStoryInquiryNotificationsForCurrentUser(userId);
@@ -3553,19 +3517,10 @@ async function sendStoryInquiryThreadMessage(event) {
   supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiry.id) ? updatedInquiry : item);
 
   if (input) input.value = "";
-  const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
-  await createNotificationForUser(
-    otherUserId,
-    isMasterReply
-      ? tf("storyInquiryPlayerReplyNotification", { title: story?.title || t("storySingular", "Storia"), reply: body }, `Il Master ha risposto su "${story?.title || "Storia"}": ${body}`)
-      : tf("storyInquiryMasterFollowupNotification", { title: story?.title || t("storySingular", "Storia") }, `Nuovo messaggio su "${story?.title || "Storia"}."`),
-    "info",
-    { storyId: inquiry.storyId, page: isMasterReply ? "profilo" : "area-master" }
-  );
-
   renderStoryInquiryThreadModal();
   if (getActivePageId() === "profilo") await renderUserProfile();
   renderDashboardBookings();
+  renderMasterMessagesView();
 }
 
 async function archiveStoryInquiry(inquiryIdValue) {
@@ -3585,6 +3540,7 @@ async function archiveStoryInquiry(inquiryIdValue) {
   supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiryId) ? { ...item, status: "archived" } : item);
   showToast(t("storyInquiryArchivedToast", "Richiesta archiviata."), "success");
   renderDashboardBookings();
+  renderMasterMessagesView();
 }
 
 function renderStoryPaymentPanel(story) {
@@ -5925,7 +5881,6 @@ function renderDashboardBookings() {
     : "";
 
   container.innerHTML = `
-    ${renderMasterStoryInquiries(userId)}
     <div class="master-pending-requests-block">
       <div class="master-subsection-head">
         <h3>${t("masterBookingRequestsTitle", "Richieste prenotazione")}</h3>
@@ -7412,6 +7367,84 @@ function getParticipantsForSession(sessionIdValue) {
   );
 }
 
+function ensureMasterMessagesTab() {
+  const nav = document.querySelector("#area-master .master-sections-nav");
+  if (!nav || nav.querySelector('[data-master-view="messages"]')) return;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "master-section-tab";
+  button.dataset.masterView = "messages";
+  button.innerHTML = `<span>${escapeHtml(t("masterTabMessages", "Messaggi"))}</span> <span id="masterMessagesTabBadge" class="master-tab-badge">0</span>`;
+  button.addEventListener("click", () => setMasterAreaView("messages"));
+
+  const sessionsTab = nav.querySelector('[data-master-view="sessions"]');
+  if (sessionsTab) nav.insertBefore(button, sessionsTab);
+  else nav.appendChild(button);
+}
+
+function ensureMasterMessagesView() {
+  const section = document.getElementById("area-master") || document.querySelector(".page.active");
+  if (!section) return null;
+
+  let view = document.getElementById("masterViewMessages");
+  if (view) return view;
+
+  view = document.createElement("div");
+  view.id = "masterViewMessages";
+  view.className = "master-view";
+  view.innerHTML = `
+    <div class="card">
+      <div class="section-heading-row">
+        <div>
+          <h2>${escapeHtml(t("masterMessagesTitle", "Messaggi"))}</h2>
+          <p>${escapeHtml(t("masterMessagesIntro", "Qui trovi le conversazioni aperte dai giocatori sulle tue storie."))}</p>
+        </div>
+      </div>
+      <div id="masterStoryInquiries" class="master-requests-list compact-scroll"></div>
+    </div>
+  `;
+
+  const requestsView = document.getElementById("masterViewRequests");
+  if (requestsView?.parentNode) {
+    requestsView.parentNode.insertBefore(view, requestsView.nextSibling);
+    return view;
+  }
+
+  const sessionsView = document.getElementById("masterViewSessions");
+  if (sessionsView?.parentNode) {
+    sessionsView.parentNode.insertBefore(view, sessionsView);
+    return view;
+  }
+
+  const tabs = section.querySelector(".master-sections-nav");
+  if (tabs?.parentNode) {
+    tabs.parentNode.insertBefore(view, tabs.nextSibling);
+    return view;
+  }
+
+  section.appendChild(view);
+  return view;
+}
+
+function updateMasterMessagesTabBadge() {
+  const badge = document.getElementById("masterMessagesTabBadge");
+  if (!badge) return;
+  const openCount = getMasterStoryInquiries(getCurrentUserId()).filter(inquiry => inquiry.status === "open").length;
+  badge.textContent = openCount > 99 ? "99+" : String(openCount);
+  badge.style.display = "";
+  badge.classList.toggle("is-visible", openCount > 0);
+}
+
+function renderMasterMessagesView() {
+  ensureMasterMessagesTab();
+  const view = ensureMasterMessagesView();
+  const list = document.getElementById("masterStoryInquiries");
+  if (!view || !list) return;
+  list.innerHTML = renderMasterStoryInquiries(getCurrentUserId());
+  updateMasterMessagesTabBadge();
+}
+
 function ensureMasterPaymentsTab() {
   const nav = document.querySelector("#area-master .master-sections-nav");
   if (!nav || nav.querySelector('[data-master-view="payments"]')) return;
@@ -8609,6 +8642,7 @@ function normalizeSupabaseNotification(row) {
     read: Boolean(row.read),
     storyId: row.story_id || null,
     bookingId: row.booking_id || row.bookingId || null,
+    inquiryId: row.inquiry_id || row.inquiryId || null,
     page: row.page || null,
     date: row.created_at ? formatLocalizedDateTime(row.created_at) : formatLocalizedDateTime(new Date().toISOString()),
     source: "supabase"
@@ -8669,6 +8703,9 @@ async function createNotificationForUser(userId, message, type = "info", options
 
   if (options.bookingId) {
     notificationPayload.booking_id = storyId(options.bookingId);
+  }
+  if (options.inquiryId) {
+    notificationPayload.inquiry_id = storyId(options.inquiryId);
   }
 
   const { data, error } = await supabaseClient
@@ -8791,6 +8828,7 @@ function getLocalizedNotificationMessage(notification) {
 
 function getNotificationActionLabel(notification) {
   if (!notification) return t("notificationActionDetail", "Apri dettaglio");
+  if (notification.type === "story_inquiry" || notification.inquiryId) return t("notificationActionStoryInquiry", "Apri conversazione");
   if (notification.type === "booking_message") return t("notificationActionMessages", "Apri messaggi");
   if (notification.bookingId) return t("notificationActionBooking", "Apri prenotazione");
   if (notification.page === "area-master") return t("notificationActionRequests", "Apri richieste");
@@ -8799,7 +8837,7 @@ function getNotificationActionLabel(notification) {
 }
 
 function notificationHasAction(notification) {
-  return Boolean(notification?.bookingId || notification?.storyId || notification?.page || notification?.type === "booking_message");
+  return Boolean(notification?.inquiryId || notification?.bookingId || notification?.storyId || notification?.page || notification?.type === "booking_message" || notification?.type === "story_inquiry");
 }
 
 async function resolveNotificationBookingId(notification) {
@@ -8979,6 +9017,24 @@ async function handleNotificationItemClick(notificationId) {
   closeNotificationsDropdown(true);
 
   if (!notification) return;
+
+  if (notification.type === "story_inquiry" || notification.inquiryId) {
+    await loadSupabaseMarketplaceState();
+    if (notification.page === "profilo") {
+      openNotificationPage("profilo");
+      setTimeout(() => {
+        if (typeof setProfileLibraryTab === "function") setProfileLibraryTab("inquiries");
+        if (notification.inquiryId) openStoryInquiryThreadModal(notification.inquiryId);
+      }, 350);
+      return;
+    }
+    openNotificationPage("area-master");
+    setTimeout(() => {
+      setMasterAreaView("messages");
+      if (notification.inquiryId) openStoryInquiryThreadModal(notification.inquiryId);
+    }, 350);
+    return;
+  }
 
   if (notification.type === "booking_message") {
     const bookingId = await resolveNotificationBookingId(notification);

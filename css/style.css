@@ -6131,3 +6131,72 @@ button.is-disabled {
   border-color: #bbf7d0;
   color: #166534;
 }
+
+/* UPDATE 86B - Chat contatto Master */
+.story-inquiry-thread-box {
+  width: min(720px, 100%);
+}
+
+.story-inquiry-thread-messages {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 18px 24px;
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.story-inquiry-thread-message {
+  display: grid;
+}
+
+.story-inquiry-thread-message.is-mine {
+  justify-items: end;
+}
+
+.story-inquiry-thread-message.is-theirs {
+  justify-items: start;
+}
+
+.story-inquiry-thread-bubble {
+  width: min(82%, 460px);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 18px 6px;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.story-inquiry-thread-message.is-mine .story-inquiry-thread-bubble {
+  border-color: #fde68a;
+  border-radius: 18px 18px 6px 18px;
+  background: #fffbeb;
+}
+
+.story-inquiry-thread-bubble strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.story-inquiry-thread-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.story-inquiry-thread-bubble small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .story-inquiry-thread-bubble {
+    width: 100%;
+  }
+}

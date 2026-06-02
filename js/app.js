@@ -24,6 +24,9 @@ let supabaseStoryFavoritesCache = [];
 let supabaseStoryFavoritesLoaded = false;
 let supabaseStoryInquiriesCache = [];
 let supabaseStoryInquiriesLoaded = false;
+let supabaseStoryInquiryMessagesCache = [];
+let supabaseStoryInquiryMessagesLoaded = false;
+let currentStoryInquiryThreadId = null;
 let catalogFavoritesOnly = false;
 let supabaseMasterPaymentEventsCache = [];
 let supabaseMasterPaymentEventsLoaded = false;
@@ -541,6 +544,49 @@ async function loadSupabaseStoryInquiries() {
   return supabaseStoryInquiriesCache;
 }
 
+function normalizeStoryInquiryMessage(row) {
+  if (!row) return null;
+  return {
+    id: storyId(row.id),
+    inquiryId: storyId(row.inquiry_id),
+    senderId: storyId(row.sender_id),
+    body: row.body || "",
+    createdAt: row.created_at || "",
+    source: "supabase"
+  };
+}
+
+async function loadSupabaseStoryInquiryMessages() {
+  if (typeof supabaseClient === "undefined") return [];
+
+  const userId = getCurrentUserId();
+  if (!userId) {
+    supabaseStoryInquiryMessagesCache = [];
+    supabaseStoryInquiryMessagesLoaded = false;
+    return [];
+  }
+
+  const { data, error } = await supabaseClient
+    .from("story_inquiry_messages")
+    .select("*")
+    .order("created_at", { ascending: true })
+    .limit(500);
+
+  if (error) {
+    const message = String(error.message || "");
+    if (!message.toLowerCase().includes("does not exist") && !message.toLowerCase().includes("schema cache")) {
+      console.warn("Impossibile caricare messaggi contatto Master:", error.message);
+    }
+    supabaseStoryInquiryMessagesCache = [];
+    supabaseStoryInquiryMessagesLoaded = false;
+    return [];
+  }
+
+  supabaseStoryInquiryMessagesCache = (data || []).map(normalizeStoryInquiryMessage).filter(Boolean);
+  supabaseStoryInquiryMessagesLoaded = true;
+  return supabaseStoryInquiryMessagesCache;
+}
+
 function isStoryFavoriteByCurrentUser(storyIdValue) {
   const currentUserId = getCurrentUserId();
   if (!currentUserId || !storyIdValue) return false;
@@ -1010,6 +1056,7 @@ async function loadSupabaseMarketplaceState() {
     loadSupabaseStoryPurchases(),
     loadSupabaseStoryFavorites(),
     loadSupabaseStoryInquiries(),
+    loadSupabaseStoryInquiryMessages(),
     loadSupabaseMasterPaymentEvents()
   ]);
 
@@ -1032,6 +1079,10 @@ async function loadSupabaseMarketplaceState() {
   supabaseStoryInquiriesCache.forEach(inquiry => {
     if (inquiry.senderId) userIds.add(storyId(inquiry.senderId));
     if (inquiry.recipientId) userIds.add(storyId(inquiry.recipientId));
+  });
+
+  supabaseStoryInquiryMessagesCache.forEach(message => {
+    if (message.senderId) userIds.add(storyId(message.senderId));
   });
 
   getAllStories().forEach(story => {
@@ -1978,7 +2029,7 @@ function renderProfileInquiries(containerId, inquiries) {
           ${hasReply && inquiry.repliedAt ? `<span class="profile-info-chip muted-chip">${escapeHtml(formatLocalizedDateTime(inquiry.repliedAt))}</span>` : ""}
         </div>
         <div class="profile-compact-actions">
-          <button class="light compact-action" onclick='openStory(${storyArg})'>${escapeHtml(t("commonOpen", "Apri"))}</button>
+          <button class="light compact-action" onclick='openStoryInquiryThreadModal(${JSON.stringify(storyId(inquiry.id))})'>${escapeHtml(t("storyInquiryOpenThread", "Apri chat"))}</button>
         </div>
       </article>
     `;
@@ -3070,6 +3121,25 @@ async function sendStoryInquiry(event) {
   if (inquiry) {
     supabaseStoryInquiriesCache = [inquiry, ...supabaseStoryInquiriesCache.filter(item => !storyIdsMatch(item.id, inquiry.id))];
     supabaseStoryInquiriesLoaded = true;
+
+    const { data: messageRow, error: messageError } = await supabaseClient
+      .from("story_inquiry_messages")
+      .insert({ inquiry_id: inquiry.id, sender_id: user.id, body: message })
+      .select()
+      .single();
+
+    if (messageError) {
+      const msg = String(messageError.message || "");
+      if (!msg.toLowerCase().includes("does not exist") && !msg.toLowerCase().includes("schema cache")) {
+        console.warn("Errore salvataggio messaggio contatto Master:", messageError.message);
+      }
+    } else {
+      const normalizedMessage = normalizeStoryInquiryMessage(messageRow);
+      if (normalizedMessage) {
+        supabaseStoryInquiryMessagesCache = [...supabaseStoryInquiryMessagesCache.filter(item => !storyIdsMatch(item.id, normalizedMessage.id)), normalizedMessage];
+        supabaseStoryInquiryMessagesLoaded = true;
+      }
+    }
   }
 
   await createNotificationForUser(
@@ -3179,7 +3249,7 @@ function renderMasterStoryInquiries(userId = getCurrentUserId()) {
               </div>
               <div class="master-inquiry-actions compact">
                 <button class="light small" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
-                <button class="primary small" onclick='replyStoryInquiry(${inquiryArg})'>${hasReply ? t("storyInquiryReplyAgain", "Rispondi ancora") : t("storyInquiryReply", "Rispondi")}</button>
+                <button class="primary small" onclick='openStoryInquiryThreadModal(${inquiryArg})'>${t("storyInquiryOpenThread", "Apri chat")}</button>
                 <button class="light small" onclick='archiveStoryInquiry(${inquiryArg})'>${t("commonArchive", "Archivia")}</button>
               </div>
             </article>
@@ -3191,45 +3261,216 @@ function renderMasterStoryInquiries(userId = getCurrentUserId()) {
 }
 
 async function replyStoryInquiry(inquiryIdValue) {
+  openStoryInquiryThreadModal(inquiryIdValue);
+}
+
+function getStoryInquiryById(inquiryIdValue) {
   const inquiryId = storyId(inquiryIdValue);
-  const inquiry = supabaseStoryInquiriesCache.find(item => storyIdsMatch(item.id, inquiryId));
-  if (!inquiry) {
+  return supabaseStoryInquiriesCache.find(item => storyIdsMatch(item.id, inquiryId)) || null;
+}
+
+function getStoryInquiryThreadMessages(inquiry) {
+  if (!inquiry) return [];
+  const inquiryId = storyId(inquiry.id);
+  const storedMessages = supabaseStoryInquiryMessagesCache
+    .filter(message => storyIdsMatch(message.inquiryId, inquiryId));
+
+  const fallbackMessages = [];
+  if (inquiry.message) {
+    fallbackMessages.push({
+      id: `${inquiryId}-initial`,
+      inquiryId,
+      senderId: inquiry.senderId,
+      body: inquiry.message,
+      createdAt: inquiry.createdAt,
+      synthetic: true
+    });
+  }
+  if (inquiry.masterReply) {
+    fallbackMessages.push({
+      id: `${inquiryId}-reply`,
+      inquiryId,
+      senderId: inquiry.recipientId,
+      body: inquiry.masterReply,
+      createdAt: inquiry.repliedAt || inquiry.updatedAt,
+      synthetic: true
+    });
+  }
+
+  const merged = [...fallbackMessages, ...storedMessages];
+  const seen = new Set();
+  return merged
+    .filter(message => {
+      const key = `${storyId(message.senderId)}::${String(message.body || "").trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+}
+
+function ensureStoryInquiryThreadModal() {
+  let modal = document.getElementById("storyInquiryThreadModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "storyInquiryThreadModal";
+  modal.className = "booking-messages-modal story-inquiry-thread-modal";
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="booking-messages-box story-inquiry-thread-box" role="dialog" aria-modal="true" aria-labelledby="storyInquiryThreadTitle">
+      <div class="booking-messages-header">
+        <div>
+          <h2 id="storyInquiryThreadTitle">${escapeHtml(t("storyInquiryThreadTitle", "Conversazione"))}</h2>
+          <p id="storyInquiryThreadSubtitle"></p>
+        </div>
+        <button class="light icon-button" type="button" onclick="closeStoryInquiryThreadModal()" aria-label="${escapeHtmlAttribute(t("commonCloseModal", "Chiudi"))}">×</button>
+      </div>
+      <div id="storyInquiryThreadMessages" class="story-inquiry-thread-messages"></div>
+      <form id="storyInquiryThreadForm" class="booking-messages-form" onsubmit="sendStoryInquiryThreadMessage(event)">
+        <textarea id="storyInquiryThreadInput" maxlength="1200" placeholder="${escapeHtmlAttribute(t("storyInquiryThreadPlaceholder", "Scrivi un messaggio collegato a questa storia."))}"></textarea>
+        <div class="booking-messages-form-footer">
+          <small>${escapeHtml(t("storyInquiryThreadHint", "Usa questa conversazione solo per chiarimenti sulla storia. Non inserire email o dati personali."))}</small>
+          <button class="primary" type="submit">${escapeHtml(t("storyInquiryThreadSend", "Invia messaggio"))}</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", event => {
+    if (event.target === modal) closeStoryInquiryThreadModal();
+  });
+  return modal;
+}
+
+function renderStoryInquiryThreadModal() {
+  const inquiry = getStoryInquiryById(currentStoryInquiryThreadId);
+  const modal = ensureStoryInquiryThreadModal();
+  const title = document.getElementById("storyInquiryThreadTitle");
+  const subtitle = document.getElementById("storyInquiryThreadSubtitle");
+  const list = document.getElementById("storyInquiryThreadMessages");
+  const input = document.getElementById("storyInquiryThreadInput");
+
+  if (!inquiry || !list) return;
+
+  const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
+  const currentUserId = getCurrentUserId();
+  const otherUserId = storyIdsMatch(currentUserId, inquiry.senderId) ? inquiry.recipientId : inquiry.senderId;
+  const otherName = getUserDisplayName(otherUserId, t("bookingParticipant", "partecipante"));
+
+  if (title) title.textContent = story?.title || inquiry.story || t("storyInquiryThreadTitle", "Conversazione");
+  if (subtitle) subtitle.textContent = tf("storyInquiryThreadSubtitle", { name: otherName }, `Con ${otherName}`);
+
+  const messages = getStoryInquiryThreadMessages(inquiry);
+  list.innerHTML = messages.map(message => {
+    const mine = storyIdsMatch(message.senderId, currentUserId);
+    const senderName = mine ? t("profileInquiryYourMessage", "Tu") : getUserDisplayName(message.senderId, otherName);
+    return `
+      <div class="story-inquiry-thread-message ${mine ? "is-mine" : "is-theirs"}">
+        <div class="story-inquiry-thread-bubble">
+          <strong>${escapeHtml(senderName)}</strong>
+          <p>${escapeHtml(message.body)}</p>
+          ${message.createdAt ? `<small>${escapeHtml(formatLocalizedDateTime(message.createdAt))}</small>` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+  list.scrollTop = list.scrollHeight;
+  if (input && modal.hidden === false) input.focus();
+}
+
+async function openStoryInquiryThreadModal(inquiryIdValue) {
+  const inquiryId = storyId(inquiryIdValue);
+  if (!inquiryId) return;
+  currentStoryInquiryThreadId = inquiryId;
+  if (!supabaseStoryInquiryMessagesLoaded) await loadSupabaseStoryInquiryMessages();
+  const modal = ensureStoryInquiryThreadModal();
+  modal.hidden = false;
+  modal.classList.add("open");
+  renderStoryInquiryThreadModal();
+}
+
+function closeStoryInquiryThreadModal() {
+  const modal = document.getElementById("storyInquiryThreadModal");
+  if (modal) {
+    modal.hidden = true;
+    modal.classList.remove("open");
+  }
+  currentStoryInquiryThreadId = null;
+}
+
+async function sendStoryInquiryThreadMessage(event) {
+  event.preventDefault();
+  const inquiry = getStoryInquiryById(currentStoryInquiryThreadId);
+  const input = document.getElementById("storyInquiryThreadInput");
+  const body = String(input?.value || "").trim();
+  const userId = getCurrentUserId();
+
+  if (!inquiry || !userId) {
     showToast(t("storyInquiryMissing", "Richiesta non trovata."), "warning");
     return;
   }
-
-  const reply = window.prompt(t("storyInquiryReplyPrompt", "Scrivi una risposta breve. Verrà inviata come notifica al giocatore."), inquiry.masterReply || "");
-  if (reply === null) return;
-  const cleanReply = String(reply || "").trim();
-  if (cleanReply.length < 2) {
+  if (body.length < 2) {
     showToast(t("storyInquiryReplyTooShort", "Risposta troppo breve."), "warning");
     return;
   }
-
-  const { data, error } = await supabaseClient
-    .from("story_inquiries")
-    .update({ status: "replied", master_reply: cleanReply, replied_at: new Date().toISOString() })
-    .eq("id", inquiryId)
-    .select()
-    .maybeSingle();
-
-  if (error) {
-    showToast(`${t("storyInquiryReplyError", "Errore invio risposta")}: ${error.message}`, "error");
+  if (typeof supabaseClient === "undefined") {
+    showToast(t("storyInquiryUnavailable", "Contatti non disponibili senza Supabase."), "warning");
     return;
   }
 
-  const updated = normalizeStoryInquiry(data) || { ...inquiry, status: "replied", masterReply: cleanReply, repliedAt: new Date().toISOString() };
-  supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiryId) ? updated : item);
+  const isMasterReply = storyIdsMatch(userId, inquiry.recipientId);
+  const otherUserId = isMasterReply ? inquiry.senderId : inquiry.recipientId;
+  const now = new Date().toISOString();
 
+  const { data: messageRow, error: messageError } = await supabaseClient
+    .from("story_inquiry_messages")
+    .insert({ inquiry_id: inquiry.id, sender_id: userId, body })
+    .select()
+    .single();
+
+  if (messageError) {
+    showToast(`${t("storyInquiryReplyError", "Errore invio risposta")}: ${messageError.message}`, "error");
+    return;
+  }
+
+  const patch = isMasterReply
+    ? { status: "replied", master_reply: body, replied_at: now }
+    : { status: "open", updated_at: now };
+
+  const { data: updatedRow, error: updateError } = await supabaseClient
+    .from("story_inquiries")
+    .update(patch)
+    .eq("id", inquiry.id)
+    .select()
+    .maybeSingle();
+
+  if (updateError) {
+    console.warn("Messaggio inviato, ma stato contatto non aggiornato:", updateError.message);
+  }
+
+  const normalizedMessage = normalizeStoryInquiryMessage(messageRow);
+  if (normalizedMessage) {
+    supabaseStoryInquiryMessagesCache = [...supabaseStoryInquiryMessagesCache.filter(item => !storyIdsMatch(item.id, normalizedMessage.id)), normalizedMessage];
+    supabaseStoryInquiryMessagesLoaded = true;
+  }
+
+  const updatedInquiry = normalizeStoryInquiry(updatedRow) || { ...inquiry, ...patch, updatedAt: now };
+  supabaseStoryInquiriesCache = supabaseStoryInquiriesCache.map(item => storyIdsMatch(item.id, inquiry.id) ? updatedInquiry : item);
+
+  if (input) input.value = "";
   const story = getAllStories().find(item => storyIdsMatch(item.id, inquiry.storyId));
   await createNotificationForUser(
-    inquiry.senderId,
-    tf("storyInquiryPlayerReplyNotification", { title: story?.title || t("storySingular", "Storia"), reply: cleanReply }, `Il Master ha risposto su "${story?.title || "Storia"}": ${cleanReply}`),
+    otherUserId,
+    isMasterReply
+      ? tf("storyInquiryPlayerReplyNotification", { title: story?.title || t("storySingular", "Storia"), reply: body }, `Il Master ha risposto su "${story?.title || "Storia"}": ${body}`)
+      : tf("storyInquiryMasterFollowupNotification", { title: story?.title || t("storySingular", "Storia") }, `Nuovo messaggio su "${story?.title || "Storia"}."`),
     "info",
-    { storyId: inquiry.storyId, page: "scheda" }
+    { storyId: inquiry.storyId, page: isMasterReply ? "profilo" : "area-master" }
   );
 
-  showToast(t("storyInquiryReplySentToast", "Risposta inviata al giocatore."), "success");
+  renderStoryInquiryThreadModal();
+  renderProfile();
   renderDashboardBookings();
 }
 

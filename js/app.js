@@ -3072,6 +3072,9 @@ function closeStoryInquiryModal() {
 async function sendStoryInquiry(event) {
   event?.preventDefault();
 
+  const form = document.getElementById("storyInquiryForm");
+  const submitButton = form?.querySelector('button[type="submit"]');
+  const originalButtonText = submitButton?.textContent || "";
   const story = currentStory;
   const userId = getCurrentUserId();
   const recipientId = story ? getStoryInquiryRecipientId(story) : "";
@@ -3100,60 +3103,79 @@ async function sendStoryInquiry(event) {
     return;
   }
 
-  const { data, error } = await supabaseClient
-    .from("story_inquiries")
-    .insert({
-      story_id: storyId(story.id),
-      sender_id: userId,
-      recipient_id: recipientId,
-      message,
-      status: "open"
-    })
-    .select()
-    .single();
-
-  if (error) {
-    showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${error.message}`, "error");
-    return;
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = t("storyInquirySending", "Invio...");
   }
 
-  const inquiry = normalizeStoryInquiry(data);
-  if (inquiry) {
-    supabaseStoryInquiriesCache = [inquiry, ...supabaseStoryInquiriesCache.filter(item => !storyIdsMatch(item.id, inquiry.id))];
-    supabaseStoryInquiriesLoaded = true;
-
-    const { data: messageRow, error: messageError } = await supabaseClient
-      .from("story_inquiry_messages")
-      .insert({ inquiry_id: inquiry.id, sender_id: user.id, body: message })
+  try {
+    const { data, error } = await supabaseClient
+      .from("story_inquiries")
+      .insert({
+        story_id: storyId(story.id),
+        sender_id: userId,
+        recipient_id: recipientId,
+        message,
+        status: "open"
+      })
       .select()
       .single();
 
-    if (messageError) {
-      const msg = String(messageError.message || "");
-      if (!msg.toLowerCase().includes("does not exist") && !msg.toLowerCase().includes("schema cache")) {
-        console.warn("Errore salvataggio messaggio contatto Master:", messageError.message);
-      }
-    } else {
-      const normalizedMessage = normalizeStoryInquiryMessage(messageRow);
-      if (normalizedMessage) {
-        supabaseStoryInquiryMessagesCache = [...supabaseStoryInquiryMessagesCache.filter(item => !storyIdsMatch(item.id, normalizedMessage.id)), normalizedMessage];
-        supabaseStoryInquiryMessagesLoaded = true;
+    if (error) {
+      showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${error.message}`, "error");
+      return;
+    }
+
+    const inquiry = normalizeStoryInquiry(data);
+    if (inquiry) {
+      supabaseStoryInquiriesCache = [inquiry, ...supabaseStoryInquiriesCache.filter(item => !storyIdsMatch(item.id, inquiry.id))];
+      supabaseStoryInquiriesLoaded = true;
+
+      const { data: messageRow, error: messageError } = await supabaseClient
+        .from("story_inquiry_messages")
+        .insert({ inquiry_id: inquiry.id, sender_id: userId, body: message })
+        .select()
+        .single();
+
+      if (messageError) {
+        const msg = String(messageError.message || "");
+        if (!msg.toLowerCase().includes("does not exist") && !msg.toLowerCase().includes("schema cache")) {
+          console.warn("Errore salvataggio messaggio contatto Master:", messageError.message);
+        }
+      } else {
+        const normalizedMessage = normalizeStoryInquiryMessage(messageRow);
+        if (normalizedMessage) {
+          supabaseStoryInquiryMessagesCache = [...supabaseStoryInquiryMessagesCache.filter(item => !storyIdsMatch(item.id, normalizedMessage.id)), normalizedMessage];
+          supabaseStoryInquiryMessagesLoaded = true;
+        }
       }
     }
+
+    await createNotificationForUser(
+      recipientId,
+      tf("storyInquiryMasterNotification", { title: story.title }, `Nuova richiesta su "${story.title}".`),
+      "info",
+      { storyId: story.id, page: "area-master" }
+    );
+
+    addNotification(tf("storyInquirySentNotification", { title: story.title }, `Richiesta inviata per "${story.title}".`), "success", { storyId: story.id, page: "scheda" });
+    closeStoryInquiryModal();
+    showToast(t("storyInquirySentToast", "Richiesta inviata al Master."), "success");
+    if (textarea) textarea.value = "";
+    await loadSupabaseStoryInquiries();
+    await loadSupabaseStoryInquiryMessages();
+    await loadSupabaseNotifications();
+    renderProfile();
+    renderDashboardBookings();
+  } catch (err) {
+    console.error("Errore imprevisto invio Contatta Master:", err);
+    showToast(`${t("storyInquirySendError", "Errore invio richiesta")}: ${err?.message || err}`, "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText || t("storyInquirySend", "Invia richiesta");
+    }
   }
-
-  await createNotificationForUser(
-    recipientId,
-    tf("storyInquiryMasterNotification", { title: story.title }, `Nuova richiesta su "${story.title}".`),
-    "info",
-    { storyId: story.id, page: "area-master" }
-  );
-
-  addNotification(tf("storyInquirySentNotification", { title: story.title }, `Richiesta inviata per "${story.title}".`), "success", { storyId: story.id, page: "scheda" });
-  closeStoryInquiryModal();
-  showToast(t("storyInquirySentToast", "Richiesta inviata al Master."), "success");
-  await loadSupabaseNotifications();
-  renderDashboardBookings();
 }
 
 function getMasterStoryInquiries(userId = getCurrentUserId()) {

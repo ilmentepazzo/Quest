@@ -819,6 +819,15 @@ function getPlayerConversations(userId = getCurrentUserId()) {
   return getCurrentUserConversations(userId).filter(conversation => storyIdsMatch(conversation.playerId, userId));
 }
 
+async function loadSupabaseProfilesForConversationParticipants() {
+  const userIds = new Set();
+  supabaseConversationsCache.forEach(conversation => {
+    if (conversation.playerId) userIds.add(storyId(conversation.playerId));
+    if (conversation.masterId) userIds.add(storyId(conversation.masterId));
+  });
+  await loadSupabaseProfilesForUserIds([...userIds]);
+}
+
 function isConversationUnread(conversation, userId = getCurrentUserId()) {
   if (!conversation || !userId) return false;
   return getNotifications().some(notification =>
@@ -1579,6 +1588,25 @@ function setMasterAreaView(view) {
   );
 
   if (target) target.classList.add("is-active");
+
+  if (currentMasterAreaView === "messages") {
+    renderMasterMessagesView();
+    refreshMasterMessagesViewFromSupabase();
+  }
+}
+
+async function refreshMasterMessagesViewFromSupabase() {
+  if (typeof supabaseClient === "undefined" || !getCurrentUserId()) return;
+  try {
+    await loadSupabaseConversations();
+    await loadSupabaseConversationMessages();
+    await loadSupabaseNotifications();
+    await loadSupabaseProfilesForConversationParticipants();
+    renderMasterMessagesView();
+    if (typeof updateNotificationsUI === "function") updateNotificationsUI();
+  } catch (err) {
+    console.warn("Impossibile aggiornare i messaggi Master:", err?.message || err);
+  }
 }
 
 function go(page, options = {}) {
@@ -1939,6 +1967,10 @@ async function renderUserProfile() {
   await loadSupabaseStoryPurchases();
   await loadSupabaseStoryFavorites();
   await loadSupabaseStoryInquiries();
+  await loadSupabaseConversations();
+  await loadSupabaseConversationMessages();
+  await loadSupabaseNotifications();
+  await loadSupabaseProfilesForConversationParticipants();
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
@@ -2501,6 +2533,21 @@ function setProfileLibraryTab(tabName) {
   document.querySelectorAll(".profile-tab-panel").forEach(panel => {
     panel.classList.toggle("active", panel.dataset.profilePanel === tabName);
   });
+
+  if (tabName === "inquiries") refreshProfileMessagesFromSupabase();
+}
+
+async function refreshProfileMessagesFromSupabase() {
+  if (typeof supabaseClient === "undefined" || !getCurrentUserId()) return;
+  try {
+    await loadSupabaseConversations();
+    await loadSupabaseConversationMessages();
+    await loadSupabaseNotifications();
+    await loadSupabaseProfilesForConversationParticipants();
+    if (getActivePageId() === "profilo") await renderUserProfile();
+  } catch (err) {
+    console.warn("Impossibile aggiornare i messaggi profilo:", err?.message || err);
+  }
 }
 
 function isLikelyProfileAvatarInput(input) {

@@ -228,18 +228,46 @@ async function updatePaymentTarget(adminClient: any, target: PaymentTarget, chec
   };
 
   if (target.targetType === "story") {
-    const { error } = await adminClient.from("story_purchases").upsert({
-      user_id: target.userId,
-      master_id: target.masterId,
-      story_id: target.storyId,
-      payment_status: "pending",
-      payment_amount: fromCents(target.amountCents),
-      payment_currency: target.currency.toUpperCase(),
-      payment_provider: "stripe",
-      payment_reference: checkoutSessionId,
-      updated_at: new Date().toISOString()
-    }, { onConflict: "user_id,story_id" });
-    if (error) throw new Error(error.message);
+    // Avoid overwriting an already paid purchase. Do a safe read-update/insert flow.
+    const { data: existing, error: selErr } = await adminClient
+      .from("story_purchases")
+      .select("*")
+      .eq("user_id", target.userId)
+      .eq("story_id", target.storyId)
+      .maybeSingle();
+
+    if (selErr) throw new Error(selErr.message);
+
+    if (existing) {
+      const status = String(existing.payment_status || "").toLowerCase();
+      if (status === "paid") {
+        throw new Error("Questo contenuto risulta già pagato.");
+      }
+
+      // Update only if not paid. This prevents overwriting paid states.
+      const { error } = await adminClient.from("story_purchases").update({
+        ...payload,
+        payment_amount: fromCents(target.amountCents),
+        payment_currency: target.currency.toUpperCase(),
+        updated_at: new Date().toISOString()
+      }).eq("user_id", target.userId).eq("story_id", target.storyId);
+
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await adminClient.from("story_purchases").insert({
+        user_id: target.userId,
+        master_id: target.masterId,
+        story_id: target.storyId,
+        payment_status: "pending",
+        payment_amount: fromCents(target.amountCents),
+        payment_currency: target.currency.toUpperCase(),
+        payment_provider: "stripe",
+        payment_reference: checkoutSessionId,
+        updated_at: new Date().toISOString()
+      });
+      if (error) throw new Error(error.message);
+    }
+    return;
   }
 
   if (target.targetType === "booking" && target.bookingId) {
@@ -302,6 +330,44 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const target = await resolvePaymentTarget(adminClient, { id: userData.user.id, email: userData.user.email }, body);
+
+    // === New: check for existing purchases to make flow idempotent and avoid double payments ===
+    if (target.targetType === "story") {
+      const { data: existingPurchase, error: existingError } = await adminClient
+        .from("story_purchases")
+        .select("*")
+        .eq("user_id", target.userId)
+        .eq("story_id", target.storyId)
+        .maybeSingle();
+
+      if (existingError) throw new Error(existingError.message);
+      if (existingPurchase) {
+        const status = String(existingPurchase.payment_status || "").toLowerCase();
+        if (status === "paid") {
+          throw new Error("Hai già acquistato questa storia.");
+        }
+
+        // If there is already a pending checkout, try to return the existing Stripe session url/id
+        if (status === "pending" && existingPurchase.payment_reference) {
+          try {
+            const session = await stripeRequest(`/v1/checkout/sessions/${existingPurchase.payment_reference}`);
+            return jsonResponse({
+              url: session.url,
+              checkoutSessionId: session.id,
+              targetType: target.targetType,
+              targetId: target.targetId,
+              amount: fromCents(target.amountCents),
+              currency: target.currency.toUpperCase(),
+              applicationFeeAmount: fromCents(Math.max(0, Math.round(target.amountCents * (Number(Deno.env.get("LORECAST_FEE_PERCENT") || "12") / 100)))),
+              alreadyPending: true
+            });
+          } catch (err) {
+            // If fetching Stripe session fails for some reason, continue and create a new one
+            console.warn("Failed to fetch existing Stripe session", err.message || err);
+          }
+        }
+      }
+    }
 
     if (target.amountCents <= 0) throw new Error("Questo contenuto non richiede pagamento.");
 

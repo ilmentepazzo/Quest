@@ -2077,12 +2077,16 @@ async function renderUserProfile() {
 
   const userBookings = getBookings().filter(booking => booking.user_id && storyId(booking.user_id) === storyId(userId));
   const privateBookedStories = userBookings.filter(booking =>
-    isBookingPending(booking.status) || isBookingAccepted(booking.status)
+    (isBookingPending(booking.status) || isBookingAccepted(booking.status)) &&
+    !isBookingExpired(booking)
   );
-  const completedPrivateStories = userBookings.filter(booking => isBookingCompleted(booking.status));
+  const completedPrivateStories = userBookings.filter(booking =>
+    isBookingCompleted(booking.status) ||
+    (isBookingAccepted(booking.status) && isBookingExpired(booking))
+  );
   const joinedPublicSessions = getJoinedPublicSessionProfileItems(userId);
-  const activeJoinedPublicSessions = joinedPublicSessions.filter(item => !isBookingCompleted(item.status));
-  const completedJoinedPublicSessions = joinedPublicSessions.filter(item => isBookingCompleted(item.status));
+  const activeJoinedPublicSessions = joinedPublicSessions.filter(item => !isBookingCompleted(item.status) && !item.expired);
+  const completedJoinedPublicSessions = joinedPublicSessions.filter(item => isBookingCompleted(item.status) || item.expired);
   const playedStories = [...completedPrivateStories, ...completedJoinedPublicSessions];
   const bookedStories = [...privateBookedStories, ...activeJoinedPublicSessions];
   const purchasedStories = getProfilePurchaseItems(userId);
@@ -2238,7 +2242,8 @@ function renderStoryCardRating(story) {
 function getStoryBookingSummary(storyIdValue) {
   const bookings = getBookings().filter(booking =>
     storyIdsMatch(booking.storyId, storyIdValue) &&
-    !isBookingRejectedOrCancelled(booking.status)
+    !isBookingRejectedOrCancelled(booking.status) &&
+    (!isBookingExpired(booking) || isBookingCompleted(booking.status))
   );
 
   return {
@@ -2500,6 +2505,7 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
       if (!session || ["cancelled", "closed"].includes(session.status)) return null;
 
       const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
+      const expired = isPublicSessionExpired(session);
 
       return {
         id: participant.id,
@@ -2510,7 +2516,8 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
         date: session.sessionDate,
         startTime: session.startTime,
         endTime: session.endTime,
-        status: session.status === "complete" ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
+        status: session.status === "complete" || expired ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
+        expired,
         user_id: participant.user_id,
         session_id: session.id,
         seats: participant.seats || 1,
@@ -4813,6 +4820,53 @@ function formatBookingDateTime(dateString, startTime = "", endTime = "") {
   return `${formatLongItalianDate(dateString)}${timePart}`;
 }
 
+function getEventEndDateTime(dateString, startTime = "", endTime = "", durationMinutes = 0) {
+  if (!dateString) return null;
+
+  const normalizedStart = normalizeTime(startTime || "");
+  const normalizedEnd = normalizeTime(endTime || "");
+  const fallbackTime = normalizedEnd || normalizedStart || "23:59";
+  const date = new Date(`${dateString}T${fallbackTime}:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (!normalizedEnd && normalizedStart && Number(durationMinutes || 0) > 0) {
+    const startDate = new Date(`${dateString}T${normalizedStart}:00`);
+    if (!Number.isNaN(startDate.getTime())) {
+      startDate.setMinutes(startDate.getMinutes() + Number(durationMinutes || 0));
+      return startDate;
+    }
+  }
+
+  return date;
+}
+
+function isEventExpired(dateString, startTime = "", endTime = "", durationMinutes = 0) {
+  const endDate = getEventEndDateTime(dateString, startTime, endTime, durationMinutes);
+  return Boolean(endDate && endDate.getTime() < Date.now());
+}
+
+function isBookingExpired(booking) {
+  if (!booking || !booking.date) return false;
+  return isEventExpired(
+    booking.date,
+    booking.startTime || booking.time || "",
+    booking.endTime || "",
+    booking.durationMinutes || 120
+  );
+}
+
+function isPublicSessionExpired(session) {
+  if (!session || !session.sessionDate) return false;
+  return isEventExpired(
+    session.sessionDate,
+    session.startTime || "",
+    session.endTime || "",
+    session.durationMinutes || 120
+  );
+}
+
+
 function formatMoney(value, options = {}) {
   const amount = Number(value || 0);
   const { freeLabel = true, from = false } = options;
@@ -5290,7 +5344,7 @@ function hasBookingOverlap(masterId, date, startTime, endTime) {
   return getBookings().some(booking => {
     if (!storyIdsMatch(booking.masterId, masterId)) return false;
     if (booking.date !== date) return false;
-    if (isBookingInactive(booking.status)) return false;
+    if (isBookingInactive(booking.status) || isBookingExpired(booking)) return false;
 
     const bookingStart = timeToMinutes(booking.startTime || booking.time);
     const bookingEnd = timeToMinutes(booking.endTime || minutesToTime(bookingStart + (booking.durationMinutes || 120)));
@@ -5307,7 +5361,7 @@ function hasPublicSessionOverlap(story, date, startTime, endTime) {
   const masterId = getCurrentStoryMasterId(story);
 
   return supabasePublicSessionsCache.some(session => {
-    if (!["open", "complete"].includes(session.status)) return false;
+    if (!["open", "complete"].includes(session.status) || isPublicSessionExpired(session)) return false;
     if (!session.sessionDate || session.sessionDate !== date) return false;
 
     const sessionStory = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
@@ -6161,15 +6215,16 @@ function renderDashboardBookings() {
   const masterBookings = getBookings()
     .filter(booking => {
       const isMine = (booking.masterId && storyIdsMatch(booking.masterId, userId)) || myStoryIds.includes(storyId(booking.storyId));
-      return isMine && !isBookingRejectedOrCancelled(booking.status);
+      const visibleByDate = !isBookingExpired(booking) || isBookingCompleted(booking.status);
+      return isMine && visibleByDate && !isBookingRejectedOrCancelled(booking.status);
     });
 
   const pendingBookings = masterBookings
-    .filter(booking => isBookingPending(booking.status))
+    .filter(booking => isBookingPending(booking.status) && !isBookingExpired(booking))
     .sort((a, b) => getBookingStatusPriority(a.status) - getBookingStatusPriority(b.status));
 
   const confirmedBookings = masterBookings
-    .filter(booking => isBookingAccepted(booking.status))
+    .filter(booking => isBookingAccepted(booking.status) && !isBookingExpired(booking))
     .sort((a, b) => `${a.date || ""} ${a.startTime || a.time || ""}`.localeCompare(`${b.date || ""} ${b.startTime || b.time || ""}`));
 
   const completedBookings = masterBookings
@@ -6512,6 +6567,7 @@ function getOpenSessionsForStory(storyIdValue) {
     return supabasePublicSessionsCache.filter(session =>
       storyIdsMatch(session.storyId, id) &&
       session.status === "open" &&
+      !isPublicSessionExpired(session) &&
       Number(session.joined) < Number(session.maxPlayers)
     );
   }
@@ -6520,6 +6576,7 @@ function getOpenSessionsForStory(storyIdValue) {
   return Object.values(sessions).filter(session =>
     storyIdsMatch(session.storyId, id) &&
     session.status !== "complete" &&
+    !isPublicSessionExpired(session) &&
     Number(session.joined || 0) < Number(session.maxPlayers || 6)
   );
 }
@@ -6794,8 +6851,9 @@ function getVisibleOpenSessions() {
   const isVisibleForCurrentUser = session => {
     const alreadyJoined = hasJoinedOpenSession(session.id);
     const inactive = ["cancelled", "closed", "annullata", "chiusa"].includes(String(session.status || "").toLowerCase());
+    const expired = isPublicSessionExpired(session);
 
-    if (inactive) return false;
+    if (inactive || expired) return false;
     if (alreadyJoined) return true;
 
     return session.status === "open" &&
@@ -8377,7 +8435,8 @@ function renderMasterPublicSessions() {
   const ownedStoryIds = new Set(getMasterOwnedStoryIds());
 
   const sessions = supabasePublicSessionsCache.filter(session => {
-    if (session.status === "cancelled") return false;
+    if (["cancelled", "closed"].includes(String(session.status || "").toLowerCase())) return false;
+    if (isPublicSessionExpired(session)) return false;
 
     return (
       (session.storyAuthorId && storyIdsMatch(session.storyAuthorId, userId)) ||

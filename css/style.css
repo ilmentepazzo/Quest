@@ -6200,3 +6200,148 @@ button.is-disabled {
     width: 100%;
   }
 }
+
+/* UPDATE 89 - Micro-interazioni e mascotte loader */
+.page.page-entering {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page.page-entering.page-entered {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+button,
+.btn,
+.primary,
+.light,
+.secondary,
+a[role="button"] {
+  transition: transform 140ms ease, box-shadow 180ms ease, filter 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+button:active,
+.btn:active,
+.primary:active,
+.light:active,
+.secondary:active,
+a[role="button"]:active,
+.lc-click-feedback {
+  transform: translateY(1px) scale(0.985);
+  filter: saturate(1.03);
+}
+
+.micro-loading {
+  position: fixed;
+  inset: auto 24px 24px auto;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.micro-loading.is-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.micro-loading-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 14px 10px 10px;
+  border: 1px solid rgba(124, 58, 237, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(12px);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.micro-loading-mascot {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px 12px 12px 4px;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  box-shadow: inset 0 -6px 12px rgba(15, 23, 42, 0.16), 0 8px 18px rgba(79, 70, 229, 0.22);
+  color: #fff;
+  transform-origin: 50% 58%;
+  animation: lorecastMascotSpin 880ms cubic-bezier(.4, 0, .2, 1) infinite;
+}
+
+.micro-loading-mascot::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: -4px;
+  width: 9px;
+  height: 9px;
+  background: #2563eb;
+  border-radius: 2px 2px 8px 2px;
+  transform: rotate(35deg);
+}
+
+.micro-loading-mascot-eye {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff;
+  color: #08214a;
+  font-size: 16px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.micro-loading-text {
+  white-space: nowrap;
+}
+
+@keyframes lorecastMascotSpin {
+  0% { transform: rotate(0deg) scale(1); }
+  32% { transform: rotate(10deg) scale(1.04); }
+  58% { transform: rotate(-8deg) scale(1.02); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page.page-entering.page-entered,
+  button,
+  .btn,
+  .primary,
+  .light,
+  .secondary,
+  a[role="button"],
+  .micro-loading,
+  .micro-loading-mascot {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .micro-loading {
+    inset: auto 12px 14px 12px;
+  }
+
+  .micro-loading-card {
+    width: 100%;
+    justify-content: center;
+  }
+}

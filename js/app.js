@@ -38,6 +38,12 @@ let supabaseMasterPaymentEventsLoaded = false;
 let editingStoryId = null;
 let currentMasterAreaView = "availability";
 let currentBookingMessagesBookingId = null;
+let microLoadingTimer = null;
+let microLoadingStartedAt = 0;
+let microInteractionsReady = false;
+
+const MICRO_LOADING_MIN_MS = 260;
+
 
 const sections = [
   "home",
@@ -160,6 +166,8 @@ async function loadSections() {
 
   await loadSupabaseStories();
   setupLanguageSwitcher();
+  setupMicroInteractions();
+  ensureMicroLoadingOverlay();
   applyTranslations();
   updateNotificationBadge();
   const authUser = await checkAuthSession();
@@ -1609,8 +1617,94 @@ async function refreshMasterMessagesViewFromSupabase() {
   }
 }
 
+
+function ensureMicroLoadingOverlay() {
+  let overlay = document.getElementById("lorecastMicroLoading");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "lorecastMicroLoading";
+  overlay.className = "micro-loading";
+  overlay.setAttribute("aria-live", "polite");
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.innerHTML = `
+    <div class="micro-loading-card" role="status">
+      <div class="micro-loading-mascot" aria-hidden="true">
+        <span class="micro-loading-mascot-eye">c</span>
+      </div>
+      <span class="micro-loading-text"></span>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function showMicroLoading(label = t("microLoadingText", "Caricamento..."), minDuration = MICRO_LOADING_MIN_MS) {
+  const overlay = ensureMicroLoadingOverlay();
+  const text = overlay.querySelector(".micro-loading-text");
+  if (text) text.textContent = label;
+
+  window.clearTimeout(microLoadingTimer);
+  microLoadingStartedAt = Date.now();
+  overlay.dataset.minDuration = String(minDuration);
+  overlay.classList.add("is-active");
+  overlay.setAttribute("aria-hidden", "false");
+}
+
+function hideMicroLoading() {
+  const overlay = document.getElementById("lorecastMicroLoading");
+  if (!overlay) return;
+
+  const minDuration = Number(overlay.dataset.minDuration || MICRO_LOADING_MIN_MS);
+  const elapsed = Date.now() - microLoadingStartedAt;
+  const delay = Math.max(80, minDuration - elapsed);
+
+  window.clearTimeout(microLoadingTimer);
+  microLoadingTimer = window.setTimeout(() => {
+    overlay.classList.remove("is-active");
+    overlay.setAttribute("aria-hidden", "true");
+  }, delay);
+}
+
+function animatePageEntry(pageEl) {
+  if (!pageEl) return;
+  pageEl.classList.remove("page-entering", "page-entered");
+  pageEl.classList.add("page-entering");
+  window.requestAnimationFrame(() => {
+    pageEl.classList.add("page-entered");
+  });
+  window.setTimeout(() => {
+    pageEl.classList.remove("page-entering", "page-entered");
+  }, 360);
+}
+
+function setupMicroInteractions() {
+  if (microInteractionsReady) return;
+  microInteractionsReady = true;
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest("button, a, [role='button'], .btn, .primary, .light, .secondary")
+      : null;
+
+    if (!target || target.classList.contains("is-disabled")) return;
+    if (target.matches("button") && target.disabled) return;
+
+    target.classList.remove("lc-click-feedback");
+    void target.offsetWidth;
+    target.classList.add("lc-click-feedback");
+    window.setTimeout(() => target.classList.remove("lc-click-feedback"), 240);
+  }, { capture: true });
+}
+
 function go(page, options = {}) {
   const targetPage = sections.includes(page) ? page : "home";
+  const previousPage = getActivePageId();
+  const shouldShowFeedback = options.microFeedback !== false && previousPage !== targetPage;
+
+  if (shouldShowFeedback) {
+    showMicroLoading(t("microLoadingNavigating", "Sto preparando la pagina..."));
+  }
 
   closeNotificationsDropdown();
   closeUserMenu();
@@ -1620,7 +1714,10 @@ function go(page, options = {}) {
   });
 
   const selected = document.getElementById(targetPage);
-  if (selected) selected.classList.add("active");
+  if (selected) {
+    selected.classList.add("active");
+    if (shouldShowFeedback) animatePageEntry(selected);
+  }
 
   localStorage.setItem("questhubCurrentPage", targetPage);
 
@@ -1652,6 +1749,8 @@ function go(page, options = {}) {
       renderMasterAvailability();
       renderMasterPublicSessions();
       setMasterAreaView(currentMasterAreaView || "availability");
+    }).finally(() => {
+      if (shouldShowFeedback) hideMicroLoading();
     });
   }
 
@@ -1665,6 +1764,10 @@ function go(page, options = {}) {
   if (targetPage === "profilo") renderUserProfile();
   if (targetPage === "notifiche") renderNotifications();
   if (targetPage === "login") renderAuthState();
+
+  if (targetPage !== "area-master" && shouldShowFeedback) {
+    hideMicroLoading();
+  }
 }
 
 /* AUTH + SUPABASE PROFILE */

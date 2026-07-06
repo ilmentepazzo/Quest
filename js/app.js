@@ -2082,11 +2082,14 @@ async function renderUserProfile() {
   );
   const completedPrivateStories = userBookings.filter(booking =>
     isBookingCompleted(booking.status) ||
-    (isBookingAccepted(booking.status) && isBookingExpired(booking))
+    (isBookingAccepted(booking.status) && isBookingExpired(booking) && hasCompletedBookingAccess(booking))
   );
   const joinedPublicSessions = getJoinedPublicSessionProfileItems(userId);
   const activeJoinedPublicSessions = joinedPublicSessions.filter(item => !isBookingCompleted(item.status) && !item.expired);
-  const completedJoinedPublicSessions = joinedPublicSessions.filter(item => isBookingCompleted(item.status) || item.expired);
+  const completedJoinedPublicSessions = joinedPublicSessions.filter(item =>
+    isBookingCompleted(item.status) ||
+    (item.expired && hasCompletedBookingAccess(item))
+  );
   const playedStories = [...completedPrivateStories, ...completedJoinedPublicSessions];
   const bookedStories = [...privateBookedStories, ...activeJoinedPublicSessions];
   const purchasedStories = getProfilePurchaseItems(userId);
@@ -2507,6 +2510,16 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
       const story = getAllStories().find(item => storyIdsMatch(item.id, session.storyId));
       const expired = isPublicSessionExpired(session);
 
+      const paymentStatus = participant.paymentStatus || session.paymentStatus || "not_active";
+      const paymentAmount = Number(participant.paymentAmount || session.paymentAmount || story?.price || 0);
+      const completedAccess = hasCompletedBookingAccess({
+        source: "public_session",
+        storyId: session.storyId,
+        paymentStatus,
+        paymentAmount,
+        paymentCurrency: participant.paymentCurrency || session.paymentCurrency || "EUR"
+      });
+
       return {
         id: participant.id,
         source: "public_session",
@@ -2516,13 +2529,13 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
         date: session.sessionDate,
         startTime: session.startTime,
         endTime: session.endTime,
-        status: session.status === "complete" || expired ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
+        status: session.status === "complete" || (expired && completedAccess) ? t("bookingStatusCompleted", "Completa") : t("bookingStatusJoined", "Iscritto"),
         expired,
         user_id: participant.user_id,
         session_id: session.id,
         seats: participant.seats || 1,
-        paymentStatus: participant.paymentStatus || session.paymentStatus || "not_active",
-        paymentAmount: Number(participant.paymentAmount || session.paymentAmount || story?.price || 0),
+        paymentStatus,
+        paymentAmount,
         paymentCurrency: participant.paymentCurrency || session.paymentCurrency || "EUR",
         paymentProvider: participant.paymentProvider || "",
         paymentReference: participant.paymentReference || "",
@@ -5082,8 +5095,16 @@ function isPaymentComplete(status) {
   return ["paid", "refunded", "not_required"].includes(normalizePaymentStatus(status));
 }
 
+function hasCompletedBookingAccess(item) {
+  const state = getBookingPaymentState(item);
+  const status = normalizePaymentStatus(state.status);
+  if (state.amount <= 0) return true;
+  return ["paid", "not_required"].includes(status);
+}
+
 function canStartBookingCheckout(item) {
   const state = getBookingPaymentState(item);
+  if (item?.expired || isBookingExpired(item)) return false;
   if (state.amount <= 0 || isPaymentComplete(state.status)) return false;
   if (item?.source === "public_session") return true;
   return isBookingAccepted(item?.status);

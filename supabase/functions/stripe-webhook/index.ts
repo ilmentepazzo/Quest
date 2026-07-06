@@ -1,11 +1,30 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const jsonHeaders = {
-  "Content-Type": "application/json"
-};
+function buildCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("origin") || "";
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const publicSite = Deno.env.get("PUBLIC_SITE_URL");
+  if (publicSite) allowed.push(publicSite);
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") allowed.push("http://localhost:3000");
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (origin && allowed.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200, headers: Record<string, string> = buildCorsHeaders()) {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function requireEnv(name: string) {
@@ -95,18 +114,22 @@ async function updatePaidTarget(adminClient: any, targetType: string, targetId: 
   const metadata = (session.metadata || {}) as Record<string, string>;
   const status = paid ? "paid" : failed ? "failed" : "pending";
 
-  const payload: Record<string, unknown> = {
-    payment_status: status,
-    payment_provider: "stripe",
-    payment_reference: normalizeId(session.id),
-    paid_at: paidAt
-  };
-
   if (targetType === "story") {
-    const { error } = await adminClient.from("story_purchases").upsert({
-      user_id: metadata.user_id,
+    const userId = normalizeId(metadata.user_id);
+    const storyId = normalizeId(metadata.story_id || targetId);
+    if (!userId || !storyId) throw new Error("Metadati acquisto storia incompleti.");
+
+    const { data: existing, error: selectError } = await adminClient
+      .from("story_purchases")
+      .select("id,payment_status")
+      .eq("user_id", userId)
+      .eq("story_id", storyId)
+      .maybeSingle();
+
+    if (selectError) throw new Error(selectError.message);
+
+    const purchasePayload = {
       master_id: metadata.master_id || null,
-      story_id: metadata.story_id || targetId,
       payment_status: status,
       payment_amount: fromCents(session.amount_total),
       payment_currency: String(session.currency || "EUR").toUpperCase(),
@@ -114,9 +137,55 @@ async function updatePaidTarget(adminClient: any, targetType: string, targetId: 
       payment_reference: normalizeId(session.id),
       paid_at: paidAt,
       updated_at: new Date().toISOString()
-    }, { onConflict: "user_id,story_id" });
-    if (error) throw new Error(error.message);
+    };
+
+    if (existing?.id) {
+      const existingStatus = String(existing.payment_status || "").toLowerCase();
+      if (existingStatus === "paid") return;
+
+      const { error } = await adminClient
+        .from("story_purchases")
+        .update(purchasePayload)
+        .eq("id", existing.id);
+
+      if (error) throw new Error(error.message);
+      return;
+    }
+
+    const { error } = await adminClient.from("story_purchases").insert({
+      user_id: userId,
+      story_id: storyId,
+      ...purchasePayload
+    });
+
+    if (error) {
+      // If the prelaunch unique constraint catches a concurrent insert, keep the webhook idempotent.
+      const { data: retryExisting, error: retryError } = await adminClient
+        .from("story_purchases")
+        .select("id,payment_status")
+        .eq("user_id", userId)
+        .eq("story_id", storyId)
+        .maybeSingle();
+
+      if (retryError || !retryExisting?.id) throw new Error(error.message);
+      if (String(retryExisting.payment_status || "").toLowerCase() === "paid") return;
+
+      const { error: updateError } = await adminClient
+        .from("story_purchases")
+        .update(purchasePayload)
+        .eq("id", retryExisting.id);
+
+      if (updateError) throw new Error(updateError.message);
+    }
+    return;
   }
+
+  const payload: Record<string, unknown> = {
+    payment_status: status,
+    payment_provider: "stripe",
+    payment_reference: normalizeId(session.id),
+    paid_at: paidAt
+  };
 
   if (targetType === "booking") {
     if (paid) payload.status = "Accettata";
@@ -209,7 +278,9 @@ function getWebhookPaymentStatus(eventType: string, session: Record<string, unkn
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  const responseHeaders = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, responseHeaders);
 
   try {
     const rawBody = await req.text();
@@ -226,7 +297,7 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
     if (await paymentEventExists(adminClient, eventId)) {
-      return jsonResponse({ received: true, duplicate: true });
+      return jsonResponse({ received: true, duplicate: true }, 200, responseHeaders);
     }
 
     const data = (event.data || {}) as Record<string, unknown>;
@@ -237,7 +308,7 @@ Deno.serve(async (req) => {
       await logPaymentEvent(adminClient, event, session, metadata, "ignored").catch((error) => {
         console.warn("ignored event log skipped", error.message || error);
       });
-      return jsonResponse({ received: true, ignored: true });
+      return jsonResponse({ received: true, ignored: true }, 200, responseHeaders);
     }
 
     const targetType = normalizeId(metadata.target_type);
@@ -248,7 +319,7 @@ Deno.serve(async (req) => {
       await logPaymentEvent(adminClient, event, session, metadata, "ignored").catch((error) => {
         console.warn("ignored event log skipped", error.message || error);
       });
-      return jsonResponse({ received: true, ignored: true });
+      return jsonResponse({ received: true, ignored: true }, 200, responseHeaders);
     }
 
     if (!targetType || !targetId) throw new Error("Metadati pagamento incompleti.");
@@ -261,9 +332,9 @@ Deno.serve(async (req) => {
 
     await logPaymentEvent(adminClient, event, session, metadata, paymentStatus);
 
-    return jsonResponse({ received: true, status: paymentStatus });
+    return jsonResponse({ received: true, status: paymentStatus }, 200, responseHeaders);
   } catch (error) {
     console.error("stripe-webhook error", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400);
+    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400, responseHeaders);
   }
 });

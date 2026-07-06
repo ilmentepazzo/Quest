@@ -1,14 +1,30 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Content-Type": "application/json"
-};
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const publicSite = Deno.env.get("PUBLIC_SITE_URL");
+  if (publicSite) allowed.push(publicSite);
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") allowed.push("http://localhost:3000");
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (origin && allowed.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200, headers: Record<string, string>) {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function requireEnv(name: string) {
@@ -81,6 +97,31 @@ async function loadMasterPaymentEvent(adminClient: any, checkoutSessionId: strin
   });
 
   return paidEvent || events[0];
+}
+
+async function assertNoRefundAlreadyLogged(adminClient: any, checkoutSessionId: string, paymentIntentId: string) {
+  const { data, error } = await adminClient
+    .from("payment_events")
+    .select("id,event_type,provider_event_id")
+    .eq("provider", "stripe")
+    .or(`checkout_session_id.eq.${checkoutSessionId},payment_intent_id.eq.${paymentIntentId}`)
+    .limit(50);
+
+  if (error) throw new Error(error.message);
+
+  const hasRefund = (data || []).some((event: Record<string, unknown>) => {
+    const eventType = String(event.event_type || "").toLowerCase();
+    const providerEventId = String(event.provider_event_id || "").toLowerCase();
+    return eventType.includes("refund") || providerEventId.includes("refund");
+  });
+
+  if (hasRefund) throw new Error("Rimborso già eseguito per questo pagamento.");
+}
+
+async function assertNoStripeRefundExists(paymentIntentId: string) {
+  const refunds = await stripeRequest(`/v1/refunds?payment_intent=${encodeURIComponent(paymentIntentId)}&limit=1`);
+  const items = Array.isArray(refunds.data) ? refunds.data : [];
+  if (items.length > 0) throw new Error("Stripe indica già un rimborso per questo pagamento.");
 }
 
 async function updateRefundedTarget(adminClient: any, event: Record<string, unknown>, checkoutSessionId: string) {
@@ -191,8 +232,9 @@ async function logRefundEvent(adminClient: any, event: Record<string, unknown>, 
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  const responseHeaders = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, responseHeaders);
 
   try {
     const supabaseUrl = requireEnv("SUPABASE_URL");
@@ -201,14 +243,14 @@ Deno.serve(async (req) => {
     requireEnv("STRIPE_SECRET_KEY");
 
     const authorization = req.headers.get("Authorization") || "";
-    if (!authorization) return jsonResponse({ error: "Login required" }, 401);
+    if (!authorization) return jsonResponse({ error: "Login required" }, 401, responseHeaders);
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } }
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401);
+    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401, responseHeaders);
 
     const body = await req.json().catch(() => ({}));
     const checkoutSessionId = normalizeId(body.checkoutSessionId);
@@ -223,6 +265,9 @@ Deno.serve(async (req) => {
 
     const paymentIntent = paymentIntentId(session);
     if (!paymentIntent) throw new Error("PaymentIntent Stripe non trovato.");
+
+    await assertNoRefundAlreadyLogged(adminClient, checkoutSessionId, paymentIntent);
+    await assertNoStripeRefundExists(paymentIntent);
 
     const params = new URLSearchParams();
     params.set("payment_intent", paymentIntent);
@@ -248,9 +293,9 @@ Deno.serve(async (req) => {
       refundId: refund.id,
       checkoutSessionId,
       status: "refunded"
-    });
+    }, 200, responseHeaders);
   } catch (error) {
     console.error("create-test-refund error", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400);
+    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400, responseHeaders);
   }
 });

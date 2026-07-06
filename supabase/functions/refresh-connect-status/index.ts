@@ -1,11 +1,51 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Content-Type": "application/json"
-};
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const publicSite = Deno.env.get("PUBLIC_SITE_URL");
+  if (publicSite) allowed.push(publicSite);
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") allowed.push("http://localhost:3000");
+
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (origin && allowed.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
+}
+
+function getAllowedOrigin(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const publicSite = Deno.env.get("PUBLIC_SITE_URL");
+  if (publicSite) allowed.push(publicSite);
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") allowed.push("http://localhost:3000");
+
+  if (origin && allowed.includes(origin)) return origin;
+  if (publicSite) return publicSite;
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") return "http://localhost:3000";
+  throw new Error("Origine non configurata. Imposta PUBLIC_SITE_URL o ALLOWED_ORIGINS.");
+}
+
+function isAllowedUrl(value: string, allowedOrigin: string) {
+  try {
+    return new URL(value).origin === allowedOrigin;
+  } catch (_) {
+    return false;
+  }
+}
 
 type StripeAccount = {
   id: string;
@@ -18,8 +58,8 @@ type StripeAccount = {
   };
 };
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
+function jsonResponse(body: Record<string, unknown>, status = 200, headers: Record<string, string>) {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function requireEnv(name: string) {
@@ -51,8 +91,9 @@ async function retrieveStripeAccount(accountId: string) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  const responseHeaders = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, responseHeaders);
 
   try {
     const supabaseUrl = requireEnv("SUPABASE_URL");
@@ -61,14 +102,14 @@ Deno.serve(async (req) => {
     requireEnv("STRIPE_SECRET_KEY");
 
     const authorization = req.headers.get("Authorization") || "";
-    if (!authorization) return jsonResponse({ error: "Login required" }, 401);
+    if (!authorization) return jsonResponse({ error: "Login required" }, 401, responseHeaders);
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } }
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401);
+    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401, responseHeaders);
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const { data: profile, error: profileError } = await adminClient
@@ -87,7 +128,7 @@ Deno.serve(async (req) => {
         chargesEnabled: false,
         payoutsEnabled: false,
         detailsSubmitted: false
-      });
+      }, 200, responseHeaders);
     }
 
     const account = await retrieveStripeAccount(accountId);
@@ -114,9 +155,9 @@ Deno.serve(async (req) => {
       detailsSubmitted: Boolean(account.details_submitted),
       currentlyDue: account.requirements?.currently_due || [],
       disabledReason: account.requirements?.disabled_reason || ""
-    });
+    }, 200, responseHeaders);
   } catch (error) {
     console.error("refresh-connect-status error", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400);
+    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400, responseHeaders);
   }
 });

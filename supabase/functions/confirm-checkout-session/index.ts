@@ -1,14 +1,27 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Content-Type": "application/json"
-};
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const envAllowed = (Deno.env.get("ALLOWED_ORIGINS") || "").split(",").map(s => s.trim()).filter(Boolean);
+  const publicSite = Deno.env.get("PUBLIC_SITE_URL");
+  if (publicSite) envAllowed.push(publicSite);
+  if (Deno.env.get("ALLOW_LOCALHOST") === "1") envAllowed.push("http://localhost:3000");
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (origin && envAllowed.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200, headers: Record<string,string>) {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function requireEnv(name: string) {
@@ -56,36 +69,80 @@ async function updatePaidTarget(adminClient: any, targetType: string, targetId: 
   const paid = session.payment_status === "paid";
   const paidAt = paid ? new Date().toISOString() : null;
   const metadata = (session.metadata || {}) as Record<string, string>;
-  const payload: Record<string, unknown> = {
-    payment_status: paid ? "paid" : "pending",
-    payment_provider: "stripe",
-    payment_reference: normalizeId(session.id),
-    paid_at: paidAt
-  };
+  const status = paid ? "paid" : "pending";
 
+  // For story purchases avoid blind upsert that can overwrite paid state.
   if (targetType === "story") {
-    const { error } = await adminClient.from("story_purchases").upsert({
-      user_id: metadata.user_id,
-      master_id: metadata.master_id || null,
-      story_id: metadata.story_id || targetId,
-      payment_status: paid ? "paid" : "pending",
-      payment_amount: fromCents(session.amount_total),
-      payment_currency: String(session.currency || "EUR").toUpperCase(),
-      payment_provider: "stripe",
-      payment_reference: normalizeId(session.id),
-      paid_at: paidAt,
-      updated_at: new Date().toISOString()
-    }, { onConflict: "user_id,story_id" });
-    if (error) throw new Error(error.message);
+    const userId = metadata.user_id;
+    const storyId = metadata.story_id || targetId;
+
+    const { data: existing, error: selErr } = await adminClient
+      .from("story_purchases")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("story_id", storyId)
+      .maybeSingle();
+
+    if (selErr) throw new Error(selErr.message);
+
+    if (existing) {
+      const existingStatus = String(existing.payment_status || "").toLowerCase();
+      if (existingStatus === "paid") {
+        // already paid -- keep it
+        return;
+      }
+
+      const { error } = await adminClient.from("story_purchases").update({
+        payment_status: status,
+        payment_amount: fromCents(session.amount_total),
+        payment_currency: String(session.currency || "EUR").toUpperCase(),
+        payment_provider: "stripe",
+        payment_reference: normalizeId(session.id),
+        paid_at: paidAt,
+        updated_at: new Date().toISOString()
+      }).eq("user_id", userId).eq("story_id", storyId);
+
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await adminClient.from("story_purchases").insert({
+        user_id: userId,
+        master_id: metadata.master_id || null,
+        story_id: storyId,
+        payment_status: status,
+        payment_amount: fromCents(session.amount_total),
+        payment_currency: String(session.currency || "EUR").toUpperCase(),
+        payment_provider: "stripe",
+        payment_reference: normalizeId(session.id),
+        paid_at: paidAt,
+        updated_at: new Date().toISOString()
+      });
+
+      if (error) throw new Error(error.message);
+    }
+
+    return;
   }
 
+  // bookings and participants keep existing behaviour
   if (targetType === "booking") {
+    const payload: Record<string, unknown> = {
+      payment_status: status,
+      payment_provider: "stripe",
+      payment_reference: normalizeId(session.id),
+      paid_at: paidAt
+    };
     if (paid) payload.status = "Accettata";
     const { error } = await adminClient.from("bookings").update(payload).eq("id", targetId);
     if (error) throw new Error(error.message);
   }
 
   if (targetType === "session_participant") {
+    const payload: Record<string, unknown> = {
+      payment_status: status,
+      payment_provider: "stripe",
+      payment_reference: normalizeId(session.id),
+      paid_at: paidAt
+    };
     const { error } = await adminClient.from("session_participants").update(payload).eq("id", targetId);
     if (error) throw new Error(error.message);
   }
@@ -144,8 +201,9 @@ async function createPaymentNotifications(adminClient: any, session: Record<stri
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+  const headers = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, headers);
 
   try {
     const supabaseUrl = requireEnv("SUPABASE_URL");
@@ -154,14 +212,14 @@ Deno.serve(async (req) => {
     requireEnv("STRIPE_SECRET_KEY");
 
     const authorization = req.headers.get("Authorization") || "";
-    if (!authorization) return jsonResponse({ error: "Login required" }, 401);
+    if (!authorization) return jsonResponse({ error: "Login required" }, 401, headers);
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } }
     });
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401);
+    if (userError || !userData.user) return jsonResponse({ error: "Login required" }, 401, headers);
 
     const body = await req.json().catch(() => ({}));
     const sessionId = normalizeId(body.sessionId);
@@ -195,9 +253,9 @@ Deno.serve(async (req) => {
       storyId: metadata.story_id || "",
       amount: fromCents(session.amount_total),
       currency: String(session.currency || "EUR").toUpperCase()
-    });
+    }, 200, headers);
   } catch (error) {
     console.error("confirm-checkout-session error", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400);
+    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400, headers);
   }
 });

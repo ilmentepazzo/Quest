@@ -2437,7 +2437,7 @@ function renderProfileInquiries(containerId, inquiries) {
           <span class="profile-info-chip ${statusClass}">${escapeHtml(statusLabel)}</span>
         </div>
         <div class="profile-compact-actions">
-          <button class="light compact-action" onclick='openConversationThreadModal(${JSON.stringify(storyId(conversation.id))})'>${escapeHtml(t("storyInquiryOpenThread", "Apri chat"))}</button>
+          <button class="light compact-action" onclick='openConversationThreadModal(${JSON.stringify(storyId(conversation.id))})'>${escapeHtml(t("storyInquiryOpenThread", "Apri conversazione"))}</button>
         </div>
       </article>
     `;
@@ -3424,6 +3424,7 @@ function getStoryInquiryRecipientId(story) {
 
 function renderStoryInquiryButton(story = currentStory) {
   const button = document.getElementById("contactMasterButton");
+  const hint = document.getElementById("contactMasterHint");
   if (!button || !story) return;
 
   const recipientId = getStoryInquiryRecipientId(story);
@@ -3431,8 +3432,14 @@ function renderStoryInquiryButton(story = currentStory) {
   button.hidden = !canContact;
   button.disabled = !canContact;
   button.textContent = isStoryWithMaster(story)
-    ? t("storyContactMasterButton", "Contatta Master")
-    : t("storyContactAuthorButton", "Contatta autore");
+    ? t("storyContactMasterButton", "Chiedi al Master")
+    : t("storyContactAuthorButton", "Chiedi all’autore");
+  if (hint) {
+    hint.hidden = !canContact;
+    hint.textContent = isStoryWithMaster(story)
+      ? t("storyContactMasterSoftCopy", "Fai una domanda al Master prima di prenotare. Usa questo spazio per chiarire dubbi sull’esperienza, sul livello richiesto o sull’organizzazione della sessione.")
+      : t("storyContactAuthorSoftCopy", "Fai una domanda all’autore prima di procedere. Usa questo spazio per chiarire dubbi sull’esperienza, sul contenuto o sui materiali.");
+  }
 }
 
 function ensureStoryInquiryModal() {
@@ -3446,15 +3453,15 @@ function ensureStoryInquiryModal() {
     <div class="booking-messages-box story-inquiry-box" role="dialog" aria-modal="true" aria-labelledby="storyInquiryTitle">
       <div class="booking-messages-header">
         <div>
-          <h2 id="storyInquiryTitle">${t("storyInquiryTitle", "Contatta Master")}</h2>
+          <h2 id="storyInquiryTitle">${t("storyInquiryTitle", "Chiedi al Master")}</h2>
           <p id="storyInquirySubtitle"></p>
         </div>
         <button class="light icon-button" type="button" onclick="closeStoryInquiryModal()" aria-label="${escapeHtmlAttribute(t("commonCloseModal", "Chiudi"))}">×</button>
       </div>
       <form id="storyInquiryForm" class="booking-messages-form" onsubmit="sendStoryInquiry(event)">
-        <textarea id="storyInquiryMessage" maxlength="1200" placeholder="${escapeHtmlAttribute(t("storyInquiryPlaceholder", "Scrivi una domanda breve sul gruppo, il tono della storia o la disponibilità. Non inserire email o dati personali."))}"></textarea>
+        <textarea id="storyInquiryMessage" maxlength="1200" placeholder="${escapeHtmlAttribute(t("storyInquiryPlaceholder", "Scrivi una domanda breve sul gruppo, il tono della storia, il livello richiesto o l’organizzazione."))}"></textarea>
         <div class="booking-messages-form-footer">
-          <small>${t("storyInquiryHint", "Il messaggio viene inviato al Master e resta collegato a questa storia. Non è una chat libera.")}</small>
+          <small>${t("storyInquiryHint", "Il messaggio resta collegato alla storia, così dettagli, risposte e organizzazione rimangono ordinati su Lorecast.")}</small>
           <button class="primary" type="submit">${t("storyInquirySend", "Invia richiesta")}</button>
         </div>
       </form>
@@ -3492,7 +3499,7 @@ function openStoryInquiryModal(storyIdValue = null) {
   const subtitle = document.getElementById("storyInquirySubtitle");
   const textarea = document.getElementById("storyInquiryMessage");
 
-  if (title) title.textContent = isStoryWithMaster(story) ? t("storyInquiryTitle", "Contatta Master") : t("storyInquiryAuthorTitle", "Contatta autore");
+  if (title) title.textContent = isStoryWithMaster(story) ? t("storyInquiryTitle", "Chiedi al Master") : t("storyInquiryAuthorTitle", "Chiedi all’autore");
   if (subtitle) subtitle.textContent = story.title || "";
   if (textarea) textarea.value = "";
 
@@ -3635,7 +3642,7 @@ function renderMasterStoryInquiries(userId = getCurrentUserId()) {
               </div>
               <div class="master-inquiry-actions compact">
                 <button class="light small" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
-                <button class="primary small" onclick='openConversationThreadModal(${conversationArg})'>${t("storyInquiryOpenThread", "Apri chat")}</button>
+                <button class="primary small" onclick='openConversationThreadModal(${conversationArg})'>${t("storyInquiryOpenThread", "Apri conversazione")}</button>
               </div>
             </article>
           `;
@@ -3665,7 +3672,7 @@ function ensureConversationThreadModal() {
       <form id="conversationThreadForm" class="booking-messages-form" onsubmit="sendConversationThreadMessage(event)">
         <textarea id="conversationThreadText" maxlength="1200" placeholder="${escapeHtmlAttribute(t("conversationReplyPlaceholder", "Scrivi un messaggio..."))}"></textarea>
         <div class="booking-messages-form-footer">
-          <small>${escapeHtml(t("conversationPersistentHint", "La conversazione resta disponibile nei Messaggi."))}</small>
+          <small>${escapeHtml(t("conversationPersistentHint", "La conversazione resta disponibile nei Messaggi, insieme ai dettagli della storia."))}</small>
           <button class="primary" type="submit">${escapeHtml(t("bookingMessagesSend", "Invia"))}</button>
         </div>
       </form>
@@ -3890,7 +3897,7 @@ function ensureStoryInquiryThreadModal() {
       <form id="storyInquiryThreadForm" class="booking-messages-form" onsubmit="sendStoryInquiryThreadMessage(event)">
         <textarea id="storyInquiryThreadInput" maxlength="1200" placeholder="${escapeHtmlAttribute(t("storyInquiryThreadPlaceholder", "Scrivi un messaggio collegato a questa storia."))}"></textarea>
         <div class="booking-messages-form-footer">
-          <small>${escapeHtml(t("storyInquiryThreadHint", "Usa questa conversazione solo per chiarimenti sulla storia. Non inserire email o dati personali."))}</small>
+          <small>${escapeHtml(t("storyInquiryThreadHint", "Usa questa conversazione per chiarire dettagli sull’esperienza, sul livello richiesto e sull’organizzazione."))}</small>
           <button class="primary" type="submit">${escapeHtml(t("storyInquiryThreadSend", "Invia messaggio"))}</button>
         </div>
       </form>

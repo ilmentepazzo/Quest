@@ -335,6 +335,16 @@ footer,
   color: #d1d5db;
 }
 
+.footer-beta-contact a {
+  color: white;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.footer-beta-contact a:hover {
+  color: var(--primary);
+}
+
 .footer-links {
   display: flex;
   align-items: center;
@@ -1197,6 +1207,19 @@ body:not(.is-logged-in) #notificationButton {
 
 .contact-side-card {
   align-self: start;
+}
+
+.contact-beta-note,
+.legal-contact-note {
+  margin-top: 12px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.contact-side-card a {
+  color: var(--primary-dark);
+  font-weight: 800;
+  word-break: break-word;
 }
 
 .legal-page h2 {

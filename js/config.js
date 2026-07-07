@@ -9,7 +9,7 @@ export const CONFIG = {
   app: {
     name: "Lorecast",
     version: "1.0.0",
-    supportEmail: process.env.REACT_APP_SUPPORT_EMAIL || "support@lorecast.app",
+    supportEmail: process.env.REACT_APP_SUPPORT_EMAIL || "info.dix.doitfor@gmail.com",
     siteUrl: process.env.REACT_APP_PUBLIC_SITE_URL || "http://localhost:3000"
   },
   security: {

@@ -425,6 +425,52 @@ footer,
   margin-top: 34px;
 }
 
+.beta-status-banner {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 22px;
+  background: #fffbeb;
+  color: var(--warning-text);
+  box-shadow: 0 14px 34px rgba(146, 64, 14, 0.08);
+}
+
+.beta-status-banner strong {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.beta-status-banner p {
+  margin: 0;
+  color: var(--body);
+  font-size: 14px;
+}
+
+.beta-status-banner a {
+  color: var(--primary-dark);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.beta-status-banner a:hover {
+  text-decoration: underline;
+}
+
+.hero-beta-banner {
+  margin: 18px 0 20px;
+  max-width: 680px;
+  background: rgba(255, 251, 235, 0.96);
+}
+
+.beta-status-banner.compact {
+  margin: 16px 0 24px;
+}
+
+.profile-beta-banner {
+  margin-top: 0;
+}
+
 /* Login */
 
 .login-page {

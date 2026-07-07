@@ -1,6 +1,11 @@
 <section id="scheda" class="page">
   <button class="light" onclick="go('catalogo')" data-i18n="commonBackToCatalog">← Torna al catalogo</button>
 
+  <div class="beta-status-banner compact story-beta-banner" role="note">
+    <strong data-i18n="betaStatusTitle">Beta pubblica: pagamenti disattivati</strong>
+    <p data-i18n="betaStoryDetailNotice">Se questa storia prevede un prezzo, nella beta puoi leggere la scheda e contattare il Master, ma non puoi completare checkout.</p>
+  </div>
+
   <div class="detail story-detail-layout">
     <main>
       <div class="card">
@@ -87,7 +92,7 @@
 
     <aside class="card story-summary-card payment-summary-card">
       <div class="payment-summary-header">
-        <span id="paymentPanelLabel" data-i18n="storyPaymentLabel">Pagamento</span>
+        <span id="paymentPanelLabel" data-i18n="betaAccessLabel">Accesso beta</span>
         <h2 id="paymentTotalPrice">0€</h2>
         <span id="detailPrice" hidden></span>
       </div>
@@ -100,15 +105,15 @@
       </div>
       <p><strong data-i18n="storyMasterAuthorLabel">Master / Autore:</strong> <span id="detailMaster"></span></p>
       <p class="payment-hint" id="paymentHint"></p>
-      <div id="paymentMethods" class="payment-methods" aria-label="Modalità di pagamento" data-i18n-aria-label="storyPaymentAria">
+      <div id="paymentMethods" class="payment-methods" aria-label="Modalità di pagamento" data-i18n-aria-label="storyPaymentAria" hidden>
         <label><input type="radio" name="paymentMethod" value="card" checked /> <span data-i18n="storyCardPayment">Carta</span></label>
         <label><input type="radio" name="paymentMethod" value="paypal" /> <span>PayPal</span></label>
         <label><input type="radio" name="paymentMethod" value="wallet" /> <span>Google / Apple Pay</span></label>
       </div>
-      <button id="paymentButton" class="primary payment-button" onclick="payForCurrentStory()" data-i18n="storyPayNow">Paga ora</button>
+      <button id="paymentButton" class="primary payment-button is-disabled" onclick="payForCurrentStory()" data-i18n="betaPaymentsDisabledButton" disabled>Pagamenti non attivi in beta</button>
       <button id="summaryMasterButton" class="light" onclick="openMasterProfile()" data-i18n="storyViewMasterProfile">Vedi profilo Master</button>
       <button id="contactMasterButton" class="light contact-master-button" onclick="openStoryInquiryModal()" hidden data-i18n="storyContactMasterButton">Contatta Master</button>
-      <small id="paymentNote" class="payment-note" data-i18n="storyPaymentNote">Pagamenti reali non ancora attivi. Questa sezione prepara una futura integrazione sicura.</small>
+      <small id="paymentNote" class="payment-note" data-i18n="betaPaymentsStoryNote">I pagamenti saranno attivati in una fase successiva della beta. Per ora puoi esplorare storie, sessioni e messaggi senza checkout.</small>
     </aside>
   </div>
 </section>

@@ -4075,7 +4075,13 @@ function renderStoryPaymentPanel(story) {
     masterButton.style.display = isStoryWithMaster(story) && !isOwner ? "inline-flex" : "none";
   }
 
-  if (panelLabel) panelLabel.textContent = isOwner ? t("ownerStoryManageLabel", "Gestione storia") : t("paymentLabel", "Pagamento");
+  if (panelLabel) {
+    panelLabel.textContent = isOwner
+      ? t("ownerStoryManageLabel", "Gestione storia")
+      : areLorecastPaymentsActive()
+        ? t("paymentLabel", "Pagamento")
+        : t("betaAccessLabel", "Accesso beta");
+  }
 
   if (isOwner) {
     if (priceEl) priceEl.textContent = t("commonManage", "Gestisci");

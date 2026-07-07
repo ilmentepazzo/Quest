@@ -6414,3 +6414,32 @@ a[role="button"]:active,
     justify-content: center;
   }
 }
+
+.story-review-action-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 250, 237, 0.82);
+}
+
+.story-review-action-panel p {
+  margin: 0.25rem 0 0;
+  color: var(--muted, #5b6472);
+}
+
+.story-review-action-panel.is-reviewed {
+  display: block;
+  background: rgba(236, 253, 245, 0.82);
+}
+
+@media (max-width: 720px) {
+  .story-review-action-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

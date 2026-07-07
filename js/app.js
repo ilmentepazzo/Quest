@@ -44,6 +44,14 @@ let microInteractionsReady = false;
 
 const MICRO_LOADING_MIN_MS = 260;
 
+// Beta iniziale: i pagamenti reali/test sono pronti lato backend ma non esposti agli utenti.
+// Impostare a true solo quando si vuole riattivare la UI checkout/Stripe Connect.
+const LORECAST_PAYMENTS_ACTIVE = false;
+
+function areLorecastPaymentsActive() {
+  return LORECAST_PAYMENTS_ACTIVE === true;
+}
+
 
 const sections = [
   "home",
@@ -3551,6 +3559,7 @@ async function sendStoryInquiry(event) {
     if (normalizedMessage) {
       supabaseConversationMessagesCache = [...supabaseConversationMessagesCache.filter(item => !storyIdsMatch(item.id, normalizedMessage.id)), normalizedMessage];
       supabaseConversationMessagesLoaded = true;
+      notifyConversationMessageEmail(conversation.id, normalizedMessage.id);
     }
 
     closeStoryInquiryModal();
@@ -3757,7 +3766,10 @@ async function sendConversationThreadMessage(event) {
   }
 
   const normalized = normalizeConversationMessage(data);
-  if (normalized) supabaseConversationMessagesCache = [...supabaseConversationMessagesCache.filter(item => !storyIdsMatch(item.id, normalized.id)), normalized];
+  if (normalized) {
+    supabaseConversationMessagesCache = [...supabaseConversationMessagesCache.filter(item => !storyIdsMatch(item.id, normalized.id)), normalized];
+    notifyConversationMessageEmail(conversation.id, normalized.id);
+  }
 
   await loadSupabaseConversations();
   await loadSupabaseConversationMessages();
@@ -4082,10 +4094,25 @@ function renderStoryPaymentPanel(story) {
   if (hintEl) {
     hintEl.innerHTML = `
       <span>${escapeHtml(paymentRequired
-        ? t("paymentStripeTestStoryHint", "Checkout Stripe in modalità test: nessun pagamento reale verrà incassato.")
+        ? areLorecastPaymentsActive()
+          ? t("paymentStripeTestStoryHint", "Checkout Stripe in modalità test: nessun pagamento reale verrà incassato.")
+          : t("betaPaymentsStoryHint", "Durante la beta iniziale i pagamenti non sono attivi: questa storia non è acquistabile tramite checkout.")
         : t("paymentFreeStoryHint", "Questa storia è gratuita: puoi sbloccare i materiali senza pagamento."))}</span>
       ${renderPaymentStatusChipFromState(paymentState, "payment-panel-chip")}
     `;
+  }
+
+  if (paymentRequired && !areLorecastPaymentsActive()) {
+    if (paymentNote) {
+      paymentNote.textContent = t("betaPaymentsStoryNote", "I pagamenti saranno attivati in una fase successiva della beta. Per ora puoi esplorare storie, sessioni e messaggi senza checkout.");
+    }
+    if (payButton) {
+      payButton.hidden = false;
+      payButton.disabled = true;
+      payButton.classList.toggle("is-disabled", true);
+      payButton.textContent = t("betaPaymentsDisabledButton", "Pagamenti non attivi in beta");
+    }
+    return;
   }
 
   if (alreadyPaid) {
@@ -4164,6 +4191,11 @@ async function payForCurrentStory() {
   }
 
   if (isStoryPaymentRequired(currentStory)) {
+    if (!areLorecastPaymentsActive()) {
+      showToast(t("betaPaymentsDisabledToast", "I pagamenti non sono attivi durante questa fase beta."), "warning");
+      renderStoryPaymentPanel(currentStory);
+      return;
+    }
     if (!isStoryWithMaster(currentStory) && !isStoryAuthorStripeReady(currentStory)) {
       showToast(t("paymentAuthorStripeMissingNote", "Pagamento non disponibile: l’autore deve prima collegare Stripe in Area Master."), "warning");
       renderStoryPaymentPanel(currentStory);
@@ -4196,11 +4228,16 @@ function renderStoryBookingMode(story) {
     unlockButton.textContent = t("paymentUnlockFree", "Sblocca gratis");
   }
   if (bookingButton) {
-    bookingButton.textContent = requiresManualApproval
-      ? t("bookingRequestMasterButton", "Invia richiesta al Master")
-      : isStoryPaymentRequired(story)
-        ? t("bookingPayAndConfirmButton", "Prenota e paga")
-        : t("bookingConfirmFreeButton", "Prenota slot");
+    const paymentBlockedInBeta = isStoryPaymentRequired(story) && !areLorecastPaymentsActive();
+    bookingButton.disabled = Boolean(paymentBlockedInBeta);
+    bookingButton.classList.toggle("is-disabled", Boolean(paymentBlockedInBeta));
+    bookingButton.textContent = paymentBlockedInBeta
+      ? t("betaPaymentsBookingDisabledButton", "Prenotazione a pagamento non attiva in beta")
+      : requiresManualApproval
+        ? t("bookingRequestMasterButton", "Invia richiesta al Master")
+        : isStoryPaymentRequired(story)
+          ? t("bookingPayAndConfirmButton", "Prenota e paga")
+          : t("bookingConfirmFreeButton", "Prenota slot");
   }
 
   selectedBookingSlot = null;
@@ -5103,6 +5140,7 @@ function hasCompletedBookingAccess(item) {
 }
 
 function canStartBookingCheckout(item) {
+  if (!areLorecastPaymentsActive()) return false;
   const state = getBookingPaymentState(item);
   if (item?.expired || isBookingExpired(item)) return false;
   if (state.amount <= 0 || isPaymentComplete(state.status)) return false;
@@ -5148,6 +5186,10 @@ function setStripeCheckoutButtonsLoading(targetType, targetId, isLoading) {
 }
 
 async function startStripeCheckout(targetType, targetId) {
+  if (!areLorecastPaymentsActive()) {
+    showToast(t("betaPaymentsDisabledToast", "I pagamenti non sono attivi durante questa fase beta."), "warning");
+    return;
+  }
   if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
     showToast(t("paymentCheckoutMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
     return;
@@ -5582,6 +5624,42 @@ async function notifyMasterBookingEmail(booking) {
   } catch (error) {
     console.warn("Email prenotazione non inviata. Configura la Edge Function send-booking-email.", error);
   }
+}
+
+async function invokeNotificationEmail(payload) {
+  if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) return null;
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("send-notification-email", {
+      body: payload
+    });
+
+    if (error) {
+      console.warn("Notifica email Lorecast non inviata:", error.message || error);
+      return null;
+    }
+
+    if (data?.skipped) {
+      console.info("Notifica email Lorecast preparata ma non inviata:", data.reason || "invio disattivato");
+    }
+
+    return data || null;
+  } catch (error) {
+    console.warn("Notifica email Lorecast non inviata:", error);
+    return null;
+  }
+}
+
+function notifyConversationMessageEmail(conversationId, messageId) {
+  const normalizedConversationId = storyId(conversationId);
+  const normalizedMessageId = storyId(messageId);
+  if (!normalizedConversationId || !normalizedMessageId) return;
+
+  void invokeNotificationEmail({
+    type: "conversation_message",
+    conversationId: normalizedConversationId,
+    messageId: normalizedMessageId
+  });
 }
 
 async function createBooking() {
@@ -8011,45 +8089,37 @@ function renderMasterPaymentReadiness() {
   const panel = ensureMasterPaymentReadinessPanel();
   if (!panel) return;
 
-  const profile = getUserProfile();
-  const status = getStripeConnectStatus(profile);
-  const active = status === "active" && profile.stripeChargesEnabled && profile.stripePayoutsEnabled;
-  const statusClass = active ? "active" : status === "not_started" ? "not-started" : "pending";
-  const connectDone = status !== "not_started";
-
   panel.innerHTML = `
     <div class="payment-readiness-header">
       <div>
         <span class="payment-readiness-kicker">${escapeHtml(t("paymentReadinessKicker", "Pagamenti"))}</span>
-        <h2>${escapeHtml(t("paymentReadinessTitle", "Preparazione Stripe Connect"))}</h2>
-        <p>${escapeHtml(t("paymentReadinessIntro", "Qui prepariamo i pagamenti dei Master in modalità test. Per ora nessun utente paga davvero su Lorecast."))}</p>
+        <h2>${escapeHtml(t("betaPaymentsMasterTitle", "Pagamenti non attivi in beta"))}</h2>
+        <p>${escapeHtml(t("betaPaymentsMasterIntro", "Stripe Connect e checkout sono stati preparati tecnicamente, ma durante la beta iniziale non sono esposti agli utenti."))}</p>
       </div>
-      <span class="payment-connect-status ${statusClass}">${escapeHtml(getStripeConnectLabel(profile))}</span>
+      <span class="payment-connect-status not-started">${escapeHtml(t("betaPaymentsDisabledBadge", "Disattivati"))}</span>
     </div>
 
     <div class="payment-readiness-grid">
       <div class="payment-readiness-step done">
         <strong>${escapeHtml(t("paymentReadinessStepDatabase", "Database pagamenti"))}</strong>
-        <span>${escapeHtml(t("paymentReadinessStepDatabaseText", "Campi e tabella eventi pronti dopo lo SQL Update 71."))}</span>
+        <span>${escapeHtml(t("betaPaymentsStepDatabaseText", "Struttura pronta e protetta, ma checkout disattivato per la beta."))}</span>
       </div>
-      <div class="payment-readiness-step ${connectDone ? "done" : "todo"}">
+      <div class="payment-readiness-step todo">
         <strong>${escapeHtml(t("paymentReadinessStepConnect", "Account Stripe Master"))}</strong>
-        <span>${escapeHtml(t("paymentReadinessStepConnectText", "Collega l’account Stripe Express del Master in modalità test."))}</span>
+        <span>${escapeHtml(t("betaPaymentsStepConnectText", "Il collegamento Stripe dei Master verrà attivato in una fase successiva."))}</span>
       </div>
-      <div class="payment-readiness-step ${active ? "done" : "todo"}">
-        <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout test"))}</strong>
-        <span>${escapeHtml(t("paymentReadinessStepCheckoutText", "Checkout Stripe in test mode pronto. I webhook sicuri arriveranno nel prossimo update."))}</span>
+      <div class="payment-readiness-step todo">
+        <strong>${escapeHtml(t("paymentReadinessStepCheckout", "Checkout"))}</strong>
+        <span>${escapeHtml(t("betaPaymentsStepCheckoutText", "Nessun utente può completare pagamenti reali o test dalla beta pubblica."))}</span>
       </div>
     </div>
 
     <div class="payment-readiness-actions">
-      <button type="button" class="primary" id="stripeConnectStartButton" onclick="startStripeConnectOnboarding()">${escapeHtml(t("paymentReadinessConnectButton", "Collega Stripe in test mode"))}</button>
-      <button type="button" class="light" id="stripeConnectRefreshButton" onclick="refreshStripeConnectStatus()">${escapeHtml(t("paymentReadinessRefreshButton", "Aggiorna stato"))}</button>
-      <small>${escapeHtml(t("paymentReadinessNoSecrets", "Le chiavi segrete restano solo nelle Supabase Edge Functions, mai nel frontend."))}</small>
+      <button type="button" class="light is-disabled" id="stripeConnectStartButton" disabled>${escapeHtml(t("betaPaymentsDisabledButton", "Pagamenti non attivi in beta"))}</button>
+      <small>${escapeHtml(t("betaPaymentsNoSecrets", "Le integrazioni Stripe restano nel backend e saranno riattivate solo quando la fase pagamenti sarà pronta."))}</small>
     </div>
   `;
 }
-
 
 function ensureMasterPaymentsPanel() {
   const view = ensureMasterPaymentsView();
@@ -8149,6 +8219,23 @@ function renderMasterPaymentsPanel() {
 
   if (!getCurrentUserId()) {
     panel.innerHTML = "";
+    return;
+  }
+
+  if (!areLorecastPaymentsActive()) {
+    panel.innerHTML = `
+      <div class="section-heading-row">
+        <div>
+          <span class="payment-readiness-kicker">${escapeHtml(t("masterPaymentsKicker", "Beta"))}</span>
+          <h2>${escapeHtml(t("betaPaymentsMasterPanelTitle", "Pagamenti non attivi"))}</h2>
+          <p>${escapeHtml(t("betaPaymentsMasterPanelIntro", "Durante la beta iniziale i pagamenti ai Master sono disattivati. Puoi continuare a testare storie, disponibilità, sessioni e messaggi."))}</p>
+        </div>
+      </div>
+      <div class="empty-state small">
+        <strong>${escapeHtml(t("betaPaymentsMasterPanelEmptyTitle", "Nessun pagamento richiesto in beta"))}</strong>
+        <p>${escapeHtml(t("betaPaymentsMasterPanelEmptyText", "La cronologia pagamenti tornerà disponibile quando Stripe verrà riattivato."))}</p>
+      </div>
+    `;
     return;
   }
 
@@ -8277,6 +8364,10 @@ async function refreshMasterPaymentsPanel() {
 }
 
 async function requestTestRefund(checkoutSessionId) {
+  if (!areLorecastPaymentsActive()) {
+    showToast(t("betaPaymentsDisabledToast", "I pagamenti non sono attivi durante questa fase beta."), "warning");
+    return;
+  }
   const sessionId = String(checkoutSessionId || "").trim();
   if (!sessionId) {
     showToast(t("masterPaymentsRefundMissing", "Rimborso non disponibile: checkout mancante."), "error");
@@ -8374,6 +8465,11 @@ function getStripeConnectReturnUrl() {
 }
 
 async function startStripeConnectOnboarding() {
+  if (!areLorecastPaymentsActive()) {
+    showToast(t("betaPaymentsDisabledToast", "I pagamenti non sono attivi durante questa fase beta."), "warning");
+    renderMasterPaymentReadiness();
+    return;
+  }
   if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
     showToast(t("paymentConnectMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
     return;
@@ -8407,6 +8503,11 @@ async function startStripeConnectOnboarding() {
 }
 
 async function refreshStripeConnectStatus(options = {}) {
+  if (!areLorecastPaymentsActive()) {
+    if (!options.silent) showToast(t("betaPaymentsDisabledToast", "I pagamenti non sono attivi durante questa fase beta."), "warning");
+    renderMasterPaymentReadiness();
+    return null;
+  }
   if (typeof supabaseClient === "undefined" || !supabaseClient.functions?.invoke) {
     if (!options.silent) showToast(t("paymentConnectMissingFunctions", "Supabase Functions non è disponibile. Controlla configurazione e deploy."), "error");
     return null;

@@ -6415,31 +6415,64 @@ a[role="button"]:active,
   }
 }
 
-.story-review-action-panel {
+/* UPDATE 95C - recensioni reali e limite messaggi pre-prenotazione */
+.story-review-action {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
   align-items: center;
-  margin-bottom: 1rem;
-  padding: 1rem;
-  border: 1px solid rgba(17, 24, 39, 0.08);
-  border-radius: 1rem;
-  background: rgba(255, 250, 237, 0.82);
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 180px;
 }
 
-.story-review-action-panel p {
-  margin: 0.25rem 0 0;
-  color: var(--muted, #5b6472);
+.story-review-eligibility-note {
+  display: inline-block;
+  max-width: 260px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
 }
 
-.story-review-action-panel.is-reviewed {
-  display: block;
-  background: rgba(236, 253, 245, 0.82);
-}
-
-@media (max-width: 720px) {
-  .story-review-action-panel {
-    align-items: stretch;
-    flex-direction: column;
+@media (max-width: 700px) {
+  .story-review-action {
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
   }
+
+  .story-review-eligibility-note {
+    text-align: left;
+    max-width: none;
+  }
+}
+
+/* UPDATE 96A - descrizioni compatte nelle card e dettaglio storia semplificato */
+.story-card-description,
+.open-session-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+.story-card-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 4px 0 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--primary-dark);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.story-card-more-button:hover {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: #f5f3ff;
 }

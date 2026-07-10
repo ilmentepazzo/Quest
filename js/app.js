@@ -41,8 +41,10 @@ let currentBookingMessagesBookingId = null;
 let microLoadingTimer = null;
 let microLoadingStartedAt = 0;
 let microInteractionsReady = false;
+let currentReviewContext = null;
 
 const MICRO_LOADING_MIN_MS = 260;
+const STORY_INQUIRY_COOLDOWN_MS = 5 * 60 * 60 * 1000;
 
 // Beta iniziale: i pagamenti reali/test sono pronti lato backend ma non esposti agli utenti.
 // Impostare a true solo quando si vuole riattivare la UI checkout/Stripe Connect.
@@ -749,6 +751,83 @@ function getConversationMessages(conversationIdValue) {
 function getLatestConversationMessage(conversation) {
   const messages = getConversationMessages(conversation?.id);
   return messages[messages.length - 1] || null;
+}
+
+function formatInquiryCooldownRemaining(ms) {
+  const totalMinutes = Math.max(1, Math.ceil(Number(ms || 0) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0 && minutes > 0) {
+    return tf("cooldownHoursMinutes", { hours, minutes }, `${hours} h ${minutes} min`);
+  }
+  if (hours > 0) {
+    return hours === 1
+      ? t("cooldownOneHour", "1 ora")
+      : tf("cooldownHours", { hours }, `${hours} ore`);
+  }
+  return minutes === 1
+    ? t("cooldownOneMinute", "1 minuto")
+    : tf("cooldownMinutes", { minutes }, `${minutes} minuti`);
+}
+
+function hasCurrentUserStoryAccessForMessaging(storyIdValue, userId = getCurrentUserId()) {
+  const normalizedStoryId = storyId(storyIdValue);
+  if (!normalizedStoryId || !userId) return false;
+
+  if (isStoryPurchasedByCurrentUser(normalizedStoryId) || isStoryUnlocked(normalizedStoryId)) return true;
+
+  const privateAccess = getBookings().some(booking =>
+    storyIdsMatch(booking.user_id, userId) &&
+    storyIdsMatch(booking.storyId || booking.story_id, normalizedStoryId) &&
+    !isBookingRejectedOrCancelled(booking.status) &&
+    (isBookingAccepted(booking.status) || isBookingCompleted(booking.status)) &&
+    (!isBookingExpired(booking) || isBookingCompleted(booking.status))
+  );
+
+  if (privateAccess) return true;
+
+  return getJoinedPublicSessionProfileItems(userId).some(item =>
+    storyIdsMatch(item.storyId, normalizedStoryId) &&
+    (isBookingCompleted(item.status) || !item.expired)
+  );
+}
+
+function getStoryConversationCooldownInfo(conversation, userId = getCurrentUserId()) {
+  if (!conversation || !userId) return { allowed: true };
+  if (!storyIdsMatch(userId, conversation.playerId)) return { allowed: true };
+  if (hasCurrentUserStoryAccessForMessaging(conversation.storyId, userId)) return { allowed: true };
+
+  const playerMessages = getConversationMessages(conversation.id)
+    .filter(message => storyIdsMatch(message.senderId, userId) && message.createdAt)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  const latest = playerMessages[0];
+  if (!latest?.createdAt) return { allowed: true };
+
+  const elapsed = Date.now() - new Date(latest.createdAt).getTime();
+  const remainingMs = STORY_INQUIRY_COOLDOWN_MS - elapsed;
+  if (remainingMs <= 0) return { allowed: true };
+
+  return {
+    allowed: false,
+    remainingMs,
+    label: formatInquiryCooldownRemaining(remainingMs),
+    latest
+  };
+}
+
+async function ensureConversationMessagesForCooldown() {
+  if (supabaseConversationMessagesLoaded || typeof supabaseClient === "undefined") return;
+  await loadSupabaseConversationMessages();
+}
+
+function showStoryInquiryCooldownToast(cooldownInfo) {
+  const time = cooldownInfo?.label || t("cooldownFewHours", "qualche ora");
+  showToast(
+    tf("storyInquiryCooldownToast", { time }, `Hai già inviato una domanda recente per questa storia. Potrai aggiungere un nuovo messaggio tra ${time}.`),
+    "warning"
+  );
 }
 
 function findExistingConversation({ storyId: storyIdValue, playerId, masterId, bookingId = "", publicSessionId = "", type = "story" } = {}) {
@@ -2553,17 +2632,6 @@ function getJoinedPublicSessionProfileItems(userId = getCurrentUserId()) {
     .filter(Boolean);
 }
 
-function renderStoryCompactReviewAction(story, className = "light compact-action") {
-  const eligibility = getReviewEligibilityForStory(story);
-
-  if (eligibility.review) {
-    return `<span class="profile-info-chip rating-chip">${t("reviewAlreadySent", "Recensita")} · ${"★".repeat(Number(eligibility.review.rating || 0))}</span>`;
-  }
-
-  if (!eligibility.canReview) return "";
-  return `<button class="${className}" type="button" onclick='openStoryReviewModal(${storyJsArg(story.id)})'>${t("reviewLeaveButton", "Lascia recensione")}</button>`;
-}
-
 function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -2625,11 +2693,7 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
         : `<span class="profile-info-chip ${reviewSummary.count ? "rating-chip" : "muted-chip"}">${reviewSummary.label}</span>`;
     const messageAction = type === "booking" ? renderBookingMessageAction(item, "light compact-action") : "";
     const paymentAction = type === "booking" ? renderBookingPaymentAction(item, "primary compact-action") : "";
-    const reviewAction = type === "booking"
-      ? renderBookingReviewAction(item, "light compact-action")
-      : type === "purchase"
-        ? renderStoryCompactReviewAction(story, "light compact-action")
-        : "";
+    const reviewAction = type === "booking" ? renderBookingReviewAction(item, "light compact-action") : "";
 
     return `
       <article class="profile-compact-item ${unreadMessages > 0 ? "has-unread-messages" : ""}">
@@ -3046,7 +3110,10 @@ function card(story) {
 
         <h2>${story.title}</h2>
         ${renderStoryCardRating(story)}
-        <p>${story.desc}</p>
+        <p class="story-card-description">${escapeHtml(story.desc || "")}</p>
+        <button type="button" class="story-card-more-button" onclick='event.stopPropagation(); openStory(${storyArg})'>
+          ${t("storyCardMoreDetails", "Mostra altro")}
+        </button>
         <button type="button" class="story-card-author" onclick='event.stopPropagation(); openStoryAuthorProfile(${storyArg})'>
           ${t("storyBy", "di")} ${escapeHtml(authorName)}
         </button>
@@ -3396,7 +3463,6 @@ function openStory(id, options = {}) {
 
   setText("detailTitle", story.title);
   setText("detailDesc", story.desc);
-  setText("detailLong", story.long);
   setText("detailDuration", story.duration);
   setText("detailPlayers", story.players);
   setText("detailLevel", story.level);
@@ -3526,79 +3592,6 @@ function closeStoryInquiryModal() {
   if (modal) modal.classList.remove("open");
 }
 
-
-const PRE_BOOKING_MESSAGE_COOLDOWN_MS = 5 * 60 * 60 * 1000;
-
-function formatMessageCooldownRemaining(ms) {
-  const totalMinutes = Math.max(1, Math.ceil(Number(ms || 0) / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours && minutes) return tf("storyInquiryCooldownTimeHoursMinutes", { hours, minutes }, `${hours} h ${minutes} min`);
-  if (hours) return tf("storyInquiryCooldownTimeHours", { hours }, `${hours} h`);
-  return tf("storyInquiryCooldownTimeMinutes", { minutes }, `${minutes} min`);
-}
-
-function hasConversationFullAccess(storyIdValue, userIdValue = getCurrentUserId()) {
-  const normalizedStoryId = storyId(storyIdValue);
-  const normalizedUserId = storyId(userIdValue);
-  if (!normalizedStoryId || !normalizedUserId) return false;
-
-  const story = getAllStories().find(item => storyIdsMatch(item.id, normalizedStoryId));
-
-  if (getPaidPurchaseForReview(normalizedStoryId, normalizedUserId)) return true;
-  if (story && isStoryUnlockedForReview(story)) return true;
-
-  const activeBooking = getBookings().find(booking =>
-    booking.source !== "public_session" &&
-    storyIdsMatch(booking.storyId, normalizedStoryId) &&
-    storyIdsMatch(booking.user_id, normalizedUserId) &&
-    (isBookingAccepted(booking.status) || isBookingCompleted(booking.status)) &&
-    !isBookingRejectedOrCancelled(booking.status) &&
-    (!isBookingExpired(booking) || hasCompletedBookingAccess(booking))
-  );
-  if (activeBooking) return true;
-
-  const joinedSession = getJoinedPublicSessionProfileItems(normalizedUserId).find(item =>
-    storyIdsMatch(item.storyId, normalizedStoryId) &&
-    (hasCompletedBookingAccess(item) || !item.expired)
-  );
-
-  return Boolean(joinedSession);
-}
-
-function getConversationPreBookingCooldown(conversation, userIdValue = getCurrentUserId()) {
-  const normalizedUserId = storyId(userIdValue);
-  if (!conversation || !normalizedUserId) return { blocked: false, remainingMs: 0 };
-
-  if (!storyIdsMatch(conversation.playerId, normalizedUserId)) {
-    return { blocked: false, remainingMs: 0 };
-  }
-
-  if (hasConversationFullAccess(conversation.storyId, normalizedUserId)) {
-    return { blocked: false, remainingMs: 0 };
-  }
-
-  const lastOwnMessage = getConversationMessages(conversation.id)
-    .filter(message => storyIdsMatch(message.senderId, normalizedUserId))
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
-
-  if (!lastOwnMessage?.createdAt) return { blocked: false, remainingMs: 0 };
-
-  const elapsed = Date.now() - new Date(lastOwnMessage.createdAt).getTime();
-  const remainingMs = PRE_BOOKING_MESSAGE_COOLDOWN_MS - elapsed;
-  return remainingMs > 0 ? { blocked: true, remainingMs } : { blocked: false, remainingMs: 0 };
-}
-
-function checkConversationPreBookingCooldown(conversation, userIdValue = getCurrentUserId()) {
-  const cooldown = getConversationPreBookingCooldown(conversation, userIdValue);
-  if (!cooldown.blocked) return true;
-
-  const remaining = formatMessageCooldownRemaining(cooldown.remainingMs);
-  showToast(tf("storyInquiryCooldownToast", { time: remaining }, `Hai già inviato una domanda recente. Potrai scrivere di nuovo tra ${remaining}.`), "warning");
-  return false;
-}
-
 async function sendStoryInquiry(event) {
   event?.preventDefault();
 
@@ -3642,7 +3635,12 @@ async function sendStoryInquiry(event) {
     const conversation = await getOrCreateStoryConversation(story, userId, recipientId);
     if (!conversation?.id) throw new Error(t("conversationMissing", "Conversazione non disponibile."));
 
-    if (!checkConversationPreBookingCooldown(conversation, userId)) return;
+    await ensureConversationMessagesForCooldown();
+    const cooldownInfo = getStoryConversationCooldownInfo(conversation, userId);
+    if (!cooldownInfo.allowed) {
+      showStoryInquiryCooldownToast(cooldownInfo);
+      return;
+    }
 
     const { data: messageRow, error: messageError } = await supabaseClient
       .from("conversation_messages")
@@ -3851,7 +3849,12 @@ async function sendConversationThreadMessage(event) {
     return;
   }
 
-  if (!checkConversationPreBookingCooldown(conversation, userId)) return;
+  await ensureConversationMessagesForCooldown();
+  const cooldownInfo = getStoryConversationCooldownInfo(conversation, userId);
+  if (!cooldownInfo.allowed) {
+    showStoryInquiryCooldownToast(cooldownInfo);
+    return;
+  }
 
   const { data, error } = await supabaseClient
     .from("conversation_messages")
@@ -4474,9 +4477,73 @@ function renderStoryReviewsEmptyState() {
   `;
 }
 
+async function registerFreeStoryUnlockPurchase(story) {
+  if (typeof supabaseClient === "undefined" || !story?.id || isStoryPaymentRequired(story)) return null;
+
+  const userId = getCurrentUserId();
+  if (!userId || isCurrentUserStory(story)) return null;
+
+  const existing = getCurrentUserStoryPurchase(story.id);
+  if (existing) return existing;
+
+  const payload = {
+    story_id: storyId(story.id),
+    user_id: userId,
+    master_id: getStoryAuthorId(story) || null,
+    payment_status: "not_required",
+    amount: 0,
+    currency: "EUR",
+    payment_amount: 0,
+    payment_currency: "EUR",
+    payment_provider: "free_unlock",
+    payment_reference: `free-unlock-${userId}-${storyId(story.id)}`
+  };
+
+  const { data, error } = await supabaseClient
+    .from("story_purchases")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    const message = String(error.message || "").toLowerCase();
+    if (!message.includes("duplicate") && !message.includes("unique")) {
+      console.warn("Sblocco gratuito salvato solo localmente:", error.message);
+      return null;
+    }
+
+    const { data: existingRows, error: selectError } = await supabaseClient
+      .from("story_purchases")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("story_id", storyId(story.id))
+      .limit(1);
+
+    if (selectError) {
+      console.warn("Sblocco già presente, ma non leggibile:", selectError.message);
+      return null;
+    }
+
+    const normalizedExisting = normalizeStoryPurchase(existingRows?.[0]);
+    if (normalizedExisting) {
+      supabaseStoryPurchasesCache = [normalizedExisting, ...supabaseStoryPurchasesCache.filter(item => !storyIdsMatch(item.id, normalizedExisting.id))];
+      supabaseStoryPurchasesLoaded = true;
+    }
+    return normalizedExisting;
+  }
+
+  const normalized = normalizeStoryPurchase(data);
+  if (normalized) {
+    supabaseStoryPurchasesCache = [normalized, ...supabaseStoryPurchasesCache.filter(item => !storyIdsMatch(item.id, normalized.id))];
+    supabaseStoryPurchasesLoaded = true;
+  }
+  return normalized;
+}
+
 function renderStoryReviews(story = currentStory) {
   const container = document.getElementById("storyReviewsList");
   const summaryEl = document.getElementById("storyReviewsSummary");
+  renderStoryReviewAction(story);
   if (!container) return;
 
   const storyIdValue = storyId(story?.id || "");
@@ -4502,14 +4569,12 @@ function renderStoryReviews(story = currentStory) {
       : t("storyReviewsSummaryNone", "Nessuna recensione ancora.");
   }
 
-  const actionHtml = renderStoryReviewAction(story);
-
   if (!reviews.length) {
-    container.innerHTML = `${actionHtml}${renderStoryReviewsEmptyState()}`;
+    container.innerHTML = renderStoryReviewsEmptyState();
     return;
   }
 
-  container.innerHTML = `${actionHtml}${reviews.slice(0, 6).map(review => {
+  container.innerHTML = reviews.slice(0, 6).map(review => {
     const rating = Math.round(Number(review.rating || 0));
     const author = getReviewAuthorName(review);
     const date = getReviewDateLabel(review);
@@ -4524,10 +4589,10 @@ function renderStoryReviews(story = currentStory) {
         ${date ? `<small>${escapeHtml(date)}</small>` : ""}
       </article>
     `;
-  }).join("")}`;
+  }).join("");
 }
 
-function unlockCurrentStory() {
+async function unlockCurrentStory() {
   if (!currentStory) return;
 
   if (isStoryPaymentRequired(currentStory)) {
@@ -4545,8 +4610,11 @@ function unlockCurrentStory() {
 
   writeJsonStorage(getUserScopedKey("questhubUnlockedStories"), unlockedStories);
 
+  await registerFreeStoryUnlockPurchase(currentStory);
+
   renderStoryMaterials(currentStory);
   renderStoryPaymentPanel(currentStory);
+  renderStoryReviews(currentStory);
   showToast("Storia sbloccata. Ora puoi vedere i materiali riservati.", "success");
   addNotification(`Materiali sbloccati per "${currentStory.title}".`, "success", { storyId: currentStory.id });
 }
@@ -7115,7 +7183,7 @@ function renderOpenSessions() {
               <div class="open-session-content">
                 <span class="tag ${genreClass}">${escapeHtml(story.genre)}</span>
                 <h3>${escapeHtml(story.title)}</h3>
-                <p>${escapeHtml(story.desc || "")}</p>
+                <p class="open-session-description">${escapeHtml(story.desc || "")}</p>
                 <div class="open-session-meta">
                   <span><strong>${t("storyAuthor", "Autore")}:</strong> ${escapeHtml(story.master || "Master Lorecast")}</span>
                   <span><strong>${t("sessionWhen", "Quando")}:</strong> ${formatBookingDateTime(session.sessionDate, session.startTime, session.endTime)}</span>
@@ -7125,7 +7193,7 @@ function renderOpenSessions() {
                 ${renderSessionParticipantsPreview(session)}
                 ${isJoined ? `<div class="joined-inline-banner"><span>✓</span> ${t("sessionAlreadyJoined", "Sei già iscritto a questa sessione.")}</div>` : ""}
                 <div class="open-session-actions">
-                  <button class="light" onclick='openStory(${storyArg})'>${t("commonViewStory", "Vedi storia")}</button>
+                  <button class="light" onclick='openStory(${storyArg})'>${t("storyCardMoreDetails", "Mostra altro")}</button>
                   ${isOwner
                     ? `<button class="primary" onclick="go('area-master')">${t("commonManage", "Gestisci")}</button>`
                     : isJoined
@@ -7747,7 +7815,6 @@ async function createStory() {
   const duration = document.getElementById("newStoryDuration")?.value.trim() || "";
   const players = document.getElementById("newStoryPlayers")?.value.trim() || "";
   const desc = document.getElementById("newStoryDesc")?.value.trim() || "";
-  const long = document.getElementById("newStoryLong")?.value.trim() || "";
   const coverUrlInput = document.getElementById("newStoryCover")?.value.trim() || "";
   const trailer = document.getElementById("newStoryTrailer")?.value.trim() || "";
   const rawMaterials = getCreatedMaterials();
@@ -7811,7 +7878,7 @@ async function createStory() {
     mode: existingStory?.mode || "Online",
     master: profile.name || authData.user.user_metadata?.name || "Master Lorecast",
     description: desc,
-    long_description: long || desc,
+    long_description: null,
     cover_url: uploadedCoverUrl || coverUrlInput || existingStory?.cover || "",
     trailer_url: trailer,
     materials,
@@ -7956,7 +8023,6 @@ function populateStoryFormForEdit(story) {
   setValue("newStoryDuration", story.duration);
   setValue("newStoryPlayers", story.players);
   setValue("newStoryDesc", story.desc);
-  setValue("newStoryLong", story.long);
   setValue("newStoryCover", story.cover);
   setValue("newStoryTrailer", story.trailer);
 
@@ -8046,12 +8112,6 @@ function renderDashboardStats() {
   }
 
   if (ratingText) {
-    if (!supabaseReviewsLoaded && typeof supabaseClient !== "undefined") {
-      ratingText.textContent = t("storyReviewsLoading", "Caricamento recensioni...");
-      loadSupabaseReviews().then(() => renderDashboardStats());
-      return;
-    }
-
     const reviews = getProfileReviews();
     if (!reviews.length) {
       ratingText.textContent = t("masterRatingTextEmpty", "Nessuna recensione ancora");
@@ -10224,11 +10284,12 @@ function getPaidPurchaseForReview(storyIdValue, userIdValue = getCurrentUserId()
   const normalizedUserId = storyId(userIdValue);
   if (!normalizedStoryId || !normalizedUserId) return null;
 
-  return supabaseStoryPurchasesCache.find(purchase =>
-    storyIdsMatch(purchase.user_id, normalizedUserId) &&
-    storyIdsMatch(purchase.storyId, normalizedStoryId) &&
-    normalizePaymentStatus(purchase.paymentStatus) === "paid"
-  ) || null;
+  return supabaseStoryPurchasesCache.find(purchase => {
+    const status = normalizePaymentStatus(purchase.paymentStatus);
+    return storyIdsMatch(purchase.user_id, normalizedUserId) &&
+      storyIdsMatch(purchase.storyId, normalizedStoryId) &&
+      ["paid", "not_required"].includes(status);
+  }) || null;
 }
 
 function buildStoryReviewTarget(story, source, item = null) {
@@ -10236,6 +10297,7 @@ function buildStoryReviewTarget(story, source, item = null) {
   const masterId = storyId(getStoryAuthorId(story) || story.author_id || story.owner_id || story.masterId || item?.masterId || "");
   return {
     source,
+    backendSource: item?.source === "local" || story?.source === "local" ? "local" : "supabase",
     id: storyId(item?.id || story.id),
     bookingId: source === "booking" ? storyId(item?.id || "") : "",
     storyId: storyId(story.id || item?.storyId || ""),
@@ -10306,107 +10368,75 @@ function getReviewEligibilityForStory(story = currentStory) {
   return { canReview: false, reason: "not_available" };
 }
 
-let currentReviewTarget = null;
-
 function canReviewBooking(booking) {
-  const userId = getCurrentUserId();
   const target = getReviewTargetFromBooking(booking);
-  return Boolean(
-    target &&
-    userId &&
-    booking.user_id &&
-    storyIdsMatch(booking.user_id, userId) &&
-    !getReviewForStoryByCurrentUser(target.storyId, userId)
-  );
+  return Boolean(target && !getReviewForStoryByCurrentUser(target.storyId));
 }
 
 function renderBookingReviewAction(booking, className = "light compact-action") {
   const target = getReviewTargetFromBooking(booking);
   if (!target) return "";
 
-  const existingReview = getReviewForStoryByCurrentUser(target.storyId);
+  const existingReview = getReviewForStoryByCurrentUser(target.storyId) || (target.bookingId ? getReviewForBooking(target.bookingId) : null);
   if (existingReview) {
     return `<span class="profile-info-chip rating-chip">${t("reviewAlreadySent", "Recensita")} · ${"★".repeat(Number(existingReview.rating || 0))}</span>`;
   }
 
-  if (!canReviewBooking(booking)) return "";
+  if (booking?.source === "public_session") {
+    return `<button class="${escapeHtmlAttribute(className)}" type="button" onclick='openStoryReviewModal(${JSON.stringify(storyId(target.storyId))})'>${escapeHtml(t("reviewLeaveButton", "Lascia recensione"))}</button>`;
+  }
 
-  return `<button class="${className}" type="button" onclick='openReviewModal(${JSON.stringify(storyId(booking.id))})'>${t("reviewLeaveButton", "Lascia recensione")}</button>`;
+  if (!canReviewBooking(booking)) return "";
+  return `<button class="${escapeHtmlAttribute(className)}" type="button" onclick='openReviewModal(${JSON.stringify(storyId(booking.id))})'>${escapeHtml(t("reviewLeaveButton", "Lascia recensione"))}</button>`;
+}
+
+function getReviewEligibilityMessage(eligibility) {
+  if (!eligibility) return "";
+  if (eligibility.reason === "login") return t("reviewEligibilityLogin", "Accedi per lasciare una recensione verificata.");
+  if (eligibility.reason === "owner") return t("reviewEligibilityOwner", "Non puoi recensire una storia creata da te.");
+  if (eligibility.reason === "reviewed") return t("reviewEligibilityReviewed", "Hai già recensito questa storia.");
+  return t("reviewEligibilityLocked", "Potrai lasciare una recensione dopo aver acquistato, sbloccato o giocato questa storia.");
 }
 
 function renderStoryReviewAction(story = currentStory) {
-  const eligibility = getReviewEligibilityForStory(story);
+  const container = document.getElementById("storyReviewAction");
+  if (!container) return;
 
-  if (eligibility.review) {
-    return `
-      <div class="story-review-action-panel is-reviewed">
-        <strong>${escapeHtml(t("reviewAlreadySent", "Recensita"))} · ${"★".repeat(Number(eligibility.review.rating || 0))}</strong>
-        <p>${escapeHtml(t("reviewStoryAlreadySentHint", "Hai già lasciato una recensione per questa storia."))}</p>
-      </div>
-    `;
+  const eligibility = getReviewEligibilityForStory(story);
+  if (eligibility.canReview) {
+    container.innerHTML = `<button class="light compact-action" type="button" onclick='openStoryReviewModal(${JSON.stringify(storyId(story.id))})'>${escapeHtml(t("reviewLeaveButton", "Lascia recensione"))}</button>`;
+    return;
   }
 
-  if (!eligibility.canReview) return "";
+  if (eligibility.reason === "reviewed") {
+    const rating = Number(eligibility.review?.rating || 0);
+    container.innerHTML = `<span class="profile-info-chip rating-chip">${escapeHtml(t("reviewAlreadySent", "Recensita"))}${rating ? ` · ${"★".repeat(rating)}` : ""}</span>`;
+    return;
+  }
 
-  return `
-    <div class="story-review-action-panel">
-      <div>
-        <strong>${escapeHtml(t("reviewStoryActionTitle", "Hai vissuto questa storia?"))}</strong>
-        <p>${escapeHtml(t("reviewStoryActionText", "Lascia una recensione per aiutare altri giocatori e valorizzare il lavoro del Master."))}</p>
-      </div>
-      <button class="primary compact-action" type="button" onclick='openStoryReviewModal(${storyJsArg(story.id)})'>${escapeHtml(t("reviewLeaveButton", "Lascia recensione"))}</button>
-    </div>
-  `;
+  if (["owner", "not_available"].includes(eligibility.reason)) {
+    container.innerHTML = `<small class="story-review-eligibility-note">${escapeHtml(getReviewEligibilityMessage(eligibility))}</small>`;
+    return;
+  }
+
+  container.innerHTML = "";
 }
 
 function closeReviewModal() {
   const modal = document.getElementById("bookingReviewModal");
   if (modal) modal.remove();
-  currentReviewTarget = null;
+  currentReviewContext = null;
 }
 
-function openStoryReviewModal(storyIdValue) {
-  const story = getAllStories().find(item => storyIdsMatch(item.id, storyIdValue)) || currentStory;
-  const eligibility = getReviewEligibilityForStory(story);
-
-  if (!eligibility.canReview || !eligibility.target) {
-    const toast = eligibility.reason === "reviewed"
-      ? t("reviewAlreadySentToast", "Hai già recensito questa storia.")
-      : eligibility.reason === "login"
-        ? t("reviewLoginRequiredToast", "Accedi per lasciare una recensione.")
-        : t("reviewNotAvailableToast", "Puoi recensire solo storie sbloccate, acquistate o giocate.");
-    showToast(toast, "warning");
+function renderReviewModal(target) {
+  if (!target?.storyId || !target?.masterId) {
+    showToast(t("reviewNotAvailableToast", "Recensione non disponibile."), "warning");
     return;
   }
 
-  openReviewTargetModal(eligibility.target);
-}
-
-function openReviewModal(bookingIdValue) {
-  const bookingId = storyId(bookingIdValue);
-  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
-  const target = getReviewTargetFromBooking(booking);
-
-  if (!target || !canReviewBooking(booking)) {
-    const existingReview = target ? getReviewForStoryByCurrentUser(target.storyId) : getReviewForBooking(bookingId);
-    showToast(existingReview ? t("reviewAlreadySentToast", "Hai già recensito questa storia.") : t("reviewNotAvailableToast", "Puoi recensire solo storie sbloccate, acquistate o giocate."), "warning");
-    return;
-  }
-
-  openReviewTargetModal(target);
-}
-
-function openReviewTargetModal(target) {
-  if (!target?.storyId) {
-    showToast(t("reviewNotAvailableToast", "Puoi recensire solo storie sbloccate, acquistate o giocate."), "warning");
-    return;
-  }
-
-  currentReviewTarget = target;
   closeReviewModal();
-  currentReviewTarget = target;
+  currentReviewContext = target;
 
-  const subtitleParts = [target.storyTitle || t("storyFallback", "una storia"), target.dateLabel].filter(Boolean);
   const modal = document.createElement("div");
   modal.id = "bookingReviewModal";
   modal.className = "review-modal open";
@@ -10416,7 +10446,7 @@ function openReviewTargetModal(target) {
         <div>
           <p class="eyebrow">${escapeHtml(t("reviewModalEyebrow", "Recensione verificata"))}</p>
           <h2 id="bookingReviewTitle">${escapeHtml(t("reviewModalTitle", "Com’è stata l’esperienza?"))}</h2>
-          <p>${escapeHtml(subtitleParts.join(" · "))}</p>
+          <p>${escapeHtml(target.storyTitle || t("storyFallback", "una storia"))}${target.dateLabel ? ` · ${escapeHtml(target.dateLabel)}` : ""}</p>
         </div>
         <button class="icon-button light" type="button" onclick="closeReviewModal()" aria-label="${escapeHtmlAttribute(t("commonCloseModal", "Chiudi modale"))}">×</button>
       </div>
@@ -10436,7 +10466,7 @@ function openReviewTargetModal(target) {
 
       <div class="review-modal-actions">
         <button class="light" type="button" onclick="closeReviewModal()">${escapeHtml(t("commonCancel", "Annulla"))}</button>
-        <button class="primary" type="button" onclick="submitBookingReview()">${escapeHtml(t("reviewSubmitButton", "Pubblica recensione"))}</button>
+        <button class="primary" type="button" onclick="submitCurrentReview()">${escapeHtml(t("reviewSubmitButton", "Pubblica recensione"))}</button>
       </div>
     </div>
   `;
@@ -10448,16 +10478,54 @@ function openReviewTargetModal(target) {
   document.body.appendChild(modal);
 }
 
-async function submitBookingReview() {
-  const target = currentReviewTarget;
+function openReviewModal(bookingIdValue) {
+  const bookingId = storyId(bookingIdValue);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+  const target = getReviewTargetFromBooking(booking);
 
-  if (!target?.storyId) {
-    showToast(t("reviewNotAvailableToast", "Puoi recensire solo storie sbloccate, acquistate o giocate."), "warning");
+  if (!target || !canReviewBooking(booking)) {
+    const existingReview = target ? getReviewForStoryByCurrentUser(target.storyId) || getReviewForBooking(bookingId) : getReviewForBooking(bookingId);
+    showToast(existingReview ? t("reviewAlreadySentToast", "Hai già recensito questa storia.") : t("reviewNotAvailableToast", "Puoi recensire solo esperienze completate o sbloccate."), "warning");
+    return;
+  }
+
+  renderReviewModal(target);
+}
+
+function openStoryReviewModal(storyIdValue) {
+  const story = getAllStories().find(item => storyIdsMatch(item.id, storyIdValue)) || currentStory;
+  const eligibility = getReviewEligibilityForStory(story);
+
+  if (!eligibility.canReview) {
+    showToast(getReviewEligibilityMessage(eligibility), "warning");
+    return;
+  }
+
+  renderReviewModal(eligibility.target);
+}
+
+async function submitBookingReview(bookingIdValue) {
+  const bookingId = storyId(bookingIdValue);
+  const booking = getBookings().find(item => storyIdsMatch(item.id, bookingId));
+  const target = getReviewTargetFromBooking(booking);
+  if (!target) {
+    showToast(t("reviewNotAvailableToast", "Recensione non disponibile."), "warning");
+    return;
+  }
+  currentReviewContext = target;
+  await submitCurrentReview();
+}
+
+async function submitCurrentReview() {
+  const target = currentReviewContext;
+  if (!target?.storyId || !target?.masterId) {
+    showToast(t("reviewNotAvailableToast", "Recensione non disponibile."), "warning");
     closeReviewModal();
     return;
   }
 
-  if (getReviewForStoryByCurrentUser(target.storyId)) {
+  const alreadyReviewed = getReviewForStoryByCurrentUser(target.storyId);
+  if (alreadyReviewed) {
     showToast(t("reviewAlreadySentToast", "Hai già recensito questa storia."), "warning");
     closeReviewModal();
     return;
@@ -10477,6 +10545,7 @@ async function submitBookingReview() {
   }
 
   const payload = {
+    booking_id: target.bookingId || null,
     story_id: storyId(target.storyId),
     master_id: storyId(target.masterId),
     user_id: getCurrentUserId(),
@@ -10484,11 +10553,9 @@ async function submitBookingReview() {
     comment
   };
 
-  if (target.bookingId) {
-    payload.booking_id = storyId(target.bookingId);
-  }
+  const shouldUseSupabase = typeof supabaseClient !== "undefined" && target.backendSource !== "local";
 
-  if (typeof supabaseClient !== "undefined") {
+  if (shouldUseSupabase) {
     const { data, error } = await supabaseClient
       .from("reviews")
       .insert(payload)
@@ -10507,7 +10574,7 @@ async function submitBookingReview() {
   } else {
     const localReviews = readJsonStorage("questhubStoryReviews", []);
     localReviews.unshift({
-      id: `local-review-${target.storyId}-${getCurrentUserId()}-${Date.now()}`,
+      id: `local-review-${Date.now()}`,
       bookingId: target.bookingId || "",
       storyId: storyId(target.storyId),
       masterId: storyId(target.masterId),
@@ -10527,11 +10594,9 @@ async function submitBookingReview() {
   await loadSupabaseMarketplaceState();
   renderUserProfile();
   renderStoryReviews(currentStory);
-  renderDetailRatingSummary(currentStory);
   renderDashboardStats();
   renderHomeMarketplace();
 }
-
 
 async function completeBooking(id) {
   const bookingId = storyId(id);

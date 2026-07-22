@@ -60,6 +60,26 @@
           </div>
         </div>
 
+        <div class="profile-library-tools">
+          <div class="profile-library-search-row">
+            <label class="profile-library-search" for="profileLibrarySearch">
+              <span aria-hidden="true">⌕</span>
+              <input
+                id="profileLibrarySearch"
+                type="search"
+                autocomplete="off"
+                data-i18n-placeholder="profileLibrarySearchPlaceholder"
+                data-i18n-aria-label="profileLibrarySearchLabel"
+                placeholder="Cerca nella sezione selezionata..."
+                aria-label="Cerca nella libreria"
+                oninput="handleProfileLibrarySearch(event)"
+              />
+            </label>
+            <button id="profileLibraryClearSearch" type="button" class="light profile-library-clear-search" onclick="clearProfileLibrarySearch()" hidden data-i18n="profileLibraryClearSearch">Azzera ricerca</button>
+          </div>
+          <small data-i18n="profileLibrarySearchHint">Cerca per titolo, genere, formato o contenuto nel tab selezionato.</small>
+        </div>
+
         <div class="profile-tabs" role="tablist" aria-label="Libreria profilo" data-i18n-aria-label="profileLibraryTitle">
           <button class="profile-tab-button active" data-profile-tab="created" onclick="setProfileLibraryTab('created')"> <span data-i18n="profileTabCreated">Create</span></button>
           <button class="profile-tab-button" data-profile-tab="played" onclick="setProfileLibraryTab('played')"> <span data-i18n="profileTabPlayed">Giocate</span></button>
@@ -83,6 +103,21 @@
             <p data-i18n="profileEmptyBooked">Non hai ancora storie prenotate.</p>
           </div>
         </div>
+
+        <nav id="profileLibraryPagination" class="profile-library-pagination" aria-label="Pagine della libreria" data-i18n-aria-label="profileLibraryPaginationLabel" hidden>
+          <button id="profileLibraryPrevious" type="button" class="light" onclick="changeProfileLibraryPage(-1)">
+            <span aria-hidden="true">←</span>
+            <span data-i18n="profileLibraryPrevious">Precedente</span>
+          </button>
+          <div class="profile-library-page-status" aria-live="polite">
+            <strong id="profileLibraryPageStatus">Pagina 1 di 1</strong>
+            <small id="profileLibraryItemsStatus">1–5 di 5</small>
+          </div>
+          <button id="profileLibraryNext" type="button" class="light" onclick="changeProfileLibraryPage(1)">
+            <span data-i18n="profileLibraryNext">Successiva</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </nav>
       </section>
 
       <section class="card">

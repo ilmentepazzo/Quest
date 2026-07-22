@@ -42,6 +42,29 @@ let microLoadingTimer = null;
 let microLoadingStartedAt = 0;
 let microInteractionsReady = false;
 let currentReviewContext = null;
+let profileLibrarySearchTimer = null;
+
+const PROFILE_LIBRARY_PAGE_SIZE = 5;
+const profileLibraryState = {
+  activeTab: "created",
+  search: "",
+  pages: {
+    created: 1,
+    played: 1,
+    booked: 1,
+    purchases: 1,
+    favorites: 1,
+    inquiries: 1
+  }
+};
+let profileLibraryCollections = {
+  created: [],
+  played: [],
+  booked: [],
+  purchases: [],
+  favorites: [],
+  inquiries: []
+};
 
 const MICRO_LOADING_MIN_MS = 260;
 const STORY_INQUIRY_COOLDOWN_MS = 5 * 60 * 60 * 1000;
@@ -2486,12 +2509,12 @@ function getProfileInquiryUnreadCount(inquiries = []) {
   return inquiries.filter(inquiry => inquiry.hasUnread || isConversationUnread(inquiry)).length;
 }
 
-function renderProfileInquiries(containerId, inquiries) {
+function renderProfileInquiries(containerId, inquiries, emptyText = t("profileEmptyInquiries", "Non hai ancora messaggi.")) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   if (!inquiries.length) {
-    container.innerHTML = `<p>${escapeHtml(t("profileEmptyInquiries", "Non hai ancora messaggi."))}</p>`;
+    container.innerHTML = `<p>${escapeHtml(emptyText)}</p>`;
     return;
   }
 
@@ -2720,22 +2743,232 @@ function renderCompactStoryList(containerId, items, emptyText, type = "story") {
   }).join("");
 }
 
+function normalizeProfileLibrarySearchValue(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function getProfileLibraryStoryForItem(tabName, item) {
+  if (!item) return null;
+  if (tabName === "created") return item;
+  if (tabName === "purchases" || tabName === "favorites" || tabName === "inquiries") {
+    return item.storyRecord || getAllStories().find(story => storyIdsMatch(story.id, item.storyId)) || null;
+  }
+  if (tabName === "played" || tabName === "booked") {
+    return getAllStories().find(story => storyIdsMatch(story.id, item.storyId)) || null;
+  }
+  return null;
+}
+
+function getProfileLibraryItemSearchText(tabName, item) {
+  const story = getProfileLibraryStoryForItem(tabName, item);
+  const values = [
+    story?.title,
+    story?.desc,
+    story?.description,
+    story?.genre,
+    story?.type,
+    story?.format,
+    story?.language,
+    item?.story,
+    item?.message,
+    item?.status,
+    item?.date,
+    item?.startTime,
+    item?.endTime
+  ];
+
+  if (tabName === "inquiries") {
+    const otherUserId = storyIdsMatch(item?.playerId, getCurrentUserId()) ? item?.masterId : item?.playerId;
+    const latestMessage = getLatestConversationMessage(item);
+    values.push(
+      latestMessage?.body,
+      getUserDisplayName(otherUserId, ""),
+      item?.updatedAt,
+      item?.createdAt
+    );
+  }
+
+  return normalizeProfileLibrarySearchValue(values.filter(Boolean).join(" "));
+}
+
+function getProfileLibraryConfig(tabName) {
+  const configs = {
+    created: { containerId: "profileCreatedStories", type: "story", emptyKey: "profileEmptyCreated", emptyText: "Non hai ancora creato storie." },
+    played: { containerId: "profilePlayedStories", type: "booking", emptyKey: "profileEmptyPlayed", emptyText: "Non hai ancora storie giocate." },
+    booked: { containerId: "profileBookedStories", type: "booking", emptyKey: "profileEmptyBooked", emptyText: "Non hai ancora storie prenotate." },
+    purchases: { containerId: "profilePurchasedStories", type: "purchase", emptyKey: "profileEmptyPurchases", emptyText: "Non hai ancora acquisti." },
+    favorites: { containerId: "profileFavoriteStories", type: "favorite", emptyKey: "profileEmptyFavorites", emptyText: "Non hai ancora storie preferite." },
+    inquiries: { containerId: "profileStoryInquiries", type: "inquiry", emptyKey: "profileEmptyInquiries", emptyText: "Non hai ancora messaggi." }
+  };
+  return configs[tabName] || configs.created;
+}
+
+function getFilteredProfileLibraryItems(tabName) {
+  const items = Array.isArray(profileLibraryCollections[tabName]) ? profileLibraryCollections[tabName] : [];
+  const query = normalizeProfileLibrarySearchValue(profileLibraryState.search);
+  if (!query) return items;
+
+  const terms = query.split(/\s+/).filter(Boolean);
+  return items.filter(item => {
+    const searchable = getProfileLibraryItemSearchText(tabName, item);
+    return terms.every(term => searchable.includes(term));
+  });
+}
+
+function getProfileLibraryNoResultsText() {
+  const query = String(profileLibraryState.search || "").trim();
+  return tf(
+    "profileLibraryNoResults",
+    { query: query || "—" },
+    `Nessun risultato per “${query || "—"}”.`
+  );
+}
+
+function updateProfileLibraryPagination(totalItems, totalPages, page) {
+  const pagination = document.getElementById("profileLibraryPagination");
+  const previous = document.getElementById("profileLibraryPrevious");
+  const next = document.getElementById("profileLibraryNext");
+  const pageStatus = document.getElementById("profileLibraryPageStatus");
+  const itemsStatus = document.getElementById("profileLibraryItemsStatus");
+  const searchInput = document.getElementById("profileLibrarySearch");
+  const clearSearch = document.getElementById("profileLibraryClearSearch");
+
+  if (searchInput && searchInput.value !== profileLibraryState.search) {
+    searchInput.value = profileLibraryState.search;
+  }
+  if (clearSearch) clearSearch.hidden = !String(profileLibraryState.search || "").trim();
+
+  if (!pagination) return;
+  pagination.hidden = totalItems === 0;
+  if (totalItems === 0) return;
+
+  const from = ((page - 1) * PROFILE_LIBRARY_PAGE_SIZE) + 1;
+  const to = Math.min(page * PROFILE_LIBRARY_PAGE_SIZE, totalItems);
+
+  if (previous) previous.disabled = page <= 1;
+  if (next) next.disabled = page >= totalPages;
+  if (pageStatus) {
+    pageStatus.textContent = tf(
+      "profileLibraryPageStatus",
+      { page, pages: totalPages },
+      `Pagina ${page} di ${totalPages}`
+    );
+  }
+  if (itemsStatus) {
+    itemsStatus.textContent = tf(
+      "profileLibraryItemsStatus",
+      { from, to, count: totalItems },
+      `${from}–${to} di ${totalItems}`
+    );
+  }
+}
+
+function renderProfileLibraryTab(tabName, options = {}) {
+  const config = getProfileLibraryConfig(tabName);
+  const allItems = Array.isArray(profileLibraryCollections[tabName]) ? profileLibraryCollections[tabName] : [];
+  const filteredItems = options.ignoreSearch ? allItems : getFilteredProfileLibraryItems(tabName);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PROFILE_LIBRARY_PAGE_SIZE));
+  const requestedPage = Number(profileLibraryState.pages[tabName] || 1);
+  const page = Math.min(Math.max(1, requestedPage), totalPages);
+  profileLibraryState.pages[tabName] = page;
+
+  const start = (page - 1) * PROFILE_LIBRARY_PAGE_SIZE;
+  const visibleItems = filteredItems.slice(start, start + PROFILE_LIBRARY_PAGE_SIZE);
+  const hasSearch = !options.ignoreSearch && Boolean(normalizeProfileLibrarySearchValue(profileLibraryState.search));
+  const emptyText = hasSearch
+    ? getProfileLibraryNoResultsText()
+    : t(config.emptyKey, config.emptyText);
+
+  if (config.type === "inquiry") {
+    renderProfileInquiries(config.containerId, visibleItems, emptyText);
+  } else {
+    renderCompactStoryList(config.containerId, visibleItems, emptyText, config.type);
+  }
+
+  if (tabName === profileLibraryState.activeTab && !options.skipPagination) {
+    updateProfileLibraryPagination(filteredItems.length, totalPages, page);
+  }
+}
+
 function renderProfileLibrary(createdStories, playedStories, bookedStories, purchasedStories = [], favoriteStories = [], inquiryMessages = []) {
   ensureProfilePurchasesTab();
   ensureProfileFavoritesTab();
   ensureProfileInquiriesTab();
-  const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(bookedStories);
-  const inquiryUnreadCount = getProfileInquiryUnreadCount(inquiryMessages);
-  updateProfileLibraryTabCounts(createdStories.length, playedStories.length, bookedStories.length, bookedUnreadCount, purchasedStories.length, favoriteStories.length, inquiryMessages.length, inquiryUnreadCount);
-  renderCompactStoryList("profileCreatedStories", createdStories, t("profileEmptyCreated", "Non hai ancora creato storie."));
-  renderCompactStoryList("profilePlayedStories", playedStories, t("profileEmptyPlayed", "Non hai ancora storie giocate."), "booking");
-  renderCompactStoryList("profileBookedStories", bookedStories, t("profileEmptyBooked", "Non hai ancora storie prenotate."), "booking");
-  renderCompactStoryList("profilePurchasedStories", purchasedStories, t("profileEmptyPurchases", "Non hai ancora acquisti."), "purchase");
-  renderCompactStoryList("profileFavoriteStories", favoriteStories, t("profileEmptyFavorites", "Non hai ancora storie preferite."), "favorite");
-  renderProfileInquiries("profileStoryInquiries", inquiryMessages);
+
+  profileLibraryCollections = {
+    created: Array.isArray(createdStories) ? createdStories : [],
+    played: Array.isArray(playedStories) ? playedStories : [],
+    booked: Array.isArray(bookedStories) ? bookedStories : [],
+    purchases: Array.isArray(purchasedStories) ? purchasedStories : [],
+    favorites: Array.isArray(favoriteStories) ? favoriteStories : [],
+    inquiries: Array.isArray(inquiryMessages) ? inquiryMessages : []
+  };
+
+  const bookedUnreadCount = getTotalUnreadBookingMessagesForBookings(profileLibraryCollections.booked);
+  const inquiryUnreadCount = getProfileInquiryUnreadCount(profileLibraryCollections.inquiries);
+  updateProfileLibraryTabCounts(
+    profileLibraryCollections.created.length,
+    profileLibraryCollections.played.length,
+    profileLibraryCollections.booked.length,
+    bookedUnreadCount,
+    profileLibraryCollections.purchases.length,
+    profileLibraryCollections.favorites.length,
+    profileLibraryCollections.inquiries.length,
+    inquiryUnreadCount
+  );
+
+  Object.keys(profileLibraryCollections).forEach(tabName => {
+    renderProfileLibraryTab(tabName, {
+      ignoreSearch: tabName !== profileLibraryState.activeTab,
+      skipPagination: tabName !== profileLibraryState.activeTab
+    });
+  });
+}
+
+function handleProfileLibrarySearch(event) {
+  const value = event?.target?.value ?? "";
+  profileLibraryState.search = value;
+  profileLibraryState.pages[profileLibraryState.activeTab] = 1;
+
+  window.clearTimeout(profileLibrarySearchTimer);
+  profileLibrarySearchTimer = window.setTimeout(() => {
+    renderProfileLibraryTab(profileLibraryState.activeTab);
+  }, 160);
+}
+
+function clearProfileLibrarySearch() {
+  window.clearTimeout(profileLibrarySearchTimer);
+  profileLibraryState.search = "";
+  profileLibraryState.pages[profileLibraryState.activeTab] = 1;
+  const input = document.getElementById("profileLibrarySearch");
+  if (input) {
+    input.value = "";
+    input.focus();
+  }
+  renderProfileLibraryTab(profileLibraryState.activeTab);
+}
+
+function changeProfileLibraryPage(direction) {
+  const tabName = profileLibraryState.activeTab;
+  const filteredItems = getFilteredProfileLibraryItems(tabName);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PROFILE_LIBRARY_PAGE_SIZE));
+  const currentPage = Number(profileLibraryState.pages[tabName] || 1);
+  const nextPage = Math.min(totalPages, Math.max(1, currentPage + Number(direction || 0)));
+  if (nextPage === currentPage) return;
+
+  profileLibraryState.pages[tabName] = nextPage;
+  renderProfileLibraryTab(tabName);
+  document.querySelector(".profile-library-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setProfileLibraryTab(tabName) {
+  if (!Object.prototype.hasOwnProperty.call(profileLibraryCollections, tabName)) return;
+  profileLibraryState.activeTab = tabName;
+
   document.querySelectorAll(".profile-tab-button").forEach(button => {
     button.classList.toggle("active", button.dataset.profileTab === tabName);
   });
@@ -2744,6 +2977,7 @@ function setProfileLibraryTab(tabName) {
     panel.classList.toggle("active", panel.dataset.profilePanel === tabName);
   });
 
+  renderProfileLibraryTab(tabName);
   if (tabName === "inquiries") refreshProfileMessagesFromSupabase();
 }
 

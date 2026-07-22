@@ -2755,6 +2755,68 @@ input[type="file"] {
   margin-bottom: 14px;
 }
 
+.profile-library-tools {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.profile-library-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.profile-library-search {
+  flex: 1 1 440px;
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #d8dee8;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.profile-library-search:focus-within {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.profile-library-search > span {
+  color: #64748b;
+  font-size: 24px;
+  line-height: 1;
+  transform: rotate(-15deg);
+}
+
+.profile-library-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.profile-library-search input:focus {
+  outline: 0;
+  box-shadow: none;
+}
+
+.profile-library-clear-search {
+  flex: 0 0 auto;
+  min-width: 132px;
+}
+
+.profile-library-tools > small {
+  color: #64748b;
+}
+
+
 .profile-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -2890,6 +2952,50 @@ input[type="file"] {
   padding: 10px 14px;
 }
 
+.profile-library-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.profile-library-pagination[hidden] {
+  display: none !important;
+}
+
+.profile-library-pagination button {
+  min-width: 132px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.profile-library-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.profile-library-page-status {
+  min-width: 150px;
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.profile-library-page-status strong {
+  color: #111827;
+}
+
+.profile-library-page-status small {
+  color: #64748b;
+}
+
+
 @media (max-width: 900px) {
   .profile-compact-item {
     grid-template-columns: 60px 1fr;
@@ -2905,6 +3011,39 @@ input[type="file"] {
     width: 100%;
   }
 }
+
+
+@media (max-width: 680px) {
+  .profile-library-search-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-library-search {
+    flex-basis: auto;
+  }
+
+  .profile-library-clear-search {
+    width: 100%;
+  }
+
+  .profile-library-pagination {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .profile-library-page-status {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .profile-library-pagination button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 
 
 /* UPDATE 21 - logo più grande e background globale più visibile
